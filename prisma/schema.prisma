@@ -1,0 +1,463 @@
+generator client {
+  provider             = "prisma-client-py"
+  recursive_type_depth = "-1"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model TranslationRequest {
+  id                    String              @id @default(cuid())
+  sourceLanguage        SourceLanguage
+  targetLanguages       String[]
+  languagePair          String
+  wordCount             Int
+  requestDate           DateTime            @default(now())
+  requestTime           DateTime            @default(now())
+  mtModel               MTModel             @default(MT5_BASE)
+  modelName             String?
+  fileName              String
+  status                RequestStatus       @default(PENDING)
+  requestType           RequestType         @default(SINGLE_ENGINE)
+  selectedEngines       String[]
+  totalProcessingTimeMs Int?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  qualityMetrics        QualityMetrics?
+  translationStrings    TranslationString[]
+
+  @@map("translation_requests")
+}
+
+model TranslationString {
+  id                       String             @id @default(cuid())
+  sourceText               String
+  translatedText           String
+  referenceText            String?
+  referenceType            ReferenceType?
+  targetLanguage           String
+  status                   StringStatus       @default(DRAFT)
+  isApproved               Boolean            @default(false)
+  processingTimeMs         Int?
+  lastModified             DateTime?
+  engineResults            Json?
+  selectedEngine           String?
+  fuzzyMatches             Json               @default("[]")
+  suggestedTranslation     String?
+  tmMatchPercentage        Int?
+  translationType          TranslationType    @default(STANDARD)
+  intermediateTranslation  String?
+  translationRequestId     String
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+  approvalType             ApprovalType?
+  cognitiveLoad            Int?
+  domainFamiliarity        Int?
+  editDistance             Int?
+  reviewerExpertise        ReviewerExpertise?
+  timeToReview             Int?
+  selectedModelCombination String?
+  selectedAt               DateTime?
+  selectionMethod          String?
+  originalTranslation      String?
+  hasReference             Boolean?           @default(false)
+  annotations              Annotation[]
+  enginePreferences        EnginePreference[]
+  modelOutputs             ModelOutput[]
+  qualityMetrics           QualityMetrics[]
+  translationRequest       TranslationRequest @relation(fields: [translationRequestId], references: [id], onDelete: Cascade)
+
+  @@map("translation_strings")
+}
+
+model QualityMetrics {
+  id                   String              @id @default(cuid())
+  metricXScore         Float?
+  metricXConfidence    Float?
+  metricXMode          EvaluationMode?
+  metricXVariant       ModelVariant?
+  bleuScore            Float?
+  cometScore           Float?
+  terScore             Float?
+  qualityLabel         QualityLabel?
+  hasReference         Boolean             @default(false)
+  referenceType        ReferenceType?
+  calculationEngine    String?
+  translationRequestId String?             @unique
+  translationStringId  String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  translationRequest   TranslationRequest? @relation(fields: [translationRequestId], references: [id])
+  translationString    TranslationString?  @relation(fields: [translationStringId], references: [id])
+
+  @@map("quality_metrics")
+}
+
+model Annotation {
+  id                  String             @id @default(cuid())
+  category            AnnotationCategory
+  severity            AnnotationSeverity
+  comment             String
+  reviewer            String?
+  textRange           Json?
+  isResolved          Boolean            @default(false)
+  resolution          String?
+  translationStringId String
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  confidenceInFix     Int?
+  errorType           ErrorType?
+  sourceSpan          Json?
+  suggestedFix        String?
+  targetSpan          Json?
+  translationString   TranslationString  @relation(fields: [translationStringId], references: [id], onDelete: Cascade)
+
+  @@map("annotations")
+}
+
+model TranslationMemory {
+  id                String        @id @default(cuid())
+  sourceText        String
+  targetText        String
+  sourceLanguage    String
+  targetLanguage    String
+  quality           MemoryQuality
+  domain            String
+  lastUsed          DateTime      @default(now())
+  createdFrom       String?
+  originalRequestId String?
+  approvedBy        String?
+  usageCount        Int           @default(0)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([sourceLanguage, targetLanguage])
+  @@index([sourceText])
+  @@map("translation_memory")
+}
+
+model GlossaryTerm {
+  id             String    @id @default(cuid())
+  term           String
+  translation    String
+  sourceLanguage String
+  targetLanguage String
+  domain         String
+  definition     String?
+  notes          String?
+  isActive       Boolean   @default(true)
+  usageCount     Int       @default(0)
+  lastUsed       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([term, sourceLanguage, targetLanguage])
+  @@index([term])
+  @@map("glossary_terms")
+}
+
+model DoNotTranslateItem {
+  id           String                 @id @default(cuid())
+  text         String
+  category     DoNotTranslateCategory
+  languages    String[]
+  notes        String?
+  alternatives String?
+  isActive     Boolean                @default(true)
+  usageCount   Int                    @default(0)
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  @@index([text])
+  @@map("do_not_translate_items")
+}
+
+model OffensiveWord {
+  id             String            @id @default(cuid())
+  word           String
+  language       String
+  severity       OffensiveSeverity
+  category       OffensiveCategory
+  alternatives   String[]
+  isActive       Boolean           @default(true)
+  detectionCount Int               @default(0)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@unique([word, language])
+  @@index([word])
+  @@map("offensive_words")
+}
+
+model EnginePreference {
+  id                  String            @id @default(cuid())
+  selectedEngine      String
+  rating              Int?
+  comments            String?
+  sourceLanguage      String
+  targetLanguage      String
+  textLength          Int?
+  translationStringId String
+  requestId           String?
+  allEngineResults    Json?
+  createdAt           DateTime          @default(now())
+  overallSatisfaction Int?
+  preferenceReason    PreferenceReason?
+  preferenceStrength  Int?
+  worstModel          String?
+  worstModelReason    String?
+  generationParams    Json?
+  modelCombination    String?
+  outputVariant       String?
+  selectionMethod     String?
+  translationString   TranslationString @relation(fields: [translationStringId], references: [id])
+
+  @@index([selectedEngine])
+  @@index([sourceLanguage, targetLanguage])
+  @@map("engine_preferences")
+}
+
+model ModelOutput {
+  id                  String            @id @default(cuid())
+  translationStringId String
+  modelName           String
+  engineName          String
+  outputText          String
+  confidence          Float?
+  processingTimeMs    Int?
+  generationParams    Json?
+  isPivot             Boolean           @default(false)
+  pivotIntermediate   String?
+  createdAt           DateTime          @default(now())
+  translationString   TranslationString @relation(fields: [translationStringId], references: [id])
+
+  @@map("model_outputs")
+}
+
+model HumanFeedback {
+  id                   String       @id @default(cuid())
+  feedbackType         FeedbackType
+  originalTranslation  String?
+  humanEdit            String?
+  revisionInstructions String?
+  qualityScore         Float?
+  translationA         String?
+  translationB         String?
+  preferred            String?
+  sourceText           String
+  sourceLanguage       String
+  targetLanguage       String
+  translationStringId  String?
+  createdAt            DateTime     @default(now())
+
+  @@index([feedbackType])
+  @@map("human_feedback")
+}
+
+model LocalModel {
+  id                String    @id @default(cuid())
+  modelName         String    @unique
+  modelType         MTModel
+  sourceLanguage    String
+  targetLanguage    String
+  isDownloaded      Boolean   @default(false)
+  modelPath         String?
+  modelSize         Int?
+  avgProcessingTime Float?
+  totalTranslations Int       @default(0)
+  lastUsed          DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  engineType        String?
+
+  @@map("local_models")
+}
+
+model SystemConfig {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_config")
+}
+
+enum RequestType {
+  SINGLE_ENGINE
+  MULTI_ENGINE
+  WMT_BENCHMARK
+  PIVOT_TRANSLATION
+}
+
+enum SourceLanguage {
+  EN
+  JP
+  FR
+}
+
+enum MTModel {
+  MARIAN_MT_EN_FR
+  MARIAN_MT_FR_EN
+  MARIAN_MT_EN_JP
+  ELAN_MT_JP_EN
+  T5_MULTILINGUAL
+  CUSTOM_MODEL
+  MULTI_ENGINE
+  PIVOT_JP_EN_FR
+  MT5_BASE
+  PLAMO_2_TRANSLATE
+  OPUS_MT_JA_EN
+  OPUS_MT_EN_JAP
+  OPUS_MT_TC_BIG_EN_FR
+  NLLB_MULTILINGUAL
+  PIVOT_ELAN_HELSINKI
+}
+
+enum RequestStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  MULTI_ENGINE_REVIEW
+}
+
+enum ReferenceType {
+  WMT
+  HUMAN_APPROVED
+  PROFESSIONAL
+  AUTO_GENERATED
+  HUMAN_REFERENCE
+  MACHINE_REFERENCE
+  FUZZY_MATCH
+  TRANSLATION_MEMORY
+  POST_EDITED
+  BACK_TRANSLATION
+  SYNTHETIC
+}
+
+enum TranslationType {
+  STANDARD
+  PIVOT
+  WMT_BENCHMARK
+  MULTI_ENGINE
+}
+
+enum StringStatus {
+  DRAFT
+  REVIEWED
+  FINALIZED
+  MULTI_ENGINE_REVIEW
+  APPROVED
+}
+
+enum EvaluationMode {
+  REFERENCE_BASED
+  REFERENCE_FREE
+  HYBRID
+}
+
+enum ModelVariant {
+  METRICX_24_HYBRID
+  METRICX_24_XL
+  METRICX_24_XXL
+  METRICX_24_REF
+  METRICX_24_SRC
+  CUSTOM
+}
+
+enum QualityLabel {
+  EXCELLENT
+  GOOD
+  FAIR
+  POOR
+  ERROR
+  CRITICAL
+}
+
+enum AnnotationCategory {
+  GRAMMAR
+  WORD_CHOICE
+  CONTEXT
+  FLUENCY
+  TERMINOLOGY
+  STYLE
+  OTHER
+}
+
+enum ApprovalType {
+  IMMEDIATE
+  MINOR_EDIT
+  MAJOR_EDIT
+  COMPLETE_REWRITE
+}
+
+enum ReviewerExpertise {
+  NATIVE
+  PROFESSIONAL
+  BILINGUAL
+  LEARNER
+}
+
+enum ErrorType {
+  OMISSION
+  ADDITION
+  MISTRANSLATION
+  WORD_ORDER
+  REGISTER
+  AMBIGUITY
+  CULTURAL_CONTEXT
+}
+
+enum PreferenceReason {
+  ACCURACY
+  FLUENCY
+  STYLE
+  TERMINOLOGY
+  CULTURAL_FIT
+  NATURALNESS
+}
+
+enum AnnotationSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum MemoryQuality {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum DoNotTranslateCategory {
+  PROPER_NOUN
+  BRAND
+  TECHNICAL
+  ACRONYM
+  OTHER
+}
+
+enum OffensiveSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum OffensiveCategory {
+  PROFANITY
+  HATE_SPEECH
+  DISCRIMINATORY
+  INAPPROPRIATE
+  OTHER
+}
+
+enum FeedbackType {
+  TRANSLATION_EDIT
+  QUALITY_RATING
+  PREFERENCE_COMPARISON
+  ANNOTATION
+}

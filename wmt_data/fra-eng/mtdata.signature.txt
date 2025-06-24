@@ -1,0 +1,4 @@
+mtdata get -l fra-eng --train Statmt-newstest_fren-2014-fra-eng -o <out-dir>
+mtdata version 0.4.0
+mtdata get -l eng-fra --train Statmt-newstest-2013-eng-fra -o <out-dir>
+mtdata version 0.4.0

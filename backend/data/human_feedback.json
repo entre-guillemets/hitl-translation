@@ -1,0 +1,1451 @@
+{
+  "feedback_data": [
+    {
+      "id": "fee57ee7-5d46-4f60-b40c-5c07e48a3b9d",
+      "type": "quality_rating",
+      "source_text": "時は金なり",
+      "translation": "Time is money.",
+      "reference": null,
+      "quality_score": 1.0,
+      "annotations": [],
+      "timestamp": "2025-06-14T14:56:52.536464"
+    },
+    {
+      "id": "adab642e-68a1-4011-ab17-eb2726536450",
+      "type": "quality_rating",
+      "source_text": "今日は金曜日です",
+      "translation": "Today is Friday.",
+      "reference": null,
+      "quality_score": 1.0,
+      "annotations": [],
+      "timestamp": "2025-06-14T14:57:09.032890"
+    },
+    {
+      "id": "f0c0a7b7-301e-41e0-a306-9daa4de9db6a",
+      "type": "quality_rating",
+      "source_text": "歯医者の予約は入れていない",
+      "translation": "I have not made a dentist's appointment.",
+      "reference": null,
+      "quality_score": 1.0,
+      "annotations": [],
+      "timestamp": "2025-06-14T14:57:27.722071"
+    },
+    {
+      "id": "1df41514-ded3-44ad-8f14-aca1f6cf5647",
+      "type": "quality_rating",
+      "source_text": "お前の父親は嘘つきだ",
+      "translation": "Your father is a liar",
+      "reference": null,
+      "quality_score": 1.0,
+      "annotations": [],
+      "timestamp": "2025-06-14T16:45:59.615218"
+    },
+    {
+      "id": "29270f23-d94b-4b47-b183-6556cb71f33c",
+      "type": "quality_rating",
+      "source_text": "このファイルは翻訳システムのテストデータ",
+      "translation": "This file is the test data for the translation system.",
+      "reference": null,
+      "quality_score": 0.8,
+      "annotations": [],
+      "timestamp": "2025-06-14T18:15:31.325703"
+    },
+    {
+      "id": "e065b8e4-8eda-4e97-a243-a0086f33c5cb",
+      "type": "quality_rating",
+      "source_text": "今日は金曜日です",
+      "translation": "Today is Friday.",
+      "reference": null,
+      "quality_score": 1.0,
+      "annotations": [],
+      "timestamp": "2025-06-14T18:15:48.790855"
+    },
+    {
+      "id": "0ca5f598-f98c-4009-af59-5250873a22b4",
+      "type": "quality_rating",
+      "source_text": "今日は金曜日です",
+      "translation": "Today is Friday.",
+      "reference": null,
+      "quality_score": 0.6,
+      "annotations": [],
+      "timestamp": "2025-06-14T18:18:42.536782"
+    },
+    {
+      "id": "8037b1c3-180e-453c-aa94-3583e8b51aaa",
+      "type": "quality_rating",
+      "source_text": "このファイルは翻訳システムのテストデータ",
+      "translation": "This file is the test data for the translation system.",
+      "reference": null,
+      "quality_score": 0.8,
+      "annotations": [],
+      "timestamp": "2025-06-14T18:30:48.680633"
+    },
+    {
+      "id": "0fcf0e47-37e5-4018-a9c1-fe14eab1a31d",
+      "type": "quality_rating",
+      "source_text": "一体誰がこの時間に電話してきてるんだ",
+      "translation": "Who's calling in between?",
+      "reference": null,
+      "quality_score": 0.2,
+      "annotations": [],
+      "timestamp": "2025-06-14T19:40:26.726672"
+    },
+    {
+      "id": "38630ab9-86ce-46c1-9df8-3bfed7c38a89",
+      "type": "quality_rating",
+      "source_text": "暑くなるとワキガがひどくなるな",
+      "translation": "When it gets hot, wakiga gets worse.",
+      "reference": null,
+      "quality_score": 0.4,
+      "annotations": [],
+      "timestamp": "2025-06-14T23:27:04.639525"
+    },
+    {
+      "id": "a6ab39ff-633f-42c4-8b20-e782f6c1615f",
+      "type": "quality_rating",
+      "source_text": "明日は土曜日です",
+      "translation": "Tomorrow is Saturday",
+      "reference": null,
+      "quality_score": 0.6,
+      "annotations": [],
+      "timestamp": "2025-06-15T09:44:59.920544"
+    },
+    {
+      "id": "3885c5bb-2566-4043-b525-b84539361a89",
+      "type": "quality_rating",
+      "source_text": "このファイルは翻訳システムのテストデータ",
+      "translation": "This file is the test data for the translation system.",
+      "reference": null,
+      "quality_score": 0.6,
+      "annotations": [],
+      "timestamp": "2025-06-15T09:56:54.769441"
+    },
+    {
+      "id": "9247b2b3-3744-48e4-82d3-5aa986e84d2e",
+      "type": "quality_rating",
+      "source_text": "このファイルは翻訳システムのテストデータ",
+      "translation": "This file is the test data for the translation system.",
+      "reference": null,
+      "quality_score": 0.6,
+      "annotations": [],
+      "timestamp": "2025-06-15T09:57:03.733060"
+    },
+    {
+      "id": "9524eba6-bb75-4212-961f-459a1a6e7e42",
+      "type": "quality_rating",
+      "source_text": "このファイルは翻訳システムのテストデータ",
+      "translation": "This file is the test data for the translation system.",
+      "reference": null,
+      "quality_score": 0.6,
+      "annotations": [],
+      "timestamp": "2025-06-15T10:10:34.666024"
+    },
+    {
+      "id": "0e4af70b-a750-432f-9604-2a13d8f0077e",
+      "type": "quality_rating",
+      "source_text": "Electric vehicles are the future",
+      "translation": "Les véhicules électriques sont l'avenir",
+      "reference": null,
+      "quality_score": 0.6,
+      "annotations": [],
+      "timestamp": "2025-06-15T10:31:40.637655"
+    },
+    {
+      "id": "7aed0d7d-5db2-46ea-a35f-cbefe3263f0b",
+      "type": "quality_rating",
+      "source_text": "このファイルは翻訳システムのテストデータ",
+      "translation": "This file is the test data for the translation system.",
+      "reference": null,
+      "quality_score": 0.6,
+      "annotations": [],
+      "timestamp": "2025-06-15T10:37:42.024162"
+    },
+    {
+      "id": "9c409bdc-2c90-4735-a611-14b7a364121f",
+      "type": "quality_rating",
+      "source_text": "カットの全貌をレポート（CanCam.jp ） - Yahoo!ニュース",
+      "translation": "Reporting the full details of the cuts - Yahoo! News",
+      "reference": "The complete report (CanCam.jp) --Yahoo! News",
+      "quality_score": 0.6,
+      "annotations": [],
+      "timestamp": "2025-06-15T18:07:11.530940"
+    },
+    {
+      "id": "53499b7a-8f60-4085-88f2-9b09915679b9",
+      "type": "quality_rating",
+      "source_text": "I love cold weather",
+      "translation": "わたし は , 愛 を 冷た く 愛 の ため に も 冷え る こと が あ る .",
+      "reference": null,
+      "quality_score": 0.6,
+      "annotations": [],
+      "timestamp": "2025-06-15T19:39:26.478228"
+    },
+    {
+      "id": "5374501d-eaac-4c53-b81d-95379afdbc6d",
+      "type": "quality_rating",
+      "source_text": "車より電車で通勤する方が好きだ",
+      "translation": "I prefer commuting by train to by car.",
+      "reference": null,
+      "quality_score": 1.0,
+      "annotations": [],
+      "timestamp": "2025-06-15T19:40:32.909844"
+    },
+    {
+      "id": "df2760a1-63bf-49d0-95c4-8e87bfbd3932",
+      "type": "quality_rating",
+      "source_text": "今日は晴天で気持ちがいい",
+      "translation": "Today is clear weather and feels good.",
+      "reference": null,
+      "quality_score": 1.0,
+      "annotations": [],
+      "timestamp": "2025-06-15T19:40:36.584368"
+    },
+    {
+      "id": "439eec96-3741-47e4-8ddd-b8de6b4e3af7",
+      "type": "quality_rating",
+      "source_text": "汗かくのが気持ち悪いわ",
+      "translation": "I don't feel like sweating.",
+      "reference": null,
+      "quality_score": 0.4,
+      "annotations": [],
+      "timestamp": "2025-06-15T19:40:39.672702"
+    },
+    {
+      "id": "45d5c4a0-bf65-4d6d-9aa3-9432489ce291",
+      "type": "translation_edit",
+      "string_id": "str-req-32-2-JP",
+      "source_text": "Electric vehicles are the future",
+      "original_translation": "エルザコン ・ ネジ エル は ヨハ で あ る .",
+      "human_edit": "将来は、電気自動車。",
+      "reference": null,
+      "preference_score": 0.038461538461538436,
+      "edit_distance": 25,
+      "timestamp": "2025-06-15T20:30:05.893230"
+    },
+    {
+      "id": "4d390e27-244c-4100-ab67-9feb2701594f",
+      "type": "translation_edit",
+      "string_id": "str-req-32-2-JP",
+      "source_text": "Electric vehicles are the future",
+      "original_translation": "将来は、電気自動車。",
+      "human_edit": "エルザコン ・ ネジ エル は ヨハ で あ る .",
+      "reference": null,
+      "preference_score": 0.038461538461538436,
+      "edit_distance": 25,
+      "timestamp": "2025-06-15T20:30:15.856945"
+    },
+    {
+      "id": "b70d4fff-aba3-4bae-b8db-1b386c047f7c",
+      "type": "translation_edit",
+      "string_id": "cmc4c3p690002ddfoa5gyjosh",
+      "source_text": "Une vague de chaleur sévit en France : 16 départements placés en vigilance orange à partir de vendredi midi\nVendredi matin, « les températures minimales sont déjà chaudes, de l’ordre de 17 à 20 °C sur les départements de la Manche, du Rhône et de l’Isère, de 19 à 21 °C sur les autres départements en vigilance orange », dit Météo-France",
+      "original_translation": "",
+      "human_edit": "A heat wave is raging in France: 16 departments placed in orange vigilance from Friday noon Friday morning, \"minimum temperatures are already hot, of the order of 17 to 20 °C on the departments of Manche, Rhône and Isère, from 19 to 21 °C on the other departments in orange vigilance\", says Météo-France",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 303,
+      "timestamp": "2025-06-19T21:57:05.500906"
+    },
+    {
+      "id": "1366b78d-5601-41cd-9dbd-b7c1986ea160",
+      "type": "translation_edit",
+      "string_id": "cmc4ikh4l00046vp6sqaa3p79",
+      "source_text": "There is nothing better than skating on a frozen pond",
+      "original_translation": "",
+      "human_edit": "凍った池で滑ること以上に楽しいことはない。",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 21,
+      "timestamp": "2025-06-20T00:55:04.680361"
+    },
+    {
+      "id": "ba0ff3ce-ec22-4847-9389-ac02eaa5ce34",
+      "type": "translation_edit",
+      "string_id": "cmc4ikhk300066vp6j72htxrl",
+      "source_text": "Electric vehicles are the future",
+      "original_translation": "",
+      "human_edit": "将来は、電気自動車。",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 10,
+      "timestamp": "2025-06-20T00:55:16.618666"
+    },
+    {
+      "id": "9a39a69f-462a-4c42-8fb8-ce189845b8e9",
+      "type": "translation_edit",
+      "string_id": "cmc4ikgd100026vp6v5dyxjwp",
+      "source_text": "I love really cold weather",
+      "original_translation": "",
+      "human_edit": "寒い天気が好きだ。",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 9,
+      "timestamp": "2025-06-20T00:55:25.654656"
+    },
+    {
+      "id": "dd2aae68-dbec-4783-90e5-5a19b23e1b47",
+      "type": "translation_edit",
+      "string_id": "cmc4i6dqo00027lvsim6qd7wp",
+      "source_text": "Une vague de chaleur sévit en France : 16 départements placés en vigilance orange à partir de vendredi midi\nVendredi matin, « les températures minimales sont déjà chaudes, de l’ordre de 17 à 20 °C sur les départements de la Manche, du Rhône et de l’Isère, de 19 à 21 °C sur les autres départements en vigilance orange », dit Météo-France",
+      "original_translation": "",
+      "human_edit": "A heat wave is raging in France: 16 departments placed in orange vigilance from Friday noon Friday morning, \"minimum temperatures are already hot, of the order of 17 to 20 °C on the departments of Manche, Rhône and Isère, from 19 to 21 °C on the other departments in orange vigilance\", says Météo-France",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 303,
+      "timestamp": "2025-06-20T00:56:04.926671"
+    },
+    {
+      "id": "7ba44253-1548-4f87-8abe-cfdc511bb0a3",
+      "type": "translation_edit",
+      "string_id": "cmc4i6gy100047lvsiix5xduz",
+      "source_text": "Météo-France a décrété la vigilance orange canicule à partir de vendredi midi dans 16 départements, majoritairement dans l’ouest de la France, qui subit déjà une vague de fortes chaleurs encore appelées à augmenter, selon le bulletin publié jeudi à 16 heures",
+      "original_translation": "",
+      "human_edit": "Météo-France has decreed the vigilance orange heat from Friday noon in 16 departments, mostly in western France, which is already undergoing a wave of hot heat still expected to increase, according to the bulletin published Thursday at 4 p.m.",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 242,
+      "timestamp": "2025-06-20T00:56:20.674272"
+    },
+    {
+      "id": "3138b495-36d8-4aac-8ba1-ede5c9840ffc",
+      "type": "translation_edit",
+      "string_id": "cmc5181z7000ovcnnw163t63x",
+      "source_text": "Une vague de chaleur sévit en France : 16 départements placés en vigilance orange à partir de vendredi midi\nVendredi matin, « les températures minimales sont déjà chaudes, de l’ordre de 17 à 20 °C sur les départements de la Manche, du Rhône et de l’Isère, de 19 à 21 °C sur les autres départements en vigilance orange », dit Météo-France",
+      "original_translation": "",
+      "human_edit": "A heat wave is raging in France: 16 departments placed in orange vigilance from Friday noon Friday morning, \"minimum temperatures are already hot, of the order of 17 to 20 °C on the departments of Manche, Rhône and Isère, from 19 to 21 °C on the other departments in orange vigilance\", says Météo-France",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 303,
+      "timestamp": "2025-06-20T11:37:33.221425"
+    },
+    {
+      "id": "5b07d36c-2f58-4291-8706-131e0af2d00a",
+      "type": "translation_edit",
+      "string_id": "cmc518btj000qvcnnp9niiz66",
+      "source_text": "Météo-France a décrété la vigilance orange canicule à partir de vendredi midi dans 16 départements, majoritairement dans l’ouest de la France, qui subit déjà une vague de fortes chaleurs encore appelées à augmenter, selon le bulletin publié jeudi à 16 heures",
+      "original_translation": "",
+      "human_edit": "Météo-France has decreed the vigilance orange heat from Friday noon in 16 departments, mostly in western France, which is already undergoing a wave of hot heat still expected to increase, according to the bulletin published Thursday at 4 p.m.",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 242,
+      "timestamp": "2025-06-20T11:37:52.170084"
+    },
+    {
+      "id": "0d035e2f-560c-43c2-824f-26acc7f4da83",
+      "type": "translation_edit",
+      "string_id": "cmc55oxs8007q98e6iz4zbos2",
+      "source_text": "My favorite season is winter",
+      "original_translation": "",
+      "human_edit": "一番好きな季節は冬。",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 10,
+      "timestamp": "2025-06-20T11:41:51.619834"
+    },
+    {
+      "id": "36193dbb-7924-4a1d-a916-a5378d891be7",
+      "type": "translation_edit",
+      "string_id": "cmc55p05a007s98e6ievyq08h",
+      "source_text": "My favorite season is summer",
+      "original_translation": "",
+      "human_edit": "一番好きな季節は夏。",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 10,
+      "timestamp": "2025-06-20T11:42:16.864377"
+    },
+    {
+      "id": "8041aec1-a0ec-467e-adf1-f9ef5fd580d9",
+      "type": "translation_edit",
+      "string_id": "cmc55p2is007u98e6u4mgm2sh",
+      "source_text": "My favorite time of year is summer",
+      "original_translation": "",
+      "human_edit": "一年の中で一番好きな季節は夏。",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 15,
+      "timestamp": "2025-06-20T11:42:46.278479"
+    },
+    {
+      "id": "91fc80c4-04af-437d-ac9f-56726188159f",
+      "type": "translation_edit",
+      "string_id": "cmc55p55g007w98e606zrgo7e",
+      "source_text": "My favorite food is pizza",
+      "original_translation": "",
+      "human_edit": "一番好きな食べ物はピザ。",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 12,
+      "timestamp": "2025-06-20T11:43:13.371522"
+    },
+    {
+      "id": "be388e45-4e0e-46a1-8992-a3dc109ae5d3",
+      "type": "translation_edit",
+      "string_id": "cmc58rj8r0004sg475i7c0ouy",
+      "source_text": "My favorite season is summer",
+      "original_translation": "",
+      "human_edit": "Ma saison préférée est l'été",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 28,
+      "timestamp": "2025-06-20T13:08:08.766457"
+    },
+    {
+      "id": "d2a30e4f-d767-4a0e-916d-baff47b0015d",
+      "type": "translation_edit",
+      "string_id": "cmc58rnfp0006sg47ri7qztqw",
+      "source_text": "My favorite time of year is summer",
+      "original_translation": "",
+      "human_edit": "Ma période préférée de l'année est l'été",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 40,
+      "timestamp": "2025-06-20T13:08:30.013549"
+    },
+    {
+      "id": "07290228-4509-4a75-ae34-ed89e344c253",
+      "type": "translation_edit",
+      "string_id": "cmc58rrbp0008sg47i9zn1ghx",
+      "source_text": "My favorite food is pizza",
+      "original_translation": "",
+      "human_edit": "Mon plat préféré est la pizza",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 29,
+      "timestamp": "2025-06-20T13:08:41.417534"
+    },
+    {
+      "id": "4574f296-021b-4302-a092-45e3aa3ba1a7",
+      "type": "translation_edit",
+      "string_id": "cmc58rfrd0002sg472tj38lzk",
+      "source_text": "My favorite season is winter",
+      "original_translation": "",
+      "human_edit": "Ma saison préférée est l'hiver",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 30,
+      "timestamp": "2025-06-20T13:08:58.459403"
+    },
+    {
+      "id": "eb21b8fe-5f37-454d-a482-833b8f1b3948",
+      "type": "translation_edit",
+      "string_id": "cmc5afdrr004csg479v0unlp3",
+      "source_text": "AMD Introduces AI-Focused MI350 Series, Part of ‘Vision for an Open AI’ Ecosystem\nThe chip maker says it partnered with companies such as Meta Platforms, OpenAI, Oracle and Microsoft as it seeks an open AI ecosystem\nAdvanced Micro Devices announced several new artificial-intelligence-focused products including its MI350 Series accelerators",
+      "original_translation": "",
+      "human_edit": "AMD présente la série MI350 de l'IA, qui fait partie de « Vision pour un écosystème d'AI ouvert » Le fabricant de puces dit qu'il s'est associé à des entreprises telles que Meta Platforms, OpenAI, Oracle et Microsoft alors qu'il cherche un écosystème d'IA ouvert Advanced Micro Devices a annoncé plusieurs nouveaux produits axés sur l'intelligence artificielle, dont ses accélérateurs de la série MI350",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 402,
+      "timestamp": "2025-06-20T13:56:10.648857"
+    },
+    {
+      "id": "bf8edce2-0d3b-4ff6-b7be-3c34763ac79d",
+      "type": "translation_edit",
+      "string_id": "cmc5afdrr004csg479v0unlp3",
+      "source_text": "AMD Introduces AI-Focused MI350 Series, Part of ‘Vision for an Open AI’ Ecosystem\nThe chip maker says it partnered with companies such as Meta Platforms, OpenAI, Oracle and Microsoft as it seeks an open AI ecosystem\nAdvanced Micro Devices announced several new artificial-intelligence-focused products including its MI350 Series accelerators",
+      "original_translation": "AMD présente la série MI350 de l'IA, qui fait partie de « Vision pour un écosystème d'AI ouvert » Le fabricant de puces dit qu'il s'est associé à des entreprises telles que Meta Platforms, OpenAI, Oracle et Microsoft alors qu'il cherche un écosystème d'IA ouvert Advanced Micro Devices a annoncé plusieurs nouveaux produits axés sur l'intelligence artificielle, dont ses accélérateurs de la série MI350",
+      "human_edit": "",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 402,
+      "timestamp": "2025-06-20T13:56:17.487985"
+    },
+    {
+      "id": "848bf1d7-f8eb-423c-9fc6-997f72aea400",
+      "type": "translation_edit",
+      "string_id": "cmc5aqz1m0055sg47n6335rb6",
+      "source_text": "According to Pu, the folding phone will open to a 7",
+      "original_translation": "",
+      "human_edit": "Selon Pu, le téléphone pliant s'ouvrira à un 7",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 46,
+      "timestamp": "2025-06-20T14:04:16.225923"
+    },
+    {
+      "id": "8bd74807-f85c-4836-9605-84f18574fb15",
+      "type": "translation_edit",
+      "string_id": "cmc5bc62v005ssg4713n1tdm5",
+      "source_text": "6月13日、アメリカと核交渉を重ねていたイランが突如、イスラエルによる空爆を受けた",
+      "original_translation": "",
+      "human_edit": "On 13 June, Iran was suddenly hit by an Israeli airstrike while negotiating with the United States.",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 99,
+      "timestamp": "2025-06-20T14:22:03.350801"
+    },
+    {
+      "id": "79d1853f-9425-4eaa-9e83-48228568e4ec",
+      "type": "translation_edit",
+      "string_id": "cmc5obcg4007asg477p5cvexe",
+      "source_text": "そのため、1社の通信事業者や複数年のサービス契約に縛られずに、あなたにぴったりのネットワークや料金プランを選べます",
+      "original_translation": "",
+      "human_edit": "Therefore, you can choose a suitable network or fee plan without being tied to a single carrier or multi-year service agreement.",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 128,
+      "timestamp": "2025-06-20T20:23:47.821733"
+    },
+    {
+      "id": "63cfd9d9-0519-4260-8037-8e197fb09938",
+      "type": "translation_edit",
+      "string_id": "cmc5ob1qf006wsg470sch9upm",
+      "source_text": "高度な処理を必要とするゲームなど、あなたの好きなことを一段と長く楽しめるようになりました",
+      "original_translation": "",
+      "human_edit": "Makes the the things you enjoy, such as games that require advanced processing, that much more fun",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 98,
+      "timestamp": "2025-06-20T20:28:24.409511"
+    },
+    {
+      "id": "7be063fe-b739-4833-97cb-53a55f9dd597",
+      "type": "translation_edit",
+      "string_id": "cmc5ob1qf006wsg470sch9upm",
+      "source_text": "高度な処理を必要とするゲームなど、あなたの好きなことを一段と長く楽しめるようになりました",
+      "original_translation": "Makes the the things you enjoy, such as games that require advanced processing, that much more fun",
+      "human_edit": "Makes the things you enjoy, such as games that require advanced processing, that much more fun",
+      "reference": null,
+      "preference_score": 0.9591836734693877,
+      "edit_distance": 4,
+      "timestamp": "2025-06-20T20:29:12.013942"
+    },
+    {
+      "id": "fb857a9a-bc82-4770-9fc3-5d5422dd1b78",
+      "type": "translation_edit",
+      "string_id": "cmc5oayqo006ssg47e9uob37d",
+      "source_text": "熱伝導率が高い100%再生アルミニウムの基盤を組み込み、さらに熱を拡散させるために背面ガラスを最適化するなど、内部設計を改良",
+      "original_translation": "",
+      "human_edit": "Improved internal design, including incorporating a 100% regenerative aluminium base with high thermal conductivity and optimizing the back glass to further diffuse heat.",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 170,
+      "timestamp": "2025-06-20T20:29:38.033539"
+    },
+    {
+      "id": "cf99045d-de45-4321-ac48-252dff8653df",
+      "type": "translation_edit",
+      "string_id": "cmc5ob01s006usg4796z6eujt",
+      "source_text": "iPhone 15 Proと比べて最大20%も長くパフォーマンスが持続します",
+      "original_translation": "",
+      "human_edit": "Up to 20% of the iPhone 15 Pro's performance is sustained.",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 58,
+      "timestamp": "2025-06-20T20:29:40.795232"
+    },
+    {
+      "id": "74fede52-aa1d-4fc8-a86d-a33957429ed9",
+      "type": "translation_edit",
+      "string_id": "cmc5ob364006ysg477zljv7fl",
+      "source_text": "一気見したくなるオリジナルの映画とシリーズを3か月間無料で楽しめます",
+      "original_translation": "",
+      "human_edit": "You can enjoy the original film and series you want to see for free for three months.",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 85,
+      "timestamp": "2025-06-20T20:29:44.392527"
+    },
+    {
+      "id": "efecd5cf-2491-4a9e-99c4-5a2d800a60ad",
+      "type": "translation_edit",
+      "string_id": "cmc5ob4jm0070sg47jjp68r0t",
+      "source_text": "お気に入りの曲すべてを3か月間無料で楽しめます",
+      "original_translation": "",
+      "human_edit": "You can enjoy all your favorite songs free of charge for three months.",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 70,
+      "timestamp": "2025-06-20T20:29:47.872123"
+    },
+    {
+      "id": "83dce5ba-7fb8-4b44-bb5e-08d70b74cd80",
+      "type": "translation_edit",
+      "string_id": "cmc5ob5kl0072sg47c9un6vaq",
+      "source_text": "広告は一切ありません",
+      "original_translation": "",
+      "human_edit": "There is no advertising.",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 24,
+      "timestamp": "2025-06-20T20:29:50.410599"
+    },
+    {
+      "id": "1c01a2f5-66f3-4f88-ab59-6f9f3e1928d5",
+      "type": "translation_edit",
+      "string_id": "cmc5ob6xu0074sg47rb0ms0dz",
+      "source_text": "楽しさがとまらないゲームを途切れることなく3か月間無料で楽しめます",
+      "original_translation": "",
+      "human_edit": "You can enjoy games without interruption for three months free.",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 63,
+      "timestamp": "2025-06-20T20:29:53.109273"
+    },
+    {
+      "id": "22199b6d-74cf-4f70-9c0b-d0932d73e4b0",
+      "type": "translation_edit",
+      "string_id": "cmc5ob8190076sg47im468lw4",
+      "source_text": "iPhoneの革新的な操作システム",
+      "original_translation": "",
+      "human_edit": "iPhone's innovative operating system",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 36,
+      "timestamp": "2025-06-20T20:29:55.448895"
+    },
+    {
+      "id": "d7960cf1-57a8-4d78-ac18-52a24620b8ca",
+      "type": "translation_edit",
+      "string_id": "cmc5oba140078sg47qgjja4ij",
+      "source_text": "Appleのウェブサイトで購入できるiPhoneはSIMフリーで、携帯電話回線には接続されていません",
+      "original_translation": "",
+      "human_edit": "The iPhones available for purchase on Apple's website are SIM-free and are not connected to cell phone circuits.",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 112,
+      "timestamp": "2025-06-20T20:29:57.451307"
+    },
+    {
+      "id": "a968d41e-5b42-4fd0-99d3-48cd6d5cbe66",
+      "type": "translation_edit",
+      "string_id": "cmc5obejg007csg47synr7fom",
+      "source_text": "新しいiPhoneをアクティベートしたあともiPhoneはSIMフリーのままなので、iPhoneに対応した通信サービスを提供するあらゆるネットワークを利用できます",
+      "original_translation": "",
+      "human_edit": "The iPhone remains SIM-free even after the new iPhone has been started, so it is possible to use any network that provides communication services for the iPhone.",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 161,
+      "timestamp": "2025-06-20T20:30:00.153894"
+    },
+    {
+      "id": "1bb9fd32-c701-47ec-bb7f-b9655062580b",
+      "type": "translation_edit",
+      "string_id": "cmc5ob1qf006wsg470sch9upm",
+      "source_text": "高度な処理を必要とするゲームなど、あなたの好きなことを一段と長く楽しめるようになりました",
+      "original_translation": "Makes the things you enjoy, such as games that require advanced processing, that much more fun",
+      "human_edit": "I've been able to enjoy your favorite things for a long time, such as games that require advanced processing.",
+      "reference": null,
+      "preference_score": 0.4036697247706422,
+      "edit_distance": 65,
+      "timestamp": "2025-06-20T20:30:09.342687"
+    },
+    {
+      "id": "9f8454c1-0b98-41fb-ab7e-61ece748880a",
+      "type": "translation_edit",
+      "string_id": "cmc5y9kf4000ads9x51uuv4jc",
+      "source_text": "お気に入りの曲すべてを3か月間無料で楽しめます",
+      "original_translation": "",
+      "human_edit": "You can enjoy all your favorite songs free of charge for three months.",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 70,
+      "timestamp": "2025-06-21T01:02:03.533593"
+    },
+    {
+      "id": "e4fc31fe-9d8c-4a75-bb82-335b8d8b7622",
+      "type": "translation_edit",
+      "string_id": "cmc5y9lfz000cds9x34t0jbj9",
+      "source_text": "広告は一切ありません",
+      "original_translation": "",
+      "human_edit": "There is no advertising at all.",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 31,
+      "timestamp": "2025-06-21T01:02:28.533110"
+    },
+    {
+      "id": "442e967b-771b-4a1f-b934-3a78a2fbeeee",
+      "type": "translation_edit",
+      "string_id": "cmc5y9mtd000eds9xwicrn0x4",
+      "source_text": "楽しさがとまらないゲームを途切れることなく3か月間無料で楽しめます",
+      "original_translation": "",
+      "human_edit": "You can enjoy games without interruption for three months free.",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 63,
+      "timestamp": "2025-06-21T01:02:49.301149"
+    },
+    {
+      "id": "f3cb9fa8-d5a3-4e67-9476-0ef57f4c295b",
+      "type": "translation_edit",
+      "string_id": "cmc5y9nwp000gds9xf6w42cpw",
+      "source_text": "iPhoneの革新的な操作システム",
+      "original_translation": "The iPhone's innovative control system",
+      "human_edit": "iPhone's innovative control system",
+      "reference": null,
+      "preference_score": 0.8947368421052632,
+      "edit_distance": 4,
+      "timestamp": "2025-06-21T15:14:23.067076"
+    },
+    {
+      "id": "cdf35d53-c363-4f32-8c13-6a8108bcd411",
+      "type": "translation_edit",
+      "string_id": "cmc74efgp000h1273oe5307fs",
+      "source_text": "En direct, Israël-Iran : Donald Trump affirme que « les installations d’enrichissement nucléaire de l’Iran ont été complètement et totalement détruites », après les frappes américaines sur trois sites\nLe président américain a qualifié de « très réussie » l’attaque menée sur Fordo, Natanz et Ispahan, qui rejoint l’offensive israélienne",
+      "original_translation": "Live, Israel-Iran: Donald Trump claims that \"Iran's nuclear enrichment facilities have been completely and completely destroyed,\" after American strikes at three sites US President called the attack on Fordo, Natanz and Ispahan a \"very successful\" attack on the Israeli offensive",
+      "human_edit": "Live, Israel-Iran:  US President Donald Trump claims that \"Iran's nuclear enrichment facilities have been completely and totally destroyed,\" after Americans joined the Israeli offensive with strikes at three sites called Fordo, Natanz and Ispahan",
+      "reference": null,
+      "preference_score": 0.5698924731182795,
+      "edit_distance": 120,
+      "timestamp": "2025-06-21T20:44:34.691377"
+    },
+    {
+      "id": "d3740cd1-1a84-4042-8a3e-c9a59e67f249",
+      "type": "translation_edit",
+      "string_id": "cmc74fd83000r12732rbay63m",
+      "source_text": "Il l’avait rouvert vendredi à des vols de rapatriement d’Israéliens bloqués à l’étranger",
+      "original_translation": "He had reopened it on Friday to Israeli repatriation flights blocked abroad",
+      "human_edit": "Israel had reopened it on Friday to Israeli repatriation flights blocked abroad",
+      "reference": null,
+      "preference_score": 0.9367088607594937,
+      "edit_distance": 5,
+      "timestamp": "2025-06-21T20:46:28.262164"
+    },
+    {
+      "id": "003cdd1c-6033-43ac-8ac0-f9ec47c07586",
+      "type": "translation_edit",
+      "string_id": "cmc7yz51v000pw7xifzd55p5y",
+      "source_text": "Apple Intelligenceのために設計された史上初のiPhone",
+      "original_translation": "The first ever iPhone designed for Apple Intelligence",
+      "human_edit": "The first iPhone built for Apple Intelligence.",
+      "reference": null,
+      "preference_score": 0.7547169811320755,
+      "edit_distance": 13,
+      "timestamp": "2025-06-22T10:58:20.927727"
+    },
+    {
+      "id": "e0cddd5a-4959-4e31-9f9f-3ed6cfa93c5c",
+      "type": "translation_edit",
+      "string_id": "cmc7yz667000rw7xijnbk5ki7",
+      "source_text": "パーソナルで、プライベートで、パワフルなマシン",
+      "original_translation": "Personal, private and powerful machines",
+      "human_edit": "Personal, private and powerful.",
+      "reference": null,
+      "preference_score": 0.7692307692307692,
+      "edit_distance": 9,
+      "timestamp": "2025-06-22T10:59:04.141227"
+    },
+    {
+      "id": "a22fcbb7-cfae-4887-af6f-b11ce1a02476",
+      "type": "translation_edit",
+      "string_id": "cmc7yzbhk000vw7xihhk5tu1y",
+      "source_text": "標準的な長方形として対角線を測った場合のスクリーンのサイズは6.27インチです（実際の表示領域はこれより小さくなりま﻿す﻿）﻿",
+      "original_translation": "",
+      "human_edit": "When measured as a standard rectangular shape, the screen is 6.27 inches diagonally (actual viewable area is less).",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 115,
+      "timestamp": "2025-06-22T11:01:19.611742"
+    },
+    {
+      "id": "f9ed1b51-ea99-46fe-8d85-eaa7ecf0208f",
+      "type": "translation_edit",
+      "string_id": "cmc7yzhkg000xw7xi5jfbmxoh",
+      "source_text": "両モデル\n    Dynamic Island\n    常時表示ディスプレイ\n    最大120Hzのアダプティブリフレッシュレートを持つProMotionテクノロジー\n    HDRデ﻿ィ﻿ス﻿プ﻿レ﻿イ\n    True Tone\n    広色域（P3）\n    触覚タッチ\n    2,000,000:1コントラスト比（﻿標﻿準﻿）\n    最大輝度1,000ニト（標準）、ピーク輝度1,600ニト（HDR）、ピーク輝度2,000ニト（屋外）、最小輝度1﻿ニ﻿ト\n    耐指紋性撥油コ﻿ー﻿テ﻿ィ﻿ン﻿グ\n    複数の言語と文字の同時表示をサ﻿ポ﻿ー﻿ト\n\niPhoneに組み込まれたApple Intelligenceは、あなたが文章を書いたり、自分を表現したり、タスクを簡単にこなせるようにサポートするパーソナルなインテリジェンスシステムです",
+      "original_translation": "Both models Dynamic Island Permanent display ProMotion technology with adaptive refresh rates up to 120 Hz HDR de y su pu le y True Tone wide color range Plectrum touch 2,000,000:1 contrast ratio. Apple Intelligence, built into the Sa Po To iPhone with multiple language and character simultaneous displays, has been able to help you write, express your tasks, and make it easier for you to express your tasks.",
+      "human_edit": "\nBoth models\n\n    Dynamic Island\n    Always-On display\n    ProMotion technology with adaptive refresh rates up to 120Hz\n    HDR display\n    True Tone\n    Wide color (P3)\n    Haptic Touch\n    2,000,000:1 contrast ratio (typical)\n    1000 nits max brightness (typical); 1600 nits peak brightness (HDR); 2000 nits peak brightness (outdoor); 1 nit minimum brightness\n    Fingerprint-resistant oleophobic coating\n    Support for display of multiple languages and characters simultaneously\nBuilt into your iPhone, Apple Intelligence is the personal intelligence system that helps you write, express yourself, and get things done effortlessly. With groundbreaking privacy protections, it gives you peace of mind that no one else can access your data — not even Apple.",
+      "reference": null,
+      "preference_score": 0.4118421052631579,
+      "edit_distance": 447,
+      "timestamp": "2025-06-22T11:03:16.203213"
+    },
+    {
+      "id": "0fc38401-7f59-4706-949d-1b240681d6a5",
+      "type": "translation_edit",
+      "string_id": "cmc7yz3zb000nw7xiqgm6e11v",
+      "source_text": "まずは、ハイライトから",
+      "original_translation": "First, highlights",
+      "human_edit": "Get the highlights.",
+      "reference": null,
+      "preference_score": 0.631578947368421,
+      "edit_distance": 7,
+      "timestamp": "2025-06-22T11:04:42.756004"
+    },
+    {
+      "id": "adb6ea92-09c5-4083-984a-f0b1d4a236d2",
+      "type": "translation_edit",
+      "string_id": "cmc9lzxl700024potl3blox6l",
+      "source_text": "今日は金曜日です",
+      "original_translation": "",
+      "human_edit": "Today is Friday.",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 16,
+      "timestamp": "2025-06-23T14:29:28.174743"
+    },
+    {
+      "id": "1a24fe8d-7dfe-4466-9899-d6fbc463bf46",
+      "type": "translation_edit",
+      "string_id": "cmc9m8ilm000m4poteg0kzejt",
+      "source_text": "イスラエルの報道によれば、イランには、3000発ほどのミサイルがあるとされているが、今回実際に使用されるのは1000発ほどとみられている",
+      "original_translation": "According to Israeli reports, Iran has around 3,000 missiles, but this time it is estimated to be around 1000 missiles.",
+      "human_edit": "According to Israeli reports, Iran has around 3,000 missiles, but this time it is estimated to have used around 1000.",
+      "reference": null,
+      "preference_score": 0.8571428571428572,
+      "edit_distance": 17,
+      "timestamp": "2025-06-23T14:36:48.257068"
+    },
+    {
+      "id": "00d7a4fd-2804-4d3d-b640-1e6263939382",
+      "type": "translation_edit",
+      "string_id": "cmc9m8jex000o4potzd4tknak",
+      "source_text": "現時点で300発近くが使われた",
+      "original_translation": "",
+      "human_edit": "At this point, nearly 300 rounds were fired.",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 44,
+      "timestamp": "2025-06-23T14:36:58.676912"
+    },
+    {
+      "id": "6ae5f4a9-64d6-45e3-8a39-90812e2e10ed",
+      "type": "translation_edit",
+      "string_id": "cmc9mcz4c001d4potw6i3mxxe",
+      "source_text": "The deferred decision, which came after days of increasingly martial messages from the president suggesting he was preparing to order a strike, also gives Trump more time to weigh the potential consequences — including the chance it could drag the United States into the type of foreign conflict he promised to avoid",
+      "original_translation": "報いを受ける時になってから、 熟難につれて来る者がきたが、 それは、 悪意のままに打つことを許されていたので、  腹を打つことに思われるために、 \" かまを打つことにできる \" と、 与えられている者たちに、 この約束を許された。",
+      "human_edit": "大統領が攻撃命令を出す準備をしていることを示唆する、ますます好戦的なメッセージを数日にわたって送った後に行われたこの延期決定は、トランプ氏に、避けると約束したような外国紛争に米国を巻き込む可能性を含め、潜在的な結果を検討する時間を与えるものでもある。",
+      "reference": null,
+      "preference_score": 0.07199999999999995,
+      "edit_distance": 116,
+      "timestamp": "2025-06-23T14:39:56.284867"
+    },
+    {
+      "id": "5a3b46fe-a523-4ea9-a1eb-54666a6d747f",
+      "type": "translation_edit",
+      "string_id": "cmc9mzo4p000if4gz8oxb5jxi",
+      "source_text": "I love really cold weather",
+      "original_translation": "わたしは、 冷たい冷たく愛のように愛している。",
+      "human_edit": "寒い天気がとても好きです。",
+      "reference": null,
+      "preference_score": 0.08695652173913049,
+      "edit_distance": 21,
+      "timestamp": "2025-06-23T14:57:29.486597"
+    },
+    {
+      "id": "ca24dd3d-d779-44e1-807f-febac9eaac52",
+      "type": "translation_edit",
+      "string_id": "cmc9mzoiy000kf4gzgon62xa2",
+      "source_text": "There is nothing better than skating on a frozen pond",
+      "original_translation": "しかし、 むだになったよりは、 むだになるものはない。",
+      "human_edit": "凍った池でスケートするより楽しいことはない",
+      "reference": null,
+      "preference_score": 0.18518518518518523,
+      "edit_distance": 22,
+      "timestamp": "2025-06-23T14:57:46.102075"
+    },
+    {
+      "id": "62cc747d-8a82-41d7-b6a0-e733f09ac308",
+      "type": "translation_edit",
+      "string_id": "cmc9mzorq000mf4gz1ucd1ldz",
+      "source_text": "Electric vehicles are the future",
+      "original_translation": "エルザコン・ネジエルはヨハである。",
+      "human_edit": "電気自動車は未来だ",
+      "reference": null,
+      "preference_score": 0.05882352941176472,
+      "edit_distance": 16,
+      "timestamp": "2025-06-23T14:58:06.709348"
+    },
+    {
+      "id": "a168d568-46f0-444a-942b-2c53cbc366da",
+      "type": "translation_edit",
+      "string_id": "cmc9ota2d000uf4gzvsavisg2",
+      "source_text": "I love really cold weather",
+      "original_translation": "",
+      "human_edit": "寒い天気が好きだ。",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 9,
+      "timestamp": "2025-06-23T15:48:03.860105"
+    },
+    {
+      "id": "024f83ab-d178-4928-9b50-884523251d5c",
+      "type": "translation_edit",
+      "string_id": "cmc9otaws000wf4gzjsdg63bl",
+      "source_text": "There is nothing better than skating on a frozen pond",
+      "original_translation": "",
+      "human_edit": "凍った池で滑ること以上に楽しいことはない。",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 21,
+      "timestamp": "2025-06-23T15:48:16.464436"
+    },
+    {
+      "id": "8bb0ce43-a174-41b3-8c99-b78a831a8f7a",
+      "type": "translation_edit",
+      "string_id": "cmc9otbez000yf4gz8my97sod",
+      "source_text": "Electric vehicles are the future",
+      "original_translation": "",
+      "human_edit": "将来は、電気自動車。",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 10,
+      "timestamp": "2025-06-23T15:48:20.552313"
+    },
+    {
+      "id": "2eb7724f-47b2-4de9-9971-49eb03db7dd9",
+      "type": "translation_edit",
+      "string_id": "cmc9ow1w30016f4gzwpk8nzfo",
+      "source_text": "The police department started a drone program that follows suspects from the sky",
+      "original_translation": "",
+      "human_edit": "警察署は、養子者を空から追うドローン・プログラムを開始した。",
+      "reference": null,
+      "preference_score": 0.0,
+      "edit_distance": 30,
+      "timestamp": "2025-06-23T15:50:57.140823"
+    },
+    {
+      "id": "107e5f8e-6031-49a5-8fa5-5e03b480724e",
+      "type": "translation_edit",
+      "string_id": "cmc9p8gzd001yf4gzgzigulze",
+      "source_text": "En direct, Iran-Israël : Donald Trump assure que la République islamique et l’Etat hébreu ont accepté un « cessez-le-feu total »",
+      "original_translation": "Live, Iran-Israel: Donald Trump assures that the Islamic Republic and the Hebrew State have accepted a \"total ceasefire\"",
+      "human_edit": "Live, Iran-Israel: Donald Trump assures that the Islamic Republic and Israel have accepted a \"total ceasefire\"",
+      "reference": null,
+      "preference_score": 0.8833333333333333,
+      "edit_distance": 14,
+      "timestamp": "2025-06-23T16:00:16.046330"
+    },
+    {
+      "id": "45cf679c-bacc-4a01-9daf-16204a70726b",
+      "type": "translation_edit",
+      "string_id": "cmc9rtabq0007hjpba2ig2ozi",
+      "source_text": "昨夜は食いすぎてお腹壊した",
+      "original_translation": "I ate too much last night and broke my stomach.",
+      "human_edit": "I ate too much last night and I felt sick",
+      "reference": null,
+      "preference_score": 0.7234042553191489,
+      "edit_distance": 13,
+      "timestamp": "2025-06-23T17:12:55.576996"
+    },
+    {
+      "id": "88e904f0-7db6-4995-a7c7-4453b7f83586",
+      "type": "translation_edit",
+      "string_id": "cmc9rtmjl000fhjpb52w7mwaa",
+      "source_text": "一体誰がこの時間に電話してきてるんだ",
+      "original_translation": "Qui appelle à cette heure ?",
+      "human_edit": "Qui est-ce qui m'appelle à cette heure ?",
+      "reference": null,
+      "preference_score": 0.675,
+      "edit_distance": 13,
+      "timestamp": "2025-06-23T17:13:24.185596"
+    },
+    {
+      "id": "44cbf164-951a-4da5-a56c-809faa4571b5",
+      "type": "translation_edit",
+      "string_id": "cmc9tb5oq001whjpb5s8jq64l",
+      "source_text": "En direct, Iran-Israël : Donald Trump assure que la République islamique et l’Etat hébreu ont accepté un « cessez-le-feu total »",
+      "original_translation": "Live, Iran-Israel: Donald Trump assures that the Islamic Republic and the Hebrew State have accepted a \"total ceasefire\"",
+      "human_edit": "Live, Iran-Israel: Donald Trump assures that the Islamic Republic and the Jewish State have accepted a \"total ceasefire\"",
+      "reference": null,
+      "preference_score": 0.9583333333333334,
+      "edit_distance": 5,
+      "timestamp": "2025-06-23T20:59:15.492356"
+    },
+    {
+      "id": "1192c66f-2411-4252-bad9-53cb4e6fd1df",
+      "type": "translation_edit",
+      "string_id": "cmc9xk2k2000ch6rw7u3o7tjt",
+      "source_text": "En direct, Iran-Israël : Donald Trump assure que la République islamique et l’Etat hébreu ont accepté un « cessez-le-feu total »",
+      "original_translation": "Live, Iran-Israel: Donald Trump assures that the Islamic Republic and the Hebrew State have agreed to a total ceasefire",
+      "human_edit": "Live, Iran-Israel: Donald Trump assures that the Islamic Republic and Israel have accepted a \"total ceasefire\"",
+      "reference": null,
+      "preference_score": 0.8067226890756303,
+      "edit_distance": 23,
+      "timestamp": "2025-06-23T21:01:45.755537"
+    },
+    {
+      "id": "578711a7-e5df-4f20-9464-de91ebf0cb83",
+      "type": "translation_edit",
+      "string_id": "cmca1eb6o000ggz6n5948d1lb",
+      "source_text": "Ne pas se soumettre aux règles de la cohérence offre beaucoup de souplesse",
+      "original_translation": "Non-compliance with the rules of consistency offers a great deal of flexibility",
+      "human_edit": "Not complying with the rules of consistency offers a great deal of flexibility",
+      "reference": null,
+      "preference_score": 0.9240506329113924,
+      "edit_distance": 6,
+      "timestamp": "2025-06-23T21:41:17.319980"
+    },
+    {
+      "id": "e74da983-4998-4056-8567-1923d45b2a71",
+      "type": "translation_edit",
+      "string_id": "cmca1eign000igz6n7xmx2n2n",
+      "source_text": "Le message posté par Donald Trump, lundi 23 juin, sur son réseau Truth Social casse tous les codes",
+      "original_translation": "The message posted by Donald Trump on Monday, June 23, on his network Truth Social breaks all the codes",
+      "human_edit": "The message posted by Donald Trump on Monday, June 23, on his network Truth Social breaks all the rules",
+      "reference": null,
+      "preference_score": 0.970873786407767,
+      "edit_distance": 3,
+      "timestamp": "2025-06-23T21:41:35.914069"
+    },
+    {
+      "id": "87e14746-9df8-4cab-8879-d6bf529a8b39",
+      "type": "translation_edit",
+      "string_id": "cmc9ta9sj001lhjpbuv0mdder",
+      "source_text": "コーヒー飲まないと頭痛になるということは、カフェイン中毒なのかな",
+      "original_translation": "If you don't drink coffee, you get a headache.",
+      "human_edit": "If you get a headache when don't drink coffee, does that mean you're addicted?",
+      "reference": null,
+      "preference_score": 0.4871794871794872,
+      "edit_distance": 40,
+      "timestamp": "2025-06-24T00:41:20.996333"
+    }
+  ],
+  "preference_pairs": [
+    {
+      "source": "Electric vehicles are the future",
+      "reference": null,
+      "worse_translation": "エルザコン ・ ネジ エル は ヨハ で あ る .",
+      "better_translation": "将来は、電気自動車。",
+      "preference_strength": 0.9615384615384616
+    },
+    {
+      "source": "Electric vehicles are the future",
+      "reference": null,
+      "worse_translation": "将来は、電気自動車。",
+      "better_translation": "エルザコン ・ ネジ エル は ヨハ で あ る .",
+      "preference_strength": 0.9615384615384616
+    },
+    {
+      "source": "Une vague de chaleur sévit en France : 16 départements placés en vigilance orange à partir de vendredi midi\nVendredi matin, « les températures minimales sont déjà chaudes, de l’ordre de 17 à 20 °C sur les départements de la Manche, du Rhône et de l’Isère, de 19 à 21 °C sur les autres départements en vigilance orange », dit Météo-France",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "A heat wave is raging in France: 16 departments placed in orange vigilance from Friday noon Friday morning, \"minimum temperatures are already hot, of the order of 17 to 20 °C on the departments of Manche, Rhône and Isère, from 19 to 21 °C on the other departments in orange vigilance\", says Météo-France",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "There is nothing better than skating on a frozen pond",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "凍った池で滑ること以上に楽しいことはない。",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "Electric vehicles are the future",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "将来は、電気自動車。",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "I love really cold weather",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "寒い天気が好きだ。",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "Une vague de chaleur sévit en France : 16 départements placés en vigilance orange à partir de vendredi midi\nVendredi matin, « les températures minimales sont déjà chaudes, de l’ordre de 17 à 20 °C sur les départements de la Manche, du Rhône et de l’Isère, de 19 à 21 °C sur les autres départements en vigilance orange », dit Météo-France",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "A heat wave is raging in France: 16 departments placed in orange vigilance from Friday noon Friday morning, \"minimum temperatures are already hot, of the order of 17 to 20 °C on the departments of Manche, Rhône and Isère, from 19 to 21 °C on the other departments in orange vigilance\", says Météo-France",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "Météo-France a décrété la vigilance orange canicule à partir de vendredi midi dans 16 départements, majoritairement dans l’ouest de la France, qui subit déjà une vague de fortes chaleurs encore appelées à augmenter, selon le bulletin publié jeudi à 16 heures",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "Météo-France has decreed the vigilance orange heat from Friday noon in 16 departments, mostly in western France, which is already undergoing a wave of hot heat still expected to increase, according to the bulletin published Thursday at 4 p.m.",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "Une vague de chaleur sévit en France : 16 départements placés en vigilance orange à partir de vendredi midi\nVendredi matin, « les températures minimales sont déjà chaudes, de l’ordre de 17 à 20 °C sur les départements de la Manche, du Rhône et de l’Isère, de 19 à 21 °C sur les autres départements en vigilance orange », dit Météo-France",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "A heat wave is raging in France: 16 departments placed in orange vigilance from Friday noon Friday morning, \"minimum temperatures are already hot, of the order of 17 to 20 °C on the departments of Manche, Rhône and Isère, from 19 to 21 °C on the other departments in orange vigilance\", says Météo-France",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "Météo-France a décrété la vigilance orange canicule à partir de vendredi midi dans 16 départements, majoritairement dans l’ouest de la France, qui subit déjà une vague de fortes chaleurs encore appelées à augmenter, selon le bulletin publié jeudi à 16 heures",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "Météo-France has decreed the vigilance orange heat from Friday noon in 16 departments, mostly in western France, which is already undergoing a wave of hot heat still expected to increase, according to the bulletin published Thursday at 4 p.m.",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "My favorite season is winter",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "一番好きな季節は冬。",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "My favorite season is summer",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "一番好きな季節は夏。",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "My favorite time of year is summer",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "一年の中で一番好きな季節は夏。",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "My favorite food is pizza",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "一番好きな食べ物はピザ。",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "My favorite season is summer",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "Ma saison préférée est l'été",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "My favorite time of year is summer",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "Ma période préférée de l'année est l'été",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "My favorite food is pizza",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "Mon plat préféré est la pizza",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "My favorite season is winter",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "Ma saison préférée est l'hiver",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "AMD Introduces AI-Focused MI350 Series, Part of ‘Vision for an Open AI’ Ecosystem\nThe chip maker says it partnered with companies such as Meta Platforms, OpenAI, Oracle and Microsoft as it seeks an open AI ecosystem\nAdvanced Micro Devices announced several new artificial-intelligence-focused products including its MI350 Series accelerators",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "AMD présente la série MI350 de l'IA, qui fait partie de « Vision pour un écosystème d'AI ouvert » Le fabricant de puces dit qu'il s'est associé à des entreprises telles que Meta Platforms, OpenAI, Oracle et Microsoft alors qu'il cherche un écosystème d'IA ouvert Advanced Micro Devices a annoncé plusieurs nouveaux produits axés sur l'intelligence artificielle, dont ses accélérateurs de la série MI350",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "AMD Introduces AI-Focused MI350 Series, Part of ‘Vision for an Open AI’ Ecosystem\nThe chip maker says it partnered with companies such as Meta Platforms, OpenAI, Oracle and Microsoft as it seeks an open AI ecosystem\nAdvanced Micro Devices announced several new artificial-intelligence-focused products including its MI350 Series accelerators",
+      "reference": null,
+      "worse_translation": "AMD présente la série MI350 de l'IA, qui fait partie de « Vision pour un écosystème d'AI ouvert » Le fabricant de puces dit qu'il s'est associé à des entreprises telles que Meta Platforms, OpenAI, Oracle et Microsoft alors qu'il cherche un écosystème d'IA ouvert Advanced Micro Devices a annoncé plusieurs nouveaux produits axés sur l'intelligence artificielle, dont ses accélérateurs de la série MI350",
+      "better_translation": "",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "According to Pu, the folding phone will open to a 7",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "Selon Pu, le téléphone pliant s'ouvrira à un 7",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "6月13日、アメリカと核交渉を重ねていたイランが突如、イスラエルによる空爆を受けた",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "On 13 June, Iran was suddenly hit by an Israeli airstrike while negotiating with the United States.",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "そのため、1社の通信事業者や複数年のサービス契約に縛られずに、あなたにぴったりのネットワークや料金プランを選べます",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "Therefore, you can choose a suitable network or fee plan without being tied to a single carrier or multi-year service agreement.",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "高度な処理を必要とするゲームなど、あなたの好きなことを一段と長く楽しめるようになりました",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "Makes the the things you enjoy, such as games that require advanced processing, that much more fun",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "高度な処理を必要とするゲームなど、あなたの好きなことを一段と長く楽しめるようになりました",
+      "reference": null,
+      "worse_translation": "Makes the the things you enjoy, such as games that require advanced processing, that much more fun",
+      "better_translation": "Makes the things you enjoy, such as games that require advanced processing, that much more fun",
+      "preference_strength": 0.04081632653061229
+    },
+    {
+      "source": "熱伝導率が高い100%再生アルミニウムの基盤を組み込み、さらに熱を拡散させるために背面ガラスを最適化するなど、内部設計を改良",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "Improved internal design, including incorporating a 100% regenerative aluminium base with high thermal conductivity and optimizing the back glass to further diffuse heat.",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "iPhone 15 Proと比べて最大20%も長くパフォーマンスが持続します",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "Up to 20% of the iPhone 15 Pro's performance is sustained.",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "一気見したくなるオリジナルの映画とシリーズを3か月間無料で楽しめます",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "You can enjoy the original film and series you want to see for free for three months.",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "お気に入りの曲すべてを3か月間無料で楽しめます",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "You can enjoy all your favorite songs free of charge for three months.",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "広告は一切ありません",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "There is no advertising.",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "楽しさがとまらないゲームを途切れることなく3か月間無料で楽しめます",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "You can enjoy games without interruption for three months free.",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "iPhoneの革新的な操作システム",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "iPhone's innovative operating system",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "Appleのウェブサイトで購入できるiPhoneはSIMフリーで、携帯電話回線には接続されていません",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "The iPhones available for purchase on Apple's website are SIM-free and are not connected to cell phone circuits.",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "新しいiPhoneをアクティベートしたあともiPhoneはSIMフリーのままなので、iPhoneに対応した通信サービスを提供するあらゆるネットワークを利用できます",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "The iPhone remains SIM-free even after the new iPhone has been started, so it is possible to use any network that provides communication services for the iPhone.",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "高度な処理を必要とするゲームなど、あなたの好きなことを一段と長く楽しめるようになりました",
+      "reference": null,
+      "worse_translation": "Makes the things you enjoy, such as games that require advanced processing, that much more fun",
+      "better_translation": "I've been able to enjoy your favorite things for a long time, such as games that require advanced processing.",
+      "preference_strength": 0.5963302752293578
+    },
+    {
+      "source": "お気に入りの曲すべてを3か月間無料で楽しめます",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "You can enjoy all your favorite songs free of charge for three months.",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "広告は一切ありません",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "There is no advertising at all.",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "楽しさがとまらないゲームを途切れることなく3か月間無料で楽しめます",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "You can enjoy games without interruption for three months free.",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "iPhoneの革新的な操作システム",
+      "reference": null,
+      "worse_translation": "The iPhone's innovative control system",
+      "better_translation": "iPhone's innovative control system",
+      "preference_strength": 0.10526315789473684
+    },
+    {
+      "source": "En direct, Israël-Iran : Donald Trump affirme que « les installations d’enrichissement nucléaire de l’Iran ont été complètement et totalement détruites », après les frappes américaines sur trois sites\nLe président américain a qualifié de « très réussie » l’attaque menée sur Fordo, Natanz et Ispahan, qui rejoint l’offensive israélienne",
+      "reference": null,
+      "worse_translation": "Live, Israel-Iran: Donald Trump claims that \"Iran's nuclear enrichment facilities have been completely and completely destroyed,\" after American strikes at three sites US President called the attack on Fordo, Natanz and Ispahan a \"very successful\" attack on the Israeli offensive",
+      "better_translation": "Live, Israel-Iran:  US President Donald Trump claims that \"Iran's nuclear enrichment facilities have been completely and totally destroyed,\" after Americans joined the Israeli offensive with strikes at three sites called Fordo, Natanz and Ispahan",
+      "preference_strength": 0.4301075268817205
+    },
+    {
+      "source": "Il l’avait rouvert vendredi à des vols de rapatriement d’Israéliens bloqués à l’étranger",
+      "reference": null,
+      "worse_translation": "He had reopened it on Friday to Israeli repatriation flights blocked abroad",
+      "better_translation": "Israel had reopened it on Friday to Israeli repatriation flights blocked abroad",
+      "preference_strength": 0.06329113924050633
+    },
+    {
+      "source": "Apple Intelligenceのために設計された史上初のiPhone",
+      "reference": null,
+      "worse_translation": "The first ever iPhone designed for Apple Intelligence",
+      "better_translation": "The first iPhone built for Apple Intelligence.",
+      "preference_strength": 0.24528301886792447
+    },
+    {
+      "source": "パーソナルで、プライベートで、パワフルなマシン",
+      "reference": null,
+      "worse_translation": "Personal, private and powerful machines",
+      "better_translation": "Personal, private and powerful.",
+      "preference_strength": 0.23076923076923084
+    },
+    {
+      "source": "標準的な長方形として対角線を測った場合のスクリーンのサイズは6.27インチです（実際の表示領域はこれより小さくなりま﻿す﻿）﻿",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "When measured as a standard rectangular shape, the screen is 6.27 inches diagonally (actual viewable area is less).",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "両モデル\n    Dynamic Island\n    常時表示ディスプレイ\n    最大120Hzのアダプティブリフレッシュレートを持つProMotionテクノロジー\n    HDRデ﻿ィ﻿ス﻿プ﻿レ﻿イ\n    True Tone\n    広色域（P3）\n    触覚タッチ\n    2,000,000:1コントラスト比（﻿標﻿準﻿）\n    最大輝度1,000ニト（標準）、ピーク輝度1,600ニト（HDR）、ピーク輝度2,000ニト（屋外）、最小輝度1﻿ニ﻿ト\n    耐指紋性撥油コ﻿ー﻿テ﻿ィ﻿ン﻿グ\n    複数の言語と文字の同時表示をサ﻿ポ﻿ー﻿ト\n\niPhoneに組み込まれたApple Intelligenceは、あなたが文章を書いたり、自分を表現したり、タスクを簡単にこなせるようにサポートするパーソナルなインテリジェンスシステムです",
+      "reference": null,
+      "worse_translation": "Both models Dynamic Island Permanent display ProMotion technology with adaptive refresh rates up to 120 Hz HDR de y su pu le y True Tone wide color range Plectrum touch 2,000,000:1 contrast ratio. Apple Intelligence, built into the Sa Po To iPhone with multiple language and character simultaneous displays, has been able to help you write, express your tasks, and make it easier for you to express your tasks.",
+      "better_translation": "\nBoth models\n\n    Dynamic Island\n    Always-On display\n    ProMotion technology with adaptive refresh rates up to 120Hz\n    HDR display\n    True Tone\n    Wide color (P3)\n    Haptic Touch\n    2,000,000:1 contrast ratio (typical)\n    1000 nits max brightness (typical); 1600 nits peak brightness (HDR); 2000 nits peak brightness (outdoor); 1 nit minimum brightness\n    Fingerprint-resistant oleophobic coating\n    Support for display of multiple languages and characters simultaneously\nBuilt into your iPhone, Apple Intelligence is the personal intelligence system that helps you write, express yourself, and get things done effortlessly. With groundbreaking privacy protections, it gives you peace of mind that no one else can access your data — not even Apple.",
+      "preference_strength": 0.5881578947368421
+    },
+    {
+      "source": "まずは、ハイライトから",
+      "reference": null,
+      "worse_translation": "First, highlights",
+      "better_translation": "Get the highlights.",
+      "preference_strength": 0.368421052631579
+    },
+    {
+      "source": "今日は金曜日です",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "Today is Friday.",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "イスラエルの報道によれば、イランには、3000発ほどのミサイルがあるとされているが、今回実際に使用されるのは1000発ほどとみられている",
+      "reference": null,
+      "worse_translation": "According to Israeli reports, Iran has around 3,000 missiles, but this time it is estimated to be around 1000 missiles.",
+      "better_translation": "According to Israeli reports, Iran has around 3,000 missiles, but this time it is estimated to have used around 1000.",
+      "preference_strength": 0.1428571428571428
+    },
+    {
+      "source": "現時点で300発近くが使われた",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "At this point, nearly 300 rounds were fired.",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "The deferred decision, which came after days of increasingly martial messages from the president suggesting he was preparing to order a strike, also gives Trump more time to weigh the potential consequences — including the chance it could drag the United States into the type of foreign conflict he promised to avoid",
+      "reference": null,
+      "worse_translation": "報いを受ける時になってから、 熟難につれて来る者がきたが、 それは、 悪意のままに打つことを許されていたので、  腹を打つことに思われるために、 \" かまを打つことにできる \" と、 与えられている者たちに、 この約束を許された。",
+      "better_translation": "大統領が攻撃命令を出す準備をしていることを示唆する、ますます好戦的なメッセージを数日にわたって送った後に行われたこの延期決定は、トランプ氏に、避けると約束したような外国紛争に米国を巻き込む可能性を含め、潜在的な結果を検討する時間を与えるものでもある。",
+      "preference_strength": 0.928
+    },
+    {
+      "source": "I love really cold weather",
+      "reference": null,
+      "worse_translation": "わたしは、 冷たい冷たく愛のように愛している。",
+      "better_translation": "寒い天気がとても好きです。",
+      "preference_strength": 0.9130434782608695
+    },
+    {
+      "source": "There is nothing better than skating on a frozen pond",
+      "reference": null,
+      "worse_translation": "しかし、 むだになったよりは、 むだになるものはない。",
+      "better_translation": "凍った池でスケートするより楽しいことはない",
+      "preference_strength": 0.8148148148148148
+    },
+    {
+      "source": "Electric vehicles are the future",
+      "reference": null,
+      "worse_translation": "エルザコン・ネジエルはヨハである。",
+      "better_translation": "電気自動車は未来だ",
+      "preference_strength": 0.9411764705882353
+    },
+    {
+      "source": "I love really cold weather",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "寒い天気が好きだ。",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "There is nothing better than skating on a frozen pond",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "凍った池で滑ること以上に楽しいことはない。",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "Electric vehicles are the future",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "将来は、電気自動車。",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "The police department started a drone program that follows suspects from the sky",
+      "reference": null,
+      "worse_translation": "",
+      "better_translation": "警察署は、養子者を空から追うドローン・プログラムを開始した。",
+      "preference_strength": 1.0
+    },
+    {
+      "source": "En direct, Iran-Israël : Donald Trump assure que la République islamique et l’Etat hébreu ont accepté un « cessez-le-feu total »",
+      "reference": null,
+      "worse_translation": "Live, Iran-Israel: Donald Trump assures that the Islamic Republic and the Hebrew State have accepted a \"total ceasefire\"",
+      "better_translation": "Live, Iran-Israel: Donald Trump assures that the Islamic Republic and Israel have accepted a \"total ceasefire\"",
+      "preference_strength": 0.1166666666666667
+    },
+    {
+      "source": "昨夜は食いすぎてお腹壊した",
+      "reference": null,
+      "worse_translation": "I ate too much last night and broke my stomach.",
+      "better_translation": "I ate too much last night and I felt sick",
+      "preference_strength": 0.27659574468085113
+    },
+    {
+      "source": "一体誰がこの時間に電話してきてるんだ",
+      "reference": null,
+      "worse_translation": "Qui appelle à cette heure ?",
+      "better_translation": "Qui est-ce qui m'appelle à cette heure ?",
+      "preference_strength": 0.32499999999999996
+    },
+    {
+      "source": "En direct, Iran-Israël : Donald Trump assure que la République islamique et l’Etat hébreu ont accepté un « cessez-le-feu total »",
+      "reference": null,
+      "worse_translation": "Live, Iran-Israel: Donald Trump assures that the Islamic Republic and the Hebrew State have accepted a \"total ceasefire\"",
+      "better_translation": "Live, Iran-Israel: Donald Trump assures that the Islamic Republic and the Jewish State have accepted a \"total ceasefire\"",
+      "preference_strength": 0.04166666666666663
+    },
+    {
+      "source": "En direct, Iran-Israël : Donald Trump assure que la République islamique et l’Etat hébreu ont accepté un « cessez-le-feu total »",
+      "reference": null,
+      "worse_translation": "Live, Iran-Israel: Donald Trump assures that the Islamic Republic and the Hebrew State have agreed to a total ceasefire",
+      "better_translation": "Live, Iran-Israel: Donald Trump assures that the Islamic Republic and Israel have accepted a \"total ceasefire\"",
+      "preference_strength": 0.19327731092436973
+    },
+    {
+      "source": "Ne pas se soumettre aux règles de la cohérence offre beaucoup de souplesse",
+      "reference": null,
+      "worse_translation": "Non-compliance with the rules of consistency offers a great deal of flexibility",
+      "better_translation": "Not complying with the rules of consistency offers a great deal of flexibility",
+      "preference_strength": 0.07594936708860756
+    },
+    {
+      "source": "Le message posté par Donald Trump, lundi 23 juin, sur son réseau Truth Social casse tous les codes",
+      "reference": null,
+      "worse_translation": "The message posted by Donald Trump on Monday, June 23, on his network Truth Social breaks all the codes",
+      "better_translation": "The message posted by Donald Trump on Monday, June 23, on his network Truth Social breaks all the rules",
+      "preference_strength": 0.029126213592232997
+    },
+    {
+      "source": "コーヒー飲まないと頭痛になるということは、カフェイン中毒なのかな",
+      "reference": null,
+      "worse_translation": "If you don't drink coffee, you get a headache.",
+      "better_translation": "If you get a headache when don't drink coffee, does that mean you're addicted?",
+      "preference_strength": 0.5128205128205128
+    }
+  ]
+}

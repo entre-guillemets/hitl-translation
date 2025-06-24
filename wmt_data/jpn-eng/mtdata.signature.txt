@@ -1,0 +1,2 @@
+mtdata get -l jpn-eng --test Statmt-newstest_jaen-2021-jpn-eng -o <out-dir>
+mtdata version 0.4.0
