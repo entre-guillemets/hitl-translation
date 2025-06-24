@@ -48,7 +48,7 @@ This project provides a comprehensive platform for evaluating, comparing, and an
 ### 1. Clone the Repository
 
 ```bash
-git clone [https://github.com/entre-guillemets/hitl-translation](https://github.com/entre-guillemets/hitl-translation)
+git clone git@github.com:entre-guillemets/hitl-translation.git
 cd hitl-translation
 ```
 
