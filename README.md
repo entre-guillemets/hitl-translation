@@ -63,7 +63,7 @@ cd hitl-translation
 | :-------------------------- | :----------------------------------------------------------------------------------- | :-------------------------------- |
 | `HELSINKI_EN_JP`/`OPUS_EN_JP` | [Helsinki-NLP/opus-mt-en-jap](https://huggingface.co/Helsinki-NLP/opus-mt-en-jap)         | `Helsinki-NLP_opus-mt-en-jap`     |
 | `OPUS_JA_EN`                | [Helsinki-NLP/opus-mt-ja-en](https://huggingface.co/Helsinki-NLP/opus-mt-ja-en)           | `opus-mt-ja-en`                   |
-| `ELAN_JA_EN`                | [elan-mt-bt-ja-en]((https://huggingface.co/Mitsua/elan-mt-bt-ja-en/tree/main)) | `Mitsua_elan-mt-bt-ja-en`       |
+| `ELAN_JA_EN`                | [elan-mt-bt-ja-en](https://huggingface.co/Mitsua/elan-mt-bt-ja-en/tree/main) | `Mitsua_elan-mt-bt-ja-en`       |
 | `HELSINKI_EN_FR`            | [Helsinki-NLP/opus-mt-en-fr](https://huggingface.co/Helsinki-NLP/opus-mt-en-fr)           | `Helsinki-NLP_opus-mt-en-fr`      |
 | `HELSINKI_FR_EN`            | [Helsinki-NLP/opus-mt-fr-en](https://huggingface.co/Helsinki-NLP/opus-mt-fr-en)           | `Helsinki-NLP_opus-mt-fr-en`      |
 | `OPUS_TC_BIG_EN_FR`         | [Helsinki-NLP/opus-mt-tc-big-en-fr](https://huggingface.co/Helsinki-NLP/opus-mt-tc-big-en-fr) | `opus-mt-tc-big-en-fr`          |
