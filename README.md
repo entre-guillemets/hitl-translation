@@ -3,7 +3,6 @@
 This project provides a comprehensive platform for evaluating, comparing, and analyzing the quality of various machine translation (MT) engines. It features a robust FastAPI backend for translation and quality metric calculation, and a Next.js/React frontend with a detailed analytics dashboard.
 
 ![Quality Dashboard Screenshot](https://github.com/user-attachments/assets/9345c671-8f8d-4a35-bf3d-4fdf3a1551bb)
-*(Recommendation: Replace this with a new screenshot of your functioning dashboard)*
 
 ## Core Features
 
@@ -91,32 +90,41 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit the `.env` file with your PostgreSQL database connection string:
+Edit the `.env` file with your PostgreSQL database connection string and the following details:
 
 ```env
 DATABASE_URL="postgresql://user:password@localhost:5432/mydb"
+METRICX_API_URL="http://localhost:8000"
+REACT_APP_API_URL="http://localhost:8001"
+FUZZY_MATCH_THRESHOLD=0.6
+AUTO_TM_CREATION=true
+TRANSFORMERS_CACHE=./models
+HF_HOME=./models
+PYTORCH_TRANSFORMERS_CACHE=./models
+METRICX_MODEL_VARIANT=metricx-24-hybrid
+METRICX_DEVICE=auto
+LOG_LEVEL=INFO
+TRANSFORMERS_TRUST_REMOTE_CODE=1
 ```
 
 **Initialize the Database:**
 Run the Prisma command to push the schema to your database.
 ```bash
-prisma db push
+python -m prisma db push
 ```
 
 **Run the Backend Server:**
 ```bash
+cd backend
 uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 ```
 The backend API will be available at `http://localhost:8001`.
 
 ### 4. Frontend Setup
 
-The frontend is the Next.js quality dashboard.
+The frontend is the Next.js quality dashboard with Shadcn components.
 
 ```bash
-# Navigate to the frontend directory
-cd ../frontend
-
 # Install Node.js dependencies
 npm install
 
@@ -124,7 +132,7 @@ npm install
 npm run dev
 ```
 
-The dashboard will be available at `http://localhost:3000`.
+Check Terminal for the exact address, but by default the dashboard should be available at `http://localhost:5173`.
 
 ---
 
