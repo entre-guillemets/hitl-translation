@@ -25,6 +25,7 @@ from fastapi.responses import JSONResponse
 import traceback
 import logging
 from prisma.enums import QualityLabel, ReferenceType, EvaluationMode, ModelVariant
+from comet import download_model, load_from_checkpoint
 
 comet_model = None
 metricx_service = None
@@ -244,7 +245,7 @@ async def startup_event():
     
     try:
         print("Loading COMET model (cached)...")
-        model_path = download_model("Unbabel/XCOMET-XL")  
+        model_path = download_model("Unbabel/wmt22-comet-da")
         comet_model = load_from_checkpoint(model_path)
         print(f"✓ COMET model loaded successfully: {type(comet_model)}")
     except Exception as e:
