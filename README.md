@@ -120,7 +120,7 @@ uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 ```
 The backend API will be available at `http://localhost:8001`.
 
-### 4. Frontend Setup
+## 4. Frontend Setup
 
 The frontend is the Next.js quality dashboard with Shadcn components.
 
@@ -132,7 +132,8 @@ npm install
 npm run dev
 ```
 
-Check Terminal for the exact address, but by default the dashboard should be available at `http://localhost:5173`.
+The dashboard will start, typically on port `5173`. Check your terminal for the exact URL (e.g., `http://localhost:5173`).
+
 
 ---
 
