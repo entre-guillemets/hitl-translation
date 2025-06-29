@@ -19,13 +19,13 @@ import torch
 from datetime import datetime, timedelta
 import statistics
 import sacrebleu
-from comet import download_model, load_from_checkpoint
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 import traceback
 import logging
 from prisma.enums import QualityLabel, ReferenceType, EvaluationMode, ModelVariant
 from comet import download_model, load_from_checkpoint
+from metricx_service import MetricXService
 
 comet_model = None
 metricx_service = None
@@ -44,7 +44,7 @@ dotenv_path = os.path.join(current_script_dir, '..', '.env')
 load_dotenv(dotenv_path=dotenv_path)
 
 # --- Service Imports ---
-from metricx_service import metricx_service 
+from metricx_service import MetricXService 
 from translation_service import translation_service
 from reward_model_service import reward_model_service 
 from human_feedback_service import enhanced_feedback_service 
@@ -240,17 +240,32 @@ async def startup():
 
 @app.on_event("startup")
 async def startup_event():
-    global metricx_service, comet_model
-    print("MetricX models loaded successfully")
+    global metricx_service, comet_model    
     
+    # Load COMET model
     try:
-        print("Loading COMET model (cached)...")
-        model_path = download_model("Unbabel/wmt22-comet-da")
+        print("Loading COMET model...")
+        model_path = download_model("Unbabel/XCOMET-XL")
         comet_model = load_from_checkpoint(model_path)
         print(f"✓ COMET model loaded successfully: {type(comet_model)}")
     except Exception as e:
         print(f"❌ Failed to load COMET model: {e}")
         comet_model = None
+    
+    # Load MetricX model
+    try:
+        print("Loading MetricX model...")
+        metricx_service = MetricXService()
+        if metricx_service.load_model():
+            print("✓ MetricX model loaded successfully")
+        else:
+            print("❌ Failed to load MetricX model")
+            metricx_service = None
+    except Exception as e:
+        print(f"❌ MetricX initialization failed: {e}")
+        metricx_service = None
+    
+    print("Model loading complete")
 
 @app.on_event("shutdown")
 async def shutdown():
@@ -3509,6 +3524,27 @@ async def check_specific_metrics(requestIds: str = Query(...)):
 
     except Exception as e:
         return {"error": str(e)}
+
+@app.get("/api/metricx/test", tags=["Quality Assessment"])
+async def test_metricx():
+    if metricx_service is None:
+        raise HTTPException(status_code=503, detail="MetricX service not loaded")
+
+    try:
+        test_score = metricx_service.evaluate_without_reference(
+            source="Hello world",
+            translation="Hola mundo"
+        )
+
+        return {
+            "status": "success", 
+            "test_score": test_score,
+            "message": "MetricX is working correctly"
+        }
+
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"MetricX test failed: {str(e)}")
 
 @app.get("/api/dashboard/translator-impact", tags=["Quality Assessment"])
 async def get_translator_impact_data(language_pair: Optional[str] = Query("all")):
