@@ -24,7 +24,9 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 import traceback
 import logging
+import sys
 from prisma.enums import QualityLabel, ReferenceType, EvaluationMode, ModelVariant
+from comet import download_model, load_from_checkpoint 
 
 comet_model = None
 metricx_service = None
@@ -35,6 +37,9 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+print(f"--- PYTHON EXECUTABLE: {sys.executable}")
+print(f"--- SACREBLEU VERSION: {sacrebleu.__version__}")
 
 # Get the directory of the current script (main.py)
 current_script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -240,11 +245,10 @@ async def startup():
 @app.on_event("startup")
 async def startup_event():
     global metricx_service, comet_model
-    print("MetricX models loaded successfully")
     
     try:
         print("Loading COMET model (cached)...")
-        model_path = download_model("Unbabel/XCOMET-XL")  
+        model_path = download_model("Unbabel/wmt22-comet-da")  
         comet_model = load_from_checkpoint(model_path)
         print(f"✓ COMET model loaded successfully: {type(comet_model)}")
     except Exception as e:
@@ -3046,8 +3050,8 @@ async def recalculate_all_metrics():
                                 tokenizer_option = 'ja-mecab' if target_lang_code == 'jp' else '13a'
                                 logger.info(f"Using tokenizer '{tokenizer_option}' for metrics on lang '{target_lang_code}'")
 
-                                bleu_score = sacrebleu.sentence_bleu(current_original_mt, [current_post_edited], tokenize=tokenizer_option).score / 100
-                                ter_score = sacrebleu.TER(tokenize=tokenizer_option).sentence_score(current_original_mt, [current_post_edited]).score
+                                bleu_score = sacrebleu.BLEU().sentence_score(current_original_mt, [current_post_edited]).score / 100
+                                ter_score = sacrebleu.TER().sentence_score(current_original_mt, [current_post_edited]).score
                                 
                                 comet_score = 0.0
                                 if comet_model:
