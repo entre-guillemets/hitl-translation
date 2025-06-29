@@ -118,6 +118,8 @@ class TranslationService:
             raise ValueError(f"Model {model_name} not found at {model_path}")
 
         try:
+            use_safetensors = True
+            
             if model_name in ["T5_BASE", "T5_MULTILINGUAL"]:
                 self.tokenizer = T5Tokenizer.from_pretrained(model_path)
                 self.model = T5ForConditionalGeneration.from_pretrained(model_path)

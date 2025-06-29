@@ -1,14 +1,12 @@
-# backend/requirements.txt
-fastapi==0.104.1
-uvicorn==0.24.0
-pydantic==2.5.0
-python-multipart==0.0.6
-metricx==1.0.0
+fastapi==0.115.13
+uvicorn==0.34.3
+pydantic>=2.5.0
+python-multipart>=0.0.6
 torch>=2.0.0
-transformers[torch]>=4.30.0
+transformers>=4.30.0
 numpy>=1.24.0
-datasets>=2.13.1
-accelerate>=0.20.0
-sentencepiece==0.1.99
-sacrebleu
-unbabel-comet
+prisma==0.15.0
+python-dotenv==1.1.1
+sacrebleu==2.5.1
+numpy==2.3.1
+nltk==3.9.1
