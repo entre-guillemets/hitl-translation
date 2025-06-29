@@ -52,7 +52,7 @@ class QualityMetrics:
             from comet import download_model, load_from_checkpoint
             
             # Download and load COMET model
-            model_path = download_model("wmt20-comet-da")
+            model_path = download_model("eamt22-comet-qe-da")
             model = load_from_checkpoint(model_path)
             
             # Prepare data for COMET

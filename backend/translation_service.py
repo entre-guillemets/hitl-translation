@@ -46,13 +46,13 @@ class TranslationService:
             
             # French-English models
             'HELSINKI_FR_EN': os.path.join(base_path, "Helsinki-NLP_opus-mt-fr-en"),
-            'OPUS_TC_BIG_FR_EN': os.path.join(base_path, "opus-mt-tc-big-fr-en"), # Ensure this path exists if used
+            'OPUS_TC_BIG_FR_EN': os.path.join(base_path, "opus-mt-tc-big-fr-en"), 
 
-            # T5 Models (ensure these paths are correct in your models directory)
-            'T5_BASE': os.path.join(base_path, "google-t5_t5-base"), # Example, replace if different T5 base model
-            'T5_MULTILINGUAL': os.path.join(base_path, "google-t5_t5-base"), # Point to your mT5 model path
+            # T5 Models 
+            'T5_BASE': os.path.join(base_path, "google-t5_t5-base"), 
+            'T5_MULTILINGUAL': os.path.join(base_path, "google-t5_t5-base"), # 
 
-            # NLLB Model (ensure this path is correct in your models directory)
+            # NLLB Model 
             'NLLB_200': os.path.join(base_path, "nllb-200-distilled-600M"),
         }
 
@@ -232,7 +232,6 @@ class TranslationService:
                 # This ensures the tokenizer correctly understands the source language.
                 nllb_lang_map_iso_to_nllb = {
                     'en': 'eng_Latn', 'jp': 'jpn_Jpan', 'fr': 'fra_Latn',
-                    # Add more if needed. These should match your _setup_language_pair_mappings
                 }
                 
                 nllb_src_lang = nllb_lang_map_iso_to_nllb.get(source_lang, source_lang) # Use mapping, fallback to original if not found
