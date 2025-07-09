@@ -6,11 +6,11 @@ import { ThemeProvider } from './components/theme-provider';
 import { SidebarInset, SidebarProvider, SidebarTrigger, useSidebar } from './components/ui/sidebar';
 import './index.css';
 import { CommandCenter } from './pages/command-center/CommandCenter';
-import { QualityDashboard } from './pages/quality-dashboard/QualityDashboard';
-import { QualityPrediction } from './pages/quality-prediction/QualityPrediction';
+import QualityDashboard from './pages/quality-dashboard/QualityDashboard';
+import QualityPrediction from './pages/quality-prediction/QualityPrediction';
 import { RequestTranslation } from './pages/request-translation/RequestTranslation';
 import { RLHFDashboard } from './pages/rlhf-dashboard/RLHFDashboard';
-import TranslationQA from './pages/translation-qa/TranslationQA';
+import { TranslationQA } from './pages/translation-qa/TranslationQA';
 
 function AppContent() {
   const { state } = useSidebar();

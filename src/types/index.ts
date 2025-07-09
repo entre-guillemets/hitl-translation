@@ -1,5 +1,5 @@
 // src/types/index.ts
-export interface QualityPrediction {
+export interface QualityPredictionData {
     sourceLanguage: string;
     targetLanguage: string;
     fileName: string;

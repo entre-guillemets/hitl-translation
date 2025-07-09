@@ -1,11 +1,13 @@
+// src/pages/QualityDashboard.tsx
+
 "use client"
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { AlertTriangle, Download, RefreshCw, TrendingUp } from 'lucide-react';
+import { AlertTriangle, Circle, Download, RefreshCw } from 'lucide-react'; // Import Circle icon
 import React, { useEffect, useMemo, useState } from 'react';
 import ReactDiffViewer from 'react-diff-viewer-continued';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, XAxis, YAxis } from 'recharts';
@@ -17,10 +19,13 @@ import {
 } from '../../components/ui/chart';
 
 // Import Dialog components for modal
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-// Assuming these are imported correctly from Shadcn UI or a custom index.ts in components/ui
-// import { Input, Label, Progress, Textarea } from '@/components/ui/index'; 
-
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog';
 
 // API Configuration
 const API_BASE_URL = 'http://localhost:8001';
@@ -46,7 +51,7 @@ interface LanguagePairMetricEntry {
   languagePair: string;
   avgBleu: number;
   avgComet: number;
-  avgTer: number;
+  avgTer: number; // This comes as a percentage (e.g., 50.0 for 50%) from backend
   count: number;
 }
 
@@ -57,13 +62,17 @@ interface ModelPerformanceData {
 }
 
 interface ModelLeaderboardEntry {
+  name?: string;           // Added for new functionality
+  type?: string;           // Added for new functionality
   model: string;
   engineType: string;
   avgBleu: number;
   avgComet: number;
-  avgTer: number;
+  avgTer: number; // This comes as a percentage (e.g., 50.0 for 50%) from backend
   avgMetricX: number;
   totalTranslations: number;
+  languagePairs?: string[];  // Added for new functionality
+  models?: string[];         // Added for new functionality
   confidenceInterval: {
     bleuLow: number;
     bleuHigh: number;
@@ -286,7 +295,11 @@ interface TranslatorSummaryEntry {
   avgImprovementScore: number;
   avgEditDistance: number;
   languagePairs: string[];
-  editTypes: { minor: number; moderate: number; major: number };
+  editTypes: {
+    minor: number;
+    moderate: number;
+    major: number;
+  };
 }
 
 // Chart configurations
@@ -306,6 +319,22 @@ const performanceChartConfig = {
   terScore: {
     label: "TER Score",
     color: "hsl(var(--chart-4))",
+  },
+} satisfies ChartConfig;
+
+// NEW: Multi-metric chart configuration for model performance
+const multiMetricChartConfig = {
+  avgBleu: {
+    label: "BLEU Score (%)",
+    color: "hsl(var(--chart-1))",
+  },
+  avgComet: {
+    label: "COMET Score (%)",
+    color: "hsl(var(--chart-2))",
+  },
+  avgTer: {
+    label: "TER Score (%)",
+    color: "hsl(var(--chart-3))",
   },
 } satisfies ChartConfig;
 
@@ -349,14 +378,45 @@ const severityChartConfig = {
   },
 } satisfies ChartConfig;
 
+const errorHeatmapChartConfig = {
+  painIndex: {
+    label: "Pain Index",
+    color: "hsl(var(--chart-1))",
+  },
+} satisfies ChartConfig;
+
+const correlationChartConfig = {
+  correlation: {
+    label: "Correlation",
+    color: "hsl(var(--chart-1))",
+  },
+} satisfies ChartConfig;
+
+const utilizationChartConfig = {
+  utilizationRate: {
+    label: "Utilization Rate (%)",
+    color: "hsl(var(--chart-1))",
+  },
+} satisfies ChartConfig;
+
+const tmImpactChartConfig = {
+  avgQualityScore: {
+    label: "Quality Score",
+    color: "hsl(var(--chart-1))",
+  },
+  timeSaved: {
+    label: "Time Saved (min)",
+    color: "hsl(var(--chart-2))",
+  },
+} satisfies ChartConfig;
+
 // Translator Impact Components
-const TranslationComparison: React.FC<{ 
-  originalMT: string; 
-  humanEdited: string; 
+const TranslationComparison: React.FC<{
+  originalMT: string;
+  humanEdited: string;
   sourceText: string;
   compact?: boolean;
 }> = ({ originalMT, humanEdited, sourceText, compact = false }) => {
-  
   const diffConfig = {
     splitView: !compact,
     showDiffOnly: false,
@@ -368,14 +428,11 @@ const TranslationComparison: React.FC<{
 
   return (
     <div className="space-y-4">
-      {!compact && (
-        <div className="p-3 bg-muted rounded-md">
-          <h4 className="font-medium text-sm mb-2">Source Text:</h4>
-          <p className="text-sm">{sourceText}</p>
-        </div>
-      )}
-      
-      <div className="border rounded-md overflow-hidden" style={{ overflowX: 'auto' }}> {/* Added overflowX auto */}
+      <div className="p-3 bg-muted rounded-lg">
+        <p className="text-sm font-medium text-muted-foreground">Source Text</p>
+        <p className="text-sm">{sourceText}</p>
+      </div>
+      <div className="border rounded-lg overflow-hidden">
         <ReactDiffViewer
           oldValue={originalMT}
           newValue={humanEdited}
@@ -386,996 +443,141 @@ const TranslationComparison: React.FC<{
   );
 };
 
-const TranslatorImpactSummary: React.FC<{ data: TranslatorSummaryEntry[] }> = ({ data }) => {
-  return (
-    // This grid makes the 4 language pairs spread out, responsive from 1 to 4 columns
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6"> 
-      {data.map((translator, index) => (
-        <Card key={translator.translatorId || index}>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">
-              {translator.translatorId || 'Anonymous Translator'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span>Total Edits:</span>
-              <Badge variant="secondary">{translator.totalEdits}</Badge>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span>Avg Improvement:</span>
-              <span className="font-medium">
-                {(translator.avgImprovementScore * 100).toFixed(1)}%
-              </span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span>Edit Distance:</span>
-              <span className="font-medium">
-                {translator.avgEditDistance.toFixed(1)}
-              </span>
-            </div>
-            <div className="text-xs text-muted-foreground">
-              Languages: {translator.languagePairs.join(', ')}
-            </div>
-            <div className="flex gap-1 text-xs">
-              <Badge variant="outline" className="text-green-600">
-                Minor: {translator.editTypes.minor}
-              </Badge>
-              <Badge variant="outline" className="text-yellow-600">
-                Moderate: {translator.editTypes.moderate}
-              </Badge>
-              <Badge variant="outline" className="text-red-600">
-                Major: {translator.editTypes.major}
-              </Badge>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+// NEW: Model Performance Controls Component
+const ModelPerformanceControls: React.FC<{
+  chartGroupBy: 'model' | 'language_pair';
+  setChartGroupBy: (value: 'model' | 'language_pair') => void;
+  selectedLanguagePair: string;
+  setSelectedLanguagePair: (value: string) => void;
+  onRefresh: () => void;
+}> = ({ chartGroupBy, setChartGroupBy, selectedLanguagePair, setSelectedLanguagePair, onRefresh }) => (
+  <div className="flex items-center space-x-4 mb-4">
+    <div className="flex items-center space-x-2">
+      <label className="text-sm font-medium">Group by:</label>
+      <Select value={chartGroupBy} onValueChange={setChartGroupBy}>
+        <SelectTrigger className="w-40">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="model">Model</SelectItem>
+          <SelectItem value="language_pair">Language Pair</SelectItem>
+        </SelectContent>
+      </Select>
     </div>
-  );
-};
-
-const TranslatorImpactTable: React.FC<{ 
-  data: TranslationComparisonEntry[];
-  onRowSelect: (comparison: TranslationComparisonEntry) => void;
-}> = ({ data, onRowSelect }) => {
-  const [filters, setFilters] = useState({
-    languagePair: 'all',
-    jobId: 'all',
-    editType: 'all'
-  });
-  
-  const [currentPage, setCurrentPage] = useState(0);
-  const [pageSize, setPageSize] = useState(10);
-
-  const filteredData = useMemo(() => {
-    return data.filter(item => {
-      const languageMatch = filters.languagePair === 'all' || item.languagePair === filters.languagePair;
-      const jobMatch = filters.jobId === 'all' || item.jobId === filters.jobId;
-      const editMatch = filters.editType === 'all' || item.editType === filters.editType;
-      return languageMatch && jobMatch && editMatch;
-    });
-  }, [data, filters]);
-
-  const paginatedData = useMemo(() => {
-    const startIndex = currentPage * pageSize;
-    return filteredData.slice(startIndex, startIndex + pageSize);
-  }, [filteredData, currentPage, pageSize]);
-
-  const uniqueLanguagePairs = [...new Set(data.map(d => d.languagePair))];
-  const uniqueJobs = [...new Set(data.map(d => d.jobName))];
-
-  const getEditTypeBadge = (editType: string) => {
-    const variants = {
-      minor: 'default',
-      moderate: 'secondary', 
-      major: 'destructive'
-    } as const;
-    return <Badge variant={variants[editType as keyof typeof variants]}>{editType}</Badge>;
-  };
-
-  return (
-    <div className="space-y-4">
-      {/* Filters */}
-      <div className="flex gap-4 items-center">
-        <Select value={filters.languagePair} onValueChange={(value) => setFilters(prev => ({...prev, languagePair: value}))}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Language Pair" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Language Pairs</SelectItem>
-            {uniqueLanguagePairs.map(pair => (
-              <SelectItem key={pair} value={pair}>{pair}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={filters.jobId} onValueChange={(value) => setFilters(prev => ({...prev, jobId: value}))}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Translation Job" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Jobs</SelectItem>
-            {uniqueJobs.map(job => (
-              <SelectItem key={job} value={job}>{job}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={filters.editType} onValueChange={(value) => setFilters(prev => ({...prev, editType: value}))}>
-          <SelectTrigger className="w-32">
-            <SelectValue placeholder="Edit Type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Types</SelectItem>
-            <SelectItem value="minor">Minor</SelectItem>
-            <SelectItem value="moderate">Moderate</SelectItem>
-            <SelectItem value="major">Major</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Table */}
-      <div className="border rounded-md overflow-x-auto"> {/* Changed overflow-hidden to overflow-x-auto */}
-        <table className="min-w-full"> {/* Added min-w-full to allow table to expand */}
-          <thead className="border-b bg-muted/50">
-            <tr>
-              <th className="text-left p-3 text-sm font-medium whitespace-nowrap">Source Text</th> {/* Added whitespace-nowrap */}
-              <th className="text-left p-3 text-sm font-medium whitespace-nowrap">Language</th>
-              <th className="text-left p-3 text-sm font-medium whitespace-nowrap">Job</th>
-              <th className="text-left p-3 text-sm font-medium whitespace-nowrap">Edit Type</th>
-              <th className="text-left p-3 text-sm font-medium whitespace-nowrap">Improvement</th>
-              <th className="text-left p-3 text-sm font-medium whitespace-nowrap">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paginatedData.map((item) => (
-              <tr key={item.id} className="border-b hover:bg-muted/50">
-                <td className="p-3 text-sm max-w-xs truncate">{item.sourceText}</td>
-                <td className="p-3 text-sm">{item.languagePair}</td>
-                <td className="p-3 text-sm">{item.jobName}</td>
-                <td className="p-3">{getEditTypeBadge(item.editType)}</td>
-                <td className="p-3 text-sm font-medium">
-                  +{(item.improvementScore * 100).toFixed(1)}%
-                </td>
-                <td className="p-3">
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => onRowSelect(item)}
-                  >
-                    View Diff
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {paginatedData.length === 0 && (
-          <div className="text-center text-muted-foreground p-4">
-            No translation comparisons found matching filters.
-          </div>
-        )}
-      </div>
-
-      {/* Pagination */}
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-muted-foreground">
-          Showing {currentPage * pageSize + 1}-{Math.min((currentPage + 1) * pageSize, filteredData.length)} of {filteredData.length}
-        </div>
-        <div className="flex items-center gap-2">
-          <Button 
-            variant="outline" 
-            size="sm"
-            disabled={currentPage === 0}
-            onClick={() => setCurrentPage(prev => prev - 1)}
-          >
-            Previous
-          </Button>
-          <Button 
-            variant="outline" 
-            size="sm"
-            disabled={(currentPage + 1) * pageSize >= filteredData.length}
-            onClick={() => setCurrentPage(prev => prev + 1)}
-          >
-            Next
-          </Button>
-        </div>
-      </div>
+    
+    <div className="flex items-center space-x-2">
+      <label className="text-sm font-medium">Language Pair:</label>
+      <Select value={selectedLanguagePair} onValueChange={setSelectedLanguagePair}>
+        <SelectTrigger className="w-40">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All Pairs</SelectItem>
+          <SelectItem value="JP-EN">Japanese → English</SelectItem>
+          <SelectItem value="EN-JP">English → Japanese</SelectItem>
+          <SelectItem value="FR-EN">French → English</SelectItem>
+          <SelectItem value="EN-FR">English → French</SelectItem>
+          <SelectItem value="JP-FR">Japanese → French</SelectItem>
+        </SelectContent>
+      </Select>
     </div>
-  );
-};
+    
+    <Button onClick={onRefresh} variant="outline" size="sm">
+      <RefreshCw className="h-4 w-4 mr-2" />
+      Update Chart
+    </Button>
+  </div>
+);
 
-// Dashboard Components
-const PostEditMetricsByLanguagePair: React.FC<{ data: LanguagePairMetricEntry[] }> = ({ data }) => {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Post-Edit Quality by Language Pair</CardTitle>
-        <CardDescription>BLEU, COMET, and TER scores after human post-editing</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <ChartContainer config={postEditChartConfig} className="min-h-[300px] w-full h-[350px]"> {/* Adjusted height here */}
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart
-              accessibilityLayer
-              data={data}
-              margin={{
-                top: 20, 
-                left: 12,
-                right: 12,
-              }}
-            >
-              <CartesianGrid vertical={false} />
-              <XAxis
-                dataKey="languagePair"
-                tickLine={false}
-                axisLine={false}
-                tickMargin={8}
-              />
-              <YAxis /> {/* Added Y-axis for better readability */}
-              <ChartTooltip
-                cursor={false}
-                content={<ChartTooltipContent hideLabel />}
-              />
-              <Bar dataKey="avgBleu" fill="var(--color-avgBleu)" radius={8}>
-                <LabelList
-                  position="top"
-                  offset={12}
-                  className="fill-foreground"
-                  fontSize={12}
-                  formatter={(value: number) => `${value.toFixed(1)}%`}
-                />
-              </Bar>
-              <Bar dataKey="avgComet" fill="var(--color-avgComet)" radius={8}>
-                <LabelList
-                  position="top"
-                  offset={12}
-                  className="fill-foreground"
-                  fontSize={12}
-                  formatter={(value: number) => `${value.toFixed(1)}%`}
-                />
-              </Bar>
-              <Bar dataKey="avgTer" fill="var(--color-avgTer)" radius={8}>
-                <LabelList
-                  position="top"
-                  offset={12}
-                  className="fill-foreground"
-                  fontSize={12}
-                  formatter={(value: number) => `${value.toFixed(1)}%`}
-                />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartContainer>
-      </CardContent>
-      <CardFooter className="flex-col items-start gap-2 text-sm">
-        <div className="flex gap-2 font-medium leading-none">
-          Post-editing quality metrics <TrendingUp className="h-4 w-4" />
-        </div>
-        <div className="leading-none text-muted-foreground">
-          Based on {data.reduce((sum, item) => sum + item.count, 0)} post-edited translations
-        </div>
-      </CardFooter>
-    </Card>
-  );
-};
-
-// 1. Performance Over Time with Area Chart Interactive
-const PerformanceOverTime: React.FC<{ data: PerformanceTimeEntry[] }> = ({ data }) => {
-  const [selectedMetrics, setSelectedMetrics] = useState(['bleuScore', 'cometScore', 'metricXScore']);
-  const [selectedEngines, setSelectedEngines] = useState<string[]>([]);
-  const [selectedLanguagePairs, setSelectedLanguagePairs] = useState<string[]>([]);
-
-  const uniqueEngines = [...new Set(data.map(d => d.model))];
-  const uniqueLanguagePairs = [...new Set(data.map(d => d.languagePair).filter(Boolean))];
-
-  const filteredData = data.filter(d => {
-    const engineMatch = selectedEngines.length === 0 || selectedEngines.includes(d.model);
-    const languageMatch = selectedLanguagePairs.length === 0 || selectedLanguagePairs.includes(d.languagePair || '');
-    return engineMatch && languageMatch;
-  });
-
-  // Transform data for area chart - use requestId as X axis
-  const chartData = filteredData.map((item, index) => ({
-    request: item.requestId || `Request ${index + 1}`,
-    bleuScore: item.bleuScore * 100,
-    cometScore: item.cometScore * 100,
-    metricXScore: item.metricXScore * 10, // Scale MetricX to be comparable
-    terScore: item.terScore ? item.terScore : 0, // TER is already % from backend
+// NEW: Multi-Metric Chart Component
+const MultiMetricChart: React.FC<{ data: ModelLeaderboardEntry[] }> = ({ data }) => {
+  // Transform data to use the correct field names
+  const chartData = data.map(item => ({
+    name: item.name || item.model,
+    avgBleu: item.avgBleu,
+    avgComet: item.avgComet,
+    avgTer: item.avgTer,
+    totalTranslations: item.totalTranslations
   }));
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Performance Over Time</CardTitle>
-        <CardDescription>Quality metrics across translation requests</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="flex gap-4 mb-4">
-          <Select onValueChange={(value) => setSelectedEngines(value ? value.split(',') : [])}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="All Engines" />
-            </SelectTrigger>
-            <SelectContent>
-              {uniqueEngines.map(engine => (
-                <SelectItem key={engine} value={engine}>{engine}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          
-          <Select onValueChange={(value) => setSelectedLanguagePairs(value ? value.split(',') : [])}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="All Language Pairs" />
-            </SelectTrigger>
-            <SelectContent>
-              {uniqueLanguagePairs.map(pair => (
-                <SelectItem key={pair} value={pair}>{pair}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <ChartContainer config={performanceChartConfig} className="min-h-[300px] w-full h-[350px]"> {/* Adjusted height here */}
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart
-              accessibilityLayer
-              data={chartData}
-              margin={{
-                left: 12,
-                right: 12,
-              }}
-            >
-              <CartesianGrid vertical={false} />
-              <XAxis
-                dataKey="request"
-                tickLine={false}
-                axisLine={false}
-                tickMargin={8}
-                tickFormatter={(value) => value.slice(-3)} // Show last 3 chars of request ID
-              />
-              <YAxis /> {/* Added Y-axis */}
-              <ChartTooltip
-                cursor={false}
-                content={<ChartTooltipContent />}
-              />
-              {selectedMetrics.includes('bleuScore') && (
-                <Area
-                  dataKey="bleuScore"
-                  type="natural"
-                  fill="var(--color-bleuScore)"
-                  fillOpacity={0.4}
-                  stroke="var(--color-bleuScore)"
-                  stackId="a" // Use stackId if you want stacked areas, otherwise remove
-                />
-              )}
-              {selectedMetrics.includes('cometScore') && (
-                <Area
-                  dataKey="cometScore"
-                  type="natural"
-                  fill="var(--color-cometScore)"
-                  fillOpacity={0.4}
-                  stroke="var(--color-cometScore)"
-                  stackId="a"
-                />
-              )}
-              {selectedMetrics.includes('metricXScore') && (
-                <Area
-                  dataKey="metricXScore"
-                  type="natural"
-                  fill="var(--color-metricXScore)"
-                  fillOpacity={0.4}
-                  stroke="var(--color-metricXScore)"
-                  stackId="a"
-                />
-              )}
-               {selectedMetrics.includes('terScore') && (
-                <Area
-                  dataKey="terScore"
-                  type="natural"
-                  fill="var(--color-terScore)"
-                  fillOpacity={0.4}
-                  stroke="var(--color-terScore)"
-                  stackId="a"
-                />
-              )}
-            </AreaChart>
-          </ResponsiveContainer>
-        </ChartContainer>
-      </CardContent>
-    </Card>
+    <ChartContainer config={multiMetricChartConfig} className="h-[400px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis 
+            dataKey="name" 
+            angle={-45}
+            textAnchor="end"
+            height={100}
+            interval={0}
+          />
+          <YAxis domain={[0, 100]} />
+          <ChartTooltip content={<ChartTooltipContent />} />
+          <Bar dataKey="avgBleu" fill="var(--color-avgBleu)" name="BLEU Score (%)" />
+          <Bar dataKey="avgComet" fill="var(--color-avgComet)" name="COMET Score (%)" />
+          <Bar dataKey="avgTer" fill="var(--color-avgTer)" name="TER Score (%)" />
+        </BarChart>
+      </ResponsiveContainer>
+    </ChartContainer>
   );
 };
 
-// 2. Engine Preference Analysis with Bar Chart Multiple (Now shows both By Engine and By Language Pair side-by-side)
-const EnginePreferenceAnalysis: React.FC<{ data: EnginePreferenceEntry[] }> = ({ data }) => {
-
-  const chartDataByEngine = useMemo(() => {
-    return data.reduce((acc, item) => {
-      const existing = acc.find(a => a.name === item.engine);
-      if (existing) {
-        // Correctly average, accounting for existing count
-        existing.selections += item.selectionCount;
-        existing.avgRating = (existing.avgRating * existing.count + item.avgRating * item.count) / (existing.count + item.count);
-        existing.count += item.count;
-      } else {
-        acc.push({
-          name: item.engine,
-          selections: item.selectionCount,
-          avgRating: item.avgRating * 20, // Scale to make visible alongside selections
-          satisfaction: item.overallSatisfaction
-        });
-      }
-      return acc;
-    }, [] as any[]).sort((a, b) => b.selections - a.selections); // Sort by selections
-  }, [data]);
-
-  const chartDataByLanguagePair = useMemo(() => {
-    return data.reduce((acc, item) => {
-      const key = item.languagePair;
-      const existing = acc.find(a => a.name === key);
-      if (existing) {
-        existing.selections += item.selectionCount;
-        existing.avgRating = (existing.avgRating * existing.count + item.avgRating * item.count) / (existing.count + item.count);
-        existing.count += item.count;
-      } else {
-        acc.push({
-          name: key,
-          selections: item.selectionCount,
-          avgRating: item.avgRating * 20, // Scale to make visible alongside selections
-          satisfaction: item.overallSatisfaction
-        });
-      }
-      return acc;
-    }, [] as any[]).sort((a, b) => b.selections - a.selections); // Sort by selections
-  }, [data]);
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Engine Preference Analysis</CardTitle>
-        <CardDescription>Selection counts and ratings</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4"> {/* Two columns grid */}
-          <div>
-            <h4 className="text-sm font-medium mb-2">By Engine</h4>
-            <ChartContainer config={preferenceChartConfig} className="min-h-[250px] w-full h-[300px]"> {/* Explicit height */}
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  accessibilityLayer
-                  data={chartDataByEngine}
-                  margin={{ top: 20, left: 12, right: 12 }}
-                >
-                  <CartesianGrid vertical={false} />
-                  <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(value) => value.slice(0, 8)} />
-                  <YAxis />
-                  <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-                  <Bar dataKey="selections" fill="var(--color-selections)" radius={8}>
-                    <LabelList position="top" offset={12} className="fill-foreground" fontSize={12} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartContainer>
-          </div>
-          <div>
-            <h4 className="text-sm font-medium mb-2">By Language Pair</h4>
-            <ChartContainer config={preferenceChartConfig} className="min-h-[250px] w-full h-[300px]"> {/* Explicit height */}
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  accessibilityLayer
-                  data={chartDataByLanguagePair}
-                  margin={{ top: 20, left: 12, right: 12 }}
-                >
-                  <CartesianGrid vertical={false} />
-                  <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(value) => value.slice(0, 8)} />
-                  <YAxis />
-                  <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-                  <Bar dataKey="selections" fill="var(--color-selections)" radius={8}>
-                    <LabelList position="top" offset={12} className="fill-foreground" fontSize={12} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartContainer>
-          </div>
-        </div>
-      </CardContent>
-      <CardFooter className="flex-col items-start gap-2 text-sm">
-        <div className="flex gap-2 font-medium leading-none">
-          Engine preferences trending <TrendingUp className="h-4 w-4" />
-        </div>
-        <div className="leading-none text-muted-foreground">
-          Showing selection counts and average ratings
-        </div>
-      </CardFooter>
-    </Card>
-  );
-};
-
-// 3. Processing Time Analysis with Three Bar Charts side-by-side
-const ProcessingTimeAnalysis: React.FC<{ data: ProcessingTimeEntry[] }> = ({ data }) => {
-  const chartDataByModel = useMemo(() => {
-    return data.reduce((acc, item) => {
-      const existing = acc.find(a => a.name === item.model);
-      if (existing) {
-        // Correctly average, accounting for existing count
-        existing.avgProcessingTime = (existing.avgProcessingTime * existing.count + item.avgProcessingTime * item.count) / (existing.count + item.count);
-        existing.count += item.count;
-      } else {
-        acc.push({
-          name: item.model,
-          avgProcessingTime: item.avgProcessingTime,
-          count: item.count
-        });
-      }
-      return acc;
-    }, [] as any[]).sort((a,b) => b.avgProcessingTime - a.avgProcessingTime);
-  }, [data]);
-
-  const chartDataByEngineType = useMemo(() => {
-    return data.reduce((acc, item) => {
-      const existing = acc.find(a => a.name === item.engineType);
-      if (existing) {
-        existing.avgProcessingTime = (existing.avgProcessingTime * existing.count + item.avgProcessingTime * item.count) / (existing.count + item.count);
-        existing.count += item.count;
-      } else {
-        acc.push({
-          name: item.engineType,
-          avgProcessingTime: item.avgProcessingTime,
-          count: item.count
-        });
-      }
-      return acc;
-    }, [] as any[]).sort((a,b) => b.avgProcessingTime - a.avgProcessingTime);
-  }, [data]);
-
-  const chartDataByWordCount = useMemo(() => {
-    // Basic aggregation by bucket if your data has it.
-    // If 'wordCountBucket' is not reliably populated, this might need more robust bucketing logic.
-    const buckets: { [key: string]: { sum: number; count: number } } = {};
-    data.forEach(item => {
-      const bucket = item.wordCountBucket || 'overall';
-      if (!buckets[bucket]) {
-        buckets[bucket] = { sum: 0, count: 0 };
-      }
-      buckets[bucket].sum += item.avgProcessingTime;
-      buckets[bucket].count += item.count; // Use item.count if it represents number of strings in that processing entry
-    });
-
-    return Object.keys(buckets).map(bucket => ({
-      name: bucket,
-      avgProcessingTime: buckets[bucket].count > 0 ? buckets[bucket].sum / buckets[bucket].count : 0,
-      count: buckets[bucket].count
-    })).sort((a,b) => b.avgProcessingTime - a.avgProcessingTime);
-  }, [data]);
-
-
-  const renderChart = (chartData: any[], title: string) => (
-    <div>
-      <h4 className="text-sm font-medium mb-2">{title}</h4>
-      <ChartContainer config={processingChartConfig} className="min-h-[250px] w-full h-[300px]"> {/* Explicit height */}
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            accessibilityLayer
-            data={chartData}
-            margin={{ top: 20, left: 12, right: 12 }}
-          >
-            <CartesianGrid vertical={false} />
-            <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(value) => value.slice(0, 8)} />
-            <YAxis />
-            <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-            <Bar dataKey="avgProcessingTime" fill="var(--color-avgProcessingTime)" radius={8}>
-              <LabelList position="top" offset={12} className="fill-foreground" fontSize={12} formatter={(value: number) => `${value.toFixed(0)}ms`} />
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </ChartContainer>
-    </div>
-  );
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Processing Time Analysis</CardTitle>
-        <CardDescription>Average processing times by model, engine type, and word count</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4"> {/* Three columns grid */}
-          {renderChart(chartDataByModel, "By Model")}
-          {renderChart(chartDataByEngineType, "By Engine Type")}
-          {renderChart(chartDataByWordCount, "By Word Count")}
-        </div>
-      </CardContent>
-      <CardFooter className="flex-col items-start gap-2 text-sm">
-        <div className="flex gap-2 font-medium leading-none">
-          Processing efficiency metrics <TrendingUp className="h-4 w-4" />
-        </div>
-        <div className="leading-none text-muted-foreground">
-          Average processing time in milliseconds
-        </div>
-      </CardFooter>
-    </Card>
-  );
-};
-
-// 4. Severity Breakdown with Bar Chart Label
-const SeverityBreakdown: React.FC<{ data: SeverityBreakdownEntry[] }> = ({ data }) => {
-  const chartData = data.map(item => ({
-    severity: item.severity,
-    count: item.count,
-  })).sort((a, b) => { // Sort by severity level for consistent display
-    const order = { 'CRITICAL': 4, 'MAJOR': 3, 'MODERATE': 2, 'MINOR': 1, 'LOW': 1, 'MEDIUM': 2, 'HIGH': 3 }; // Adjusted for possible 'MAJOR'/'MINOR'
-    // Fallback for missing keys in order map
-    const aOrder = order[a.severity.toUpperCase() as keyof typeof order] ?? 0;
-    const bOrder = order[b.severity.toUpperCase() as keyof typeof order] ?? 0;
-    return bOrder - aOrder;
-  });
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Severity Breakdown</CardTitle>
-        <CardDescription>Error counts by severity level</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <ChartContainer config={severityChartConfig} className="min-h-[250px] w-full h-[300px]"> {/* Explicit height */}
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart
-              accessibilityLayer
-              data={chartData}
-              margin={{ top: 20, left: 12, right: 12 }}
-            >
-              <CartesianGrid vertical={false} />
-              <XAxis dataKey="severity" tickLine={false} axisLine={false} tickMargin={8} />
-              <YAxis />
-              <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-              <Bar dataKey="count" fill="var(--color-count)" radius={8}>
-                <LabelList position="top" offset={12} className="fill-foreground" fontSize={12} />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartContainer>
-      </CardContent>
-      <CardFooter className="flex-col items-start gap-2 text-sm">
-        <div className="flex gap-2 font-medium leading-none">
-          Error severity distribution <AlertTriangle className="h-4 w-4" />
-        </div>
-        <div className="leading-none text-muted-foreground">
-          Total error annotations by severity
-        </div>
-      </CardFooter>
-    </Card>
-  );
-};
-
-const MultiEngineSelectionTrends: React.FC<{ data: SelectionTrendEntry[] }> = ({ data }) => {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Multi-Engine Selection Trends</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p>Selection trends data visualization</p>
-        {/* Placeholder for actual chart */}
-      </CardContent>
-    </Card>
-  );
-};
-
-const EvaluationModeComparison: React.FC<{ data: EvaluationModeEntry[] }> = ({ data }) => {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Evaluation Mode Comparison</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p>Evaluation mode comparison visualization</p>
-        {/* Placeholder for actual chart */}
-      </CardContent>
-    </Card>
-  );
-};
-
-const SystemHealthOverview: React.FC<{ data: SystemHealthEntry[] }> = ({ data }) => {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>System Health Overview</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {data.map((model, index) => (
-          <div key={index} className="flex justify-between items-center p-2 border-b">
-            <span className="font-medium">{model.model}</span>
-            <div className="flex gap-2">
-              <Badge variant="outline">{model.totalTranslations} translations</Badge>
-              <Badge variant={model.isActive ? "default" : "secondary"}>
-                {model.isActive ? "Active" : "Inactive"}
-              </Badge>
-              <Badge variant="outline">{model.avgProcessingTime.toFixed(0)}ms avg</Badge>
-            </div>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  );
-};
-
-const ReviewerBehaviorDashboard: React.FC<{ data: ReviewerBehaviorEntry[] }> = ({ data }) => {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Reviewer Behavior</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {data.map((behavior, index) => (
-          <div key={index} className="flex justify-between items-center p-2 border-b">
-            <div>
-              <span className="font-medium">{behavior.reviewerExpertise}</span>
-              <Badge variant="outline" className="ml-2">{behavior.approvalType}</Badge>
-            </div>
-            <div className="flex gap-2 text-sm">
-              <span>Avg Time: {(behavior.avgTimeToReview / 1000).toFixed(1)}s</span>
-              <span>Cognitive Load: {behavior.avgCognitiveLoad.toFixed(1)}</span>
-              <span>Count: {behavior.count}</span>
-            </div>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  );
-};
-
-const ModelLeaderboard: React.FC<{ data: ModelLeaderboardEntry[] }> = ({ data }) => {
-  const [sortBy, setSortBy] = useState('avgBleu');
-  const [filterEngine, setFilterEngine] = useState('all');
-
-  const filteredData = data
-    .filter(item => filterEngine === 'all' || item.engineType === filterEngine)
-    .sort((a, b) => (b[sortBy as keyof ModelLeaderboardEntry] as number) - (a[sortBy as keyof ModelLeaderboardEntry] as number));
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Model Leaderboard</CardTitle>
-        <div className="flex gap-2">
-          <Button
-            variant={sortBy === 'avgBleu' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setSortBy('avgBleu')}
-          >
-            BLEU Score
-          </Button>
-          <Button
-            variant={sortBy === 'avgComet' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setSortBy('avgComet')}
-          >
-            COMET Score
-          </Button>
-          <Button
-            variant={sortBy === 'avgTer' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setSortBy('avgTer')}
-          >
-            TER Score
-          </Button>
-          <Button
-            variant={sortBy === 'avgMetricX' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setSortBy('avgMetricX')}
-          >
-            MetricX Score
-          </Button>
-          <Button
-            variant={sortBy === 'totalTranslations' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setSortBy('totalTranslations')}
-          >
-            Usage Count
-          </Button>
-        </div>
-        <Select value={filterEngine} onValueChange={setFilterEngine}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Filter by engine" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Engines</SelectItem>
-            <SelectItem value="opus_fast">OPUS Fast</SelectItem>
-            <SelectItem value="elan_specialist">ELAN Specialist</SelectItem>
-            <SelectItem value="t5_versatile">mT5 Versatile</SelectItem> {/* Updated */}
-            <SelectItem value="nllb_multilingual">NLLB Multilingual</SelectItem> {/* Updated */}
-          </SelectContent>
-        </Select>
-      </CardHeader>
-      <CardContent>
-        {filteredData.map((model, index) => (
-          <div key={model.model} className="flex justify-between items-center p-3 border-b">
-            <div>
-              <span className="font-bold">#{index + 1} {model.model}</span>
-              <Badge variant="outline" className="ml-2">{model.engineType}</Badge>
-            </div>
-            <div className="flex gap-4 text-sm">
-              <div>
-                <span className="text-muted-foreground">BLEU</span>
-                <div className="font-medium">{(model.avgBleu * 100).toFixed(1)}%</div>
-                <div className="text-xs text-muted-foreground">
-                  ±{((model.confidenceInterval.bleuHigh - model.confidenceInterval.bleuLow) * 50).toFixed(1)}
-                </div>
-              </div>
-              <div>
-                <span className="text-muted-foreground">COMET</span>
-                <div className="font-medium">{(model.avgComet * 100).toFixed(1)}%</div>
-                <div className="text-xs text-muted-foreground">
-                  ±{((model.confidenceInterval.cometHigh - model.confidenceInterval.cometLow) * 50).toFixed(1)}
-                </div>
-              </div>
-              <div>
-                <span className="text-muted-foreground">TER</span>
-                <div className="font-medium">{(model.avgTer).toFixed(1)}%</div> {/* TER is already % from backend */}
-              </div>
-              <div>
-                <span className="text-muted-foreground">MetricX</span>
-                <div className="font-medium">{model.avgMetricX.toFixed(1)}</div>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Translations</span>
-                <div className="font-medium">{model.totalTranslations.toLocaleString()}</div>
-              </div>
-            </div>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  );
-};
-
-const ErrorHeatmap: React.FC<{ data: ErrorHeatmapEntry[] }> = ({ data }) => {
-  const models = [...new Set(data.map(d => d.model))];
-  const categories = [...new Set(data.map(d => d.category))];
-
-  const heatmapData = models.map(model => {
-    const modelData: any = { model };
-    categories.forEach(category => {
-      const entry = data.find(d => d.model === model && d.category === category);
-      modelData[category] = entry ? entry.painIndex : 0;
-    });
-    return modelData;
-  });
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Error Heatmap (Pain Index)</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-2">
-          {heatmapData.map(modelData => (
-            <div key={modelData.model} className="flex items-center gap-x-2">
-              <div className="w-32 text-sm font-medium truncate">
-                {modelData.model}
-              </div>
-              
-              <div className="flex gap-x-1">
-                {categories.map(category => {
-                  const value = modelData[category] as number;
-                  const intensity = Math.min(value / 10, 1);
-                  
-                  const getSeverityClass = (intensity: number) => {
-                    if (intensity === 0) return 'bg-muted text-muted-foreground';
-                    if (intensity < 0.3) return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300';
-                    if (intensity < 0.6) return 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-300';
-                    return 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300';
-                  };
-
-                  return (
-                    <div
-                      key={category}
-                      className={`
-                        w-12 h-8 flex items-center justify-center text-xs font-medium rounded
-                        ${getSeverityClass(intensity)}
-                      `}
-                    >
-                      {value.toFixed(1)}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-        
-        <div className="mt-4 flex items-center gap-x-2">
-          <div className="w-32"></div>
-          <div className="flex gap-x-1">
-            {categories.map(category => (
-              <div key={category} className="w-12 text-xs text-center text-muted-foreground truncate">
-                {category}
-              </div>
-            ))}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-};
-
-const QualityCorrelationMatrix: React.FC<{ data: CorrelationEntry[] }> = ({ data }) => {
-  const metrics = ['BLEU', 'COMET', 'TER', 'METRICX'];
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Quality Score Correlation Matrix</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="grid gap-1">
-          {metrics.map(metric1 => (
-            <div key={metric1} className="flex gap-1 items-center">
-              <div className="w-16 text-sm font-medium">{metric1}</div>
-              {metrics.map(metric2 => {
-                const correlation = data.find(d =>
-                  (d.metric1 === metric1 && d.metric2 === metric2) ||
-                  (d.metric1 === metric2 && d.metric2 === metric1)
-                )?.correlation || (metric1 === metric2 ? 1 : 0);
-
-                const intensity = Math.abs(correlation);
-                
-                const getCorrelationClass = (correlation: number, intensity: number) => {
-                  if (correlation > 0) {
-                    if (intensity < 0.3) return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300';
-                    if (intensity < 0.7) return 'bg-green-200 text-green-900 dark:bg-green-900/40 dark:text-green-200';
-                    return 'bg-green-300 text-green-900 dark:bg-green-900/60 dark:text-green-100';
-                  } else {
-                    if (intensity < 0.3) return 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300';
-                    if (intensity < 0.7) return 'bg-red-200 text-red-900 dark:bg-red-900/40 dark:text-red-200';
-                    return 'bg-red-300 text-red-900 dark:bg-red-900/60 dark:text-red-100';
-                  }
-                };
-
-                return (
-                  <div
-                    key={metric2}
-                    className={`w-16 h-8 flex items-center justify-center text-xs rounded ${getCorrelationClass(correlation, intensity)}`}
-                    title={`${metric1} vs ${metric2}: ${correlation.toFixed(2)}`}
-                  >
-                    {correlation.toFixed(2)}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
-  );
-};
-
-// Main Dashboard Component
-export const QualityDashboard: React.FC = () => {
+const QualityDashboard: React.FC = () => {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [postEditData, setPostEditData] = useState<PostEditMetricsData | null>(null);
   const [translatorImpactData, setTranslatorImpactData] = useState<TranslatorImpactData | null>(null);
-  const [selectedComparison, setSelectedComparison] = useState<TranslationComparisonEntry | null>(null);
   const [loading, setLoading] = useState(true);
-  const [languagePair, setLanguagePair] = useState('all');
-  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedComparison, setSelectedComparison] = useState<TranslationComparisonEntry | null>(null);
+  const [isComparisonModalOpen, setIsComparisonModalOpen] = useState(false);
 
-  useEffect(() => {
-    fetchDashboardData();
-    fetchPostEditData();
-    fetchTranslatorImpactData();
-  }, [languagePair]);
+  // NEW: State for chart controls
+  const [chartGroupBy, setChartGroupBy] = useState<'model' | 'language_pair'>('model');
+  const [selectedLanguagePair, setSelectedLanguagePair] = useState<string>('all');
+  const [dateRange, setDateRange] = useState<{ from?: string; to?: string }>({});
 
+  // Move the useMemo calculation outside conditional rendering
+  const editTypeChartData = useMemo(() => {
+    if (!translatorImpactData || !translatorImpactData.comparisons || translatorImpactData.comparisons.length === 0) {
+      return [];
+    }
+    const editTypeCounts = translatorImpactData.comparisons.reduce((acc, item) => {
+      acc[item.editType] = (acc[item.editType] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    
+    return Object.entries(editTypeCounts).map(([type, count]) => ({
+      editType: type,
+      count
+    }));
+  }, [translatorImpactData]);
+
+
+  // UPDATED: Enhanced fetchDashboardData with new parameters
   const fetchDashboardData = async () => {
-    setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/dashboard/analytics?languagePair=${languagePair}`);
-      if (response.ok) {
-        const data = await response.json();
-        setDashboardData(data);
+      setLoading(true);
+      setError(null);
+
+      const params = new URLSearchParams({
+        group_by: chartGroupBy,
+        ...(selectedLanguagePair !== 'all' && { language_pair: selectedLanguagePair }),
+        ...(dateRange?.from && { date_from: dateRange.from }),
+        ...(dateRange?.to && { date_to: dateRange.to })
+      });
+
+      const response = await fetch(`${API_BASE_URL}/api/analytics/dashboard/analytics?${params}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-    } catch (error) {
-      console.error('Failed to fetch dashboard data:', error);
+      
+      const data = await response.json();
+      setDashboardData(data);
+    } catch (err) {
+      console.error('Failed to fetch dashboard data:', err);
+      setError('Failed to load dashboard data. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -1383,83 +585,138 @@ export const QualityDashboard: React.FC = () => {
 
   const fetchPostEditData = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/dashboard/post-edit-metrics?languagePair=${languagePair}`);
-      if (response.ok) {
-        const data = await response.json();
-        setPostEditData(data);
+      const params = new URLSearchParams({
+        ...(selectedLanguagePair !== 'all' && { language_pair: selectedLanguagePair }),
+        ...(dateRange?.from && { date_from: dateRange.from }),
+        ...(dateRange?.to && { date_to: dateRange.to })
+      });
+
+      const response = await fetch(`${API_BASE_URL}/api/analytics/dashboard/post-edit-metrics?${params}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-    } catch (error) {
-      console.error('Failed to fetch post-edit data:', error);
+      
+      const data = await response.json();
+      setPostEditData(data);
+    } catch (err) {
+      console.error('Failed to fetch post-edit data:', err);
     }
   };
 
   const fetchTranslatorImpactData = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/dashboard/translator-impact?languagePair=${languagePair}`);
-      if (response.ok) {
-        const data = await response.json();
-        setTranslatorImpactData(data);
+      const params = new URLSearchParams({
+        ...(selectedLanguagePair !== 'all' && { language_pair: selectedLanguagePair })
+      });
+
+      const response = await fetch(`${API_BASE_URL}/api/analytics/dashboard/translator-impact?${params}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-    } catch (error) {
-      console.error('Failed to fetch translator impact data:', error);
+      
+      const data = await response.json();
+      setTranslatorImpactData(data);
+    } catch (err) {
+      console.error('Failed to fetch translator impact data:', err);
     }
   };
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await fetchDashboardData();
-    await fetchPostEditData();
-    await fetchTranslatorImpactData();
-    setRefreshing(false);
+  // UPDATED: useEffect with new dependencies
+  useEffect(() => {
+    fetchDashboardData();
+    fetchPostEditData();
+    fetchTranslatorImpactData();
+  }, [chartGroupBy, selectedLanguagePair, dateRange]);
+
+  const getEditTypeBadge = (editType: string) => {
+    const variants = {
+      minor: 'default',
+      moderate: 'secondary',
+      major: 'destructive'
+    } as const;
+    
+    return <Badge variant={variants[editType as keyof typeof variants] || 'outline'}>{editType}</Badge>;
+  };
+
+  const getSeverityBadge = (severity: string) => {
+    const variants = {
+      LOW: 'default',
+      MEDIUM: 'secondary',
+      HIGH: 'destructive',
+      CRITICAL: 'destructive'
+    } as const;
+    
+    return <Badge variant={variants[severity as keyof typeof variants] || 'outline'}>{severity}</Badge>;
+  };
+
+  // Removed getHealthBadge as it's replaced by the Circle icon directly
+
+  const handleComparisonClick = (comparison: TranslationComparisonEntry) => {
+    setSelectedComparison(comparison);
+    setIsComparisonModalOpen(true);
+  };
+
+  const formatPercentage = (value: number) => {
+    return `${(value * 100).toFixed(1)}%`;
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString();
+  };
+
+  const formatTime = (timeMs: number) => {
+    return `${timeMs.toFixed(0)}ms`;
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4" />
-          <p>Loading dashboard data...</p>
+      <div className="container mx-auto p-6">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4" />
+            <p>Loading dashboard data...</p>
+          </div>
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto p-6">
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2">
+              <AlertTriangle className="h-5 w-5 text-red-600" />
+              <p className="text-red-800">{error}</p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   if (!dashboardData) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <AlertTriangle className="h-8 w-8 mx-auto mb-4 text-yellow-500" />
-          <p>No data available</p>
-          <Button onClick={handleRefresh} className="mt-2">
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Retry
-          </Button>
-        </div>
+      <div className="container mx-auto p-6">
+        <Card>
+          <CardContent className="pt-6">
+            <p>No data available</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto p-6">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
+    <div className="container mx-auto p-6 space-y-6">
+      <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Quality Dashboard</h1>
-        <div className="flex gap-4">
-          <Select value={languagePair} onValueChange={setLanguagePair}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Language Pair" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Language Pairs</SelectItem>
-              <SelectItem value="en-jp">EN → JP</SelectItem>
-              <SelectItem value="jp-en">JP → EN</SelectItem>
-              <SelectItem value="en-fr">EN → FR</SelectItem>
-              <SelectItem value="fr-en">FR → EN</SelectItem>
-              <SelectItem value="jp-fr">JP → FR</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button onClick={handleRefresh} disabled={refreshing}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+        <div className="flex space-x-2">
+          <Button onClick={fetchDashboardData} variant="outline">
+            <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>
           <Button variant="outline">
@@ -1469,118 +726,1105 @@ export const QualityDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Dashboard Content */}
-      <Tabs defaultValue="quality" className="w-full">
+      <Tabs defaultValue="performance" className="space-y-6">
         <TabsList className="grid w-full grid-cols-7">
-          <TabsTrigger value="performance">🚀 Performance</TabsTrigger>
-          <TabsTrigger value="preferences">👍 Preferences</TabsTrigger>
-          <TabsTrigger value="annotations">🐛 Annotations</TabsTrigger>
-          <TabsTrigger value="multi-engine">⚖️ Multi-Engine</TabsTrigger>
-          <TabsTrigger value="quality">🔬 Quality</TabsTrigger>
-          <TabsTrigger value="operations">🧰 Operations</TabsTrigger>
-          <TabsTrigger value="translator-impact">👨‍💻 Translator Impact</TabsTrigger> {/* Renamed tab */}
+          <TabsTrigger value="performance">Performance</TabsTrigger>
+          <TabsTrigger value="preferences">Preferences</TabsTrigger>
+          <TabsTrigger value="annotations">Annotations</TabsTrigger>
+          <TabsTrigger value="multi-engine">Multi-Engine</TabsTrigger>
+          <TabsTrigger value="quality-scores">Quality Scores</TabsTrigger>
+          <TabsTrigger value="operational">Operational</TabsTrigger>
+          <TabsTrigger value="translator-impact">Translator Impact</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="performance" className="space-y-4">
-          <ModelLeaderboard data={dashboardData.modelPerformance.leaderboard} />
-          {/* Performance Over Time chart now occupies full width */}
-          <PerformanceOverTime data={dashboardData.modelPerformance.performanceOverTime} />
-        </TabsContent>
+        {/* UPDATED: Performance Tab with new functionality */}
+        <TabsContent value="performance" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Model Performance Comparison</CardTitle>
+              <CardDescription>
+                Compare TER, BLEU, and COMET scores across models or language pairs
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ModelPerformanceControls
+                chartGroupBy={chartGroupBy}
+                setChartGroupBy={setChartGroupBy}
+                selectedLanguagePair={selectedLanguagePair}
+                setSelectedLanguagePair={setSelectedLanguagePair}
+                onRefresh={fetchDashboardData}
+              />
+              
+              {dashboardData.modelPerformance.leaderboard.length > 0 ? (
+                <MultiMetricChart data={dashboardData.modelPerformance.leaderboard} />
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  No performance data available for the selected criteria
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-        <TabsContent value="preferences" className="space-y-4">
-          {/* Engine Preference Analysis now shows two charts side-by-side */}
-          <EnginePreferenceAnalysis data={dashboardData.humanPreferences.enginePreferences} />
-          <ReviewerBehaviorDashboard data={dashboardData.humanPreferences.reviewerBehavior} />
-        </TabsContent>
-
-        <TabsContent value="annotations" className="space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4"> {/* Side-by-side layout */}
-            <ErrorHeatmap data={dashboardData.annotations.errorHeatmap} />
-            <SeverityBreakdown data={dashboardData.annotations.severityBreakdown} />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="multi-engine" className="space-y-4">
-          <MultiEngineSelectionTrends data={dashboardData.multiEngine.selectionTrends} />
-        </TabsContent>
-
-        <TabsContent value="quality" className="space-y-4">
-          {postEditData && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4"> {/* Side-by-side layout */}
-              <PostEditMetricsByLanguagePair data={postEditData.languagePairMetrics} />
-              <QualityCorrelationMatrix data={postEditData.correlationMatrix} />
-            </div>
+          {/* Performance Over Time */}
+          {dashboardData.modelPerformance.performanceOverTime.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Performance Trends Over Time</CardTitle>
+                <CardDescription>Quality metrics trends across different time periods</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ChartContainer config={performanceChartConfig} className="h-[400px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={dashboardData.modelPerformance.performanceOverTime}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" />
+                      <YAxis domain={[0, 100]} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Area type="monotone" dataKey="bleuScore" stackId="1" stroke="var(--color-bleuScore)" fill="var(--color-bleuScore)" />
+                      <Area type="monotone" dataKey="cometScore" stackId="1" stroke="var(--color-cometScore)" fill="var(--color-cometScore)" />
+                      <Area type="monotone" dataKey="metricXScore" stackId="1" stroke="var(--color-metricXScore)" fill="var(--color-metricXScore)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              </CardContent>
+            </Card>
           )}
-          <EvaluationModeComparison data={dashboardData.qualityScores.evaluationModes} />
+
+          {/* Model Performance Leaderboard Table */}
+          {dashboardData.modelPerformance.leaderboard.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Model Performance Leaderboard</CardTitle>
+                <CardDescription>Detailed performance metrics by model</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md border">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-3 text-left">Model</th>
+                        <th className="p-3 text-left">Engine Type</th>
+                        <th className="p-3 text-left">BLEU Score</th>
+                        <th className="p-3 text-left">COMET Score</th>
+                        <th className="p-3 text-left">TER Score</th>
+                        <th className="p-3 text-left">MetricX Score</th>
+                        <th className="p-3 text-left">Total Translations</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dashboardData.modelPerformance.leaderboard.map((item, index) => (
+                        <tr key={index} className="border-b hover:bg-muted/30">
+                          <td className="p-3 font-medium">{item.name || item.model}</td>
+                          <td className="p-3">{item.engineType}</td>
+                          <td className="p-3">{formatPercentage(item.avgBleu / 100)}</td>
+                          <td className="p-3">{formatPercentage(item.avgComet / 100)}</td>
+                          <td className="p-3">{formatPercentage(item.avgTer / 100)}</td>
+                          <td className="p-3">{item.avgMetricX.toFixed(2)}</td>
+                          <td className="p-3">{item.totalTranslations}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Post-Edit Metrics */}
+          {postEditData && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Post-Edit Quality Metrics</CardTitle>
+                <CardDescription>
+                  Quality metrics based on human post-editing ({postEditData.totalPostEdits} post-edits)
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ChartContainer config={postEditChartConfig} className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={postEditData.languagePairMetrics}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="languagePair" />
+                      <YAxis domain={[0, 100]} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Bar dataKey="avgBleu" fill="var(--color-avgBleu)" name="BLEU Score (%)" />
+                      <Bar dataKey="avgComet" fill="var(--color-avgComet)" name="COMET Score (%)" />
+                      <Bar dataKey="avgTer" fill="var(--color-avgTer)" name="TER Score (%)" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Correlation Matrix */}
+          {postEditData && postEditData.correlationMatrix.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Metric Correlation Matrix</CardTitle>
+                <CardDescription>Correlation between different quality metrics</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {postEditData.correlationMatrix.map((item, index) => (
+                    <div key={index} className="p-4 border rounded-lg text-center">
+                      <div className="text-sm font-medium text-muted-foreground">
+                        {item.metric1} vs {item.metric2}
+                      </div>
+                      <div className="text-2xl font-bold mt-2">
+                        {item.correlation.toFixed(3)}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        p-value: {item.pValue.toFixed(3)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
-        <TabsContent value="operations" className="space-y-4">
-          {/* Processing Time Analysis now shows three charts side-by-side */}
-          <ProcessingTimeAnalysis data={dashboardData.operational.processingTimes} />
-          <SystemHealthOverview data={dashboardData.operational.systemHealth} />
-        </TabsContent>
+        {/* Preferences Tab */}
+        <TabsContent value="preferences" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Engine Preferences</CardTitle>
+              <CardDescription>User preferences and ratings by engine type</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={preferenceChartConfig} className="h-[400px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dashboardData.humanPreferences.enginePreferences.slice(0, 15)}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="engine" angle={-45} textAnchor="end" height={100} />
+                    <YAxis />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar dataKey="selectionCount" fill="var(--color-selections)" name="Selection Count" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartContainer>
+            </CardContent>
+          </Card>
 
-        <TabsContent value="translator-impact" className="space-y-6"> {/* Updated tab value */}
-          <div className="flex justify-between items-center">
-            <div>
-              <h3 className="text-lg font-semibold">Translator Impact Analysis</h3>
-              <p className="text-sm text-muted-foreground">
-                Compare machine translations with human-edited versions to measure translator impact
-              </p>
-            </div>
-            <Button variant="outline" onClick={fetchTranslatorImpactData}>
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Refresh
-            </Button>
-          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Preference Reasons</CardTitle>
+              <CardDescription>Why users prefer certain engines</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={preferenceChartConfig} className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dashboardData.humanPreferences.preferenceReasons}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="reason" />
+                    <YAxis />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar dataKey="count" fill="var(--color-selections)" name="Count" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartContainer>
+            </CardContent>
+          </Card>
 
-          {translatorImpactData && (
-            <>
-              {/* Summary Cards spread across 4 columns, but now use flex-wrap for better responsiveness */}
-              <div className="flex flex-wrap justify-center md:justify-start gap-4 mb-6"> 
-                <TranslatorImpactSummary data={translatorImpactData.summary} />
+          {/* Engine Preferences Table */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Detailed Engine Preferences</CardTitle>
+              <CardDescription>Comprehensive breakdown of engine preferences by language pair</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-md border">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="p-3 text-left">Engine</th>
+                      <th className="p-3 text-left">Language Pair</th>
+                      <th className="p-3 text-left">Selections</th>
+                      <th className="p-3 text-left">Avg Rating</th>
+                      <th className="p-3 text-left">Preference Reason</th>
+                      <th className="p-3 text-left">Satisfaction</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dashboardData.humanPreferences.enginePreferences.slice(0, 20).map((item, index) => (
+                      <tr key={index} className="border-b hover:bg-muted/30">
+                        <td className="p-3 font-medium">{item.engine}</td>
+                        <td className="p-3">{item.languagePair}</td>
+                        <td className="p-3">{item.selectionCount}</td>
+                        <td className="p-3">{item.avgRating.toFixed(2)}</td>
+                        <td className="p-3">{item.preferenceReason}</td>
+                        <td className="p-3">{item.overallSatisfaction.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
+            </CardContent>
+          </Card>
 
-              {/* Translation Comparisons Table (full width) */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Translation History</CardTitle>
-                  <CardDescription>
-                    Browse and compare all MT vs human-edited translations
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <TranslatorImpactTable 
-                    data={translatorImpactData.comparisons}
-                    onRowSelect={setSelectedComparison}
-                  />
-                </CardContent>
-              </Card>
+          {/* Reviewer Behavior */}
+          {dashboardData.humanPreferences.reviewerBehavior.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Reviewer Behavior Analysis</CardTitle>
+                <CardDescription>Analysis of reviewer patterns and expertise levels</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {dashboardData.humanPreferences.reviewerBehavior.map((item, index) => (
+                    <div key={index} className="p-4 border rounded-lg">
+                      <div className="text-sm font-medium text-muted-foreground">
+                        {item.reviewerExpertise}
+                      </div>
+                      <div className="mt-2 space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-sm">Avg Review Time:</span>
+                          <span className="text-sm font-medium">{item.avgTimeToReview.toFixed(1)}min</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm">Cognitive Load:</span>
+                          <span className="text-sm font-medium">{item.avgCognitiveLoad.toFixed(1)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm">Approval Type:</span>
+                          <span className="text-sm font-medium">{item.approvalType}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm">Count:</span>
+                          <span className="text-sm font-medium">{item.count}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
 
-              {/* Selected Comparison Viewer (Modal - only appears on click) */}
-              <Dialog open={!!selectedComparison} onOpenChange={(open) => !open && setSelectedComparison(null)}>
-                {/* Max-width set to a larger size, e.g., 6xl or 7xl, and ensure overflow is handled */}
-                <DialogContent className="max-w-6xl p-6 overflow-auto"> 
-                  <DialogHeader>
-                    <DialogTitle>Translation Comparison</DialogTitle>
-                    <DialogDescription>
-                      {selectedComparison?.languagePair} • {selectedComparison?.jobName} • 
-                      Improvement: +{(selectedComparison?.improvementScore ?? 0 * 100).toFixed(1)}%
-                    </DialogDescription>
-                  </DialogHeader>
-                  {selectedComparison && (
-                    <TranslationComparison
-                      originalMT={selectedComparison.originalMT}
-                      humanEdited={selectedComparison.humanEdited}
-                      sourceText={selectedComparison.sourceText}
-                    />
-                  )}
-                </DialogContent>
-              </Dialog>
-            </>
+        {/* Annotations Tab */}
+        <TabsContent value="annotations" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Error Severity Distribution</CardTitle>
+              <CardDescription>Distribution of annotation severities across all models</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={severityChartConfig} className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dashboardData.annotations.severityBreakdown}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="severity" />
+                    <YAxis />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar dataKey="count" fill="var(--color-count)" name="Count">
+                      <LabelList dataKey="count" position="top" />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Error Heatmap</CardTitle>
+              <CardDescription>Error distribution by model and category</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {dashboardData.annotations.errorHeatmap.length > 0 ? (
+                  <div className="rounded-md border">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="p-3 text-left">Model</th>
+                          <th className="p-3 text-left">Category</th>
+                          <th className="p-3 text-left">Error Type</th>
+                          <th className="p-3 text-left">Severity</th>
+                          <th className="p-3 text-left">Count</th>
+                          <th className="p-3 text-left">Pain Index</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dashboardData.annotations.errorHeatmap.slice(0, 20).map((item, index) => (
+                          <tr key={index} className="border-b hover:bg-muted/30">
+                            <td className="p-3 font-medium">{item.model}</td>
+                            <td className="p-3">{item.category}</td>
+                            <td className="p-3">{item.errorType}</td>
+                            <td className="p-3">{getSeverityBadge(item.severity)}</td>
+                            <td className="p-3">{item.count}</td>
+                            <td className="p-3 font-medium">{item.painIndex}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No error heatmap data available
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Pain Index Chart */}
+          {dashboardData.annotations.errorHeatmap.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Pain Index by Model</CardTitle>
+                <CardDescription>Aggregated pain index showing most problematic models</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ChartContainer config={errorHeatmapChartConfig} className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={dashboardData.annotations.errorHeatmap.slice(0, 10)}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="model" angle={-45} textAnchor="end" height={100} />
+                      <YAxis />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Bar dataKey="painIndex" fill="var(--color-painIndex)" name="Pain Index" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Span Analysis */}
+          {dashboardData.annotations.spanAnalysis.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Span Analysis</CardTitle>
+                <CardDescription>Detailed analysis of annotation spans and suggested fixes</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {dashboardData.annotations.spanAnalysis.slice(0, 10).map((item, index) => (
+                    <div key={index} className="p-4 border rounded-lg">
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="text-sm font-medium">Span ID: {item.id}</div>
+                        <Badge variant="outline">{item.category}</Badge>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-muted-foreground">Source Span:</span>
+                          <span className="ml-2">{item.sourceSpan.start}-{item.sourceSpan.end}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Target Span:</span>
+                          <span className="ml-2">{item.targetSpan.start}-{item.targetSpan.end}</span>
+                        </div>
+                      </div>
+                      <div className="mt-2">
+                        <div className="text-sm text-muted-foreground">Suggested Fix:</div>
+                        <div className="text-sm mt-1">{item.suggestedFix}</div>
+                      </div>
+                      <div className="mt-2 flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">Confidence:</span>
+                        <span className="text-sm font-medium">{formatPercentage(item.confidence)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* Multi-Engine Tab */}
+        <TabsContent value="multi-engine" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Multi-Engine Selection Trends</CardTitle>
+              <CardDescription>Selection trends data visualization</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {dashboardData.multiEngine.selectionTrends.length > 0 ? (
+                <ChartContainer config={performanceChartConfig} className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={dashboardData.multiEngine.selectionTrends}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" />
+                      <YAxis />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Area type="monotone" dataKey="count" stroke="var(--color-bleuScore)" fill="var(--color-bleuScore)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  No multi-engine selection data available
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Pivot Quality Analysis</CardTitle>
+              <CardDescription>Quality comparison between direct and pivot translations</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {dashboardData.multiEngine.pivotQuality.length > 0 ? (
+                <ChartContainer config={performanceChartConfig} className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={dashboardData.multiEngine.pivotQuality}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="modelCombination" angle={-45} textAnchor="end" height={100} />
+                      <YAxis />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Bar dataKey="directQuality" fill="var(--color-bleuScore)" name="Direct Quality" />
+                      <Bar dataKey="pivotQuality" fill="var(--color-cometScore)" name="Pivot Quality" />
+                      <Bar dataKey="intermediateQuality" fill="var(--color-metricXScore)" name="Intermediate Quality" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  No pivot quality data available
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Inter-Rater Agreement */}
+          {dashboardData.multiEngine.interRaterAgreement.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Inter-Rater Agreement</CardTitle>
+                <CardDescription>Agreement levels between different annotators</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {dashboardData.multiEngine.interRaterAgreement.map((item, index) => (
+                    <div key={index} className="p-4 border rounded-lg text-center">
+                      <div className="text-sm font-medium text-muted-foreground">
+                        {item.annotatorPair}
+                      </div>
+                      <div className="text-2xl font-bold mt-2">
+                        {formatPercentage(item.agreement)}
+                      </div>
+                      <div className="text-sm text-muted-foreground mt-1">
+                        {item.category}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Selection Trends Table */}
+          {dashboardData.multiEngine.selectionTrends.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Selection Trends Details</CardTitle>
+                <CardDescription>Detailed breakdown of multi-engine selection patterns</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md border">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-3 text-left">Date</th>
+                        <th className="p-3 text-left">Selection Method</th>
+                        <th className="p-3 text-left">Model Combination</th>
+                        <th className="p-3 text-left">Count</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dashboardData.multiEngine.selectionTrends.map((item, index) => (
+                        <tr key={index} className="border-b hover:bg-muted/30">
+                          <td className="p-3">{formatDate(item.date)}</td>
+                          <td className="p-3">{item.selectionMethod}</td>
+                          <td className="p-3">{item.modelCombination}</td>
+                          <td className="p-3 font-medium">{item.count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* Quality Scores Tab */}
+        <TabsContent value="quality-scores" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Evaluation Mode Comparison</CardTitle>
+              <CardDescription>Evaluation mode comparison visualization</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {dashboardData.qualityScores.evaluationModes.length > 0 ? (
+                <ChartContainer config={performanceChartConfig} className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={dashboardData.qualityScores.evaluationModes}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="mode" />
+                      <YAxis />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Bar dataKey="avgScore" fill="var(--color-cometScore)" name="Average Score" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  No quality score data available
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Score Distribution</CardTitle>
+              <CardDescription>Distribution of quality scores across different metrics</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {dashboardData.qualityScores.scoreDistribution.length > 0 ? (
+                <ChartContainer config={performanceChartConfig} className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={dashboardData.qualityScores.scoreDistribution}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="scoreRange" />
+                      <YAxis />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Bar dataKey="count" fill="var(--color-metricXScore)" name="Count" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  No score distribution data available
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Correlation Matrix */}
+          {dashboardData.qualityScores.correlationMatrix.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Quality Metric Correlations</CardTitle>
+                <CardDescription>Correlation analysis between different quality metrics</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {dashboardData.qualityScores.correlationMatrix.map((item, index) => (
+                    <div key={index} className="p-4 border rounded-lg text-center">
+                      <div className="text-sm font-medium text-muted-foreground">
+                        {item.metric1} vs {item.metric2}
+                      </div>
+                      <div className="text-2xl font-bold mt-2">
+                        {item.correlation.toFixed(3)}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        p-value: {item.pValue.toFixed(3)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Evaluation Modes Details */}
+          {dashboardData.qualityScores.evaluationModes.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Evaluation Mode Details</CardTitle>
+                <CardDescription>Detailed breakdown of evaluation modes and their performance</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md border">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-3 text-left">Mode</th>
+                        <th className="p-3 text-left">Average Score</th>
+                        <th className="p-3 text-left">Confidence</th>
+                        <th className="p-3 text-left">Count</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dashboardData.qualityScores.evaluationModes.map((item, index) => (
+                        <tr key={index} className="border-b hover:bg-muted/30">
+                          <td className="p-3 font-medium">{item.mode}</td>
+                          <td className="p-3">{item.avgScore.toFixed(3)}</td>
+                          <td className="p-3">{formatPercentage(item.confidence)}</td>
+                          <td className="p-3">{item.count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* Operational Tab */}
+        <TabsContent value="operational" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Processing Times</CardTitle>
+              <CardDescription>Average processing times by model and engine type</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={processingChartConfig} className="h-[400px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dashboardData.operational.processingTimes}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="model" angle={-45} textAnchor="end" height={100} />
+                    <YAxis />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar dataKey="avgProcessingTime" fill="var(--color-avgProcessingTime)" name="Avg Processing Time (ms)" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>System Health</CardTitle>
+              <CardDescription>Model availability and performance status</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {dashboardData.operational.systemHealth.length > 0 ? (
+                <div className="space-y-4">
+                  <div className="rounded-md border">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="p-3 text-left">Model</th>
+                          <th className="p-3 text-left">Status</th>
+                          <th className="p-3 text-left">Last Used</th>
+                          <th className="p-3 text-left">Total Translations</th>
+                          <th className="p-3 text-left">Avg Processing Time</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dashboardData.operational.systemHealth.map((item, index) => (
+                          <tr key={index} className="border-b hover:bg-muted/30">
+                            <td className="p-3 font-medium flex items-center">
+                              {/* Red/Green Lamp */}
+                              <Circle
+                                className={`h-3 w-3 mr-2 ${
+                                  item.isActive ? 'text-green-500 fill-green-500' : 'text-red-500 fill-red-500'
+                                }`}
+                                fill="currentColor" // Ensures the circle is filled with the color
+                              />
+                              {item.model}
+                            </td>
+                            <td className="p-3">
+                               {item.isActive ? 'Active' : 'Inactive'} {/* Show text status */}
+                            </td>
+                            <td className="p-3">{formatDate(item.lastUsed)}</td>
+                            <td className="p-3">{item.totalTranslations}</td>
+                            <td className="p-3">{formatTime(item.avgProcessingTime)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  No system health data available
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Model Utilization */}
+          {dashboardData.operational.modelUtilization.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Model Utilization</CardTitle>
+                <CardDescription>Model usage patterns and efficiency metrics</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ChartContainer config={utilizationChartConfig} className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={dashboardData.operational.modelUtilization}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="model" angle={-45} textAnchor="end" height={100} />
+                      <YAxis domain={[0, 100]} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Bar dataKey="utilizationRate" fill="var(--color-utilizationRate)" name="Utilization Rate (%)" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Processing Times Details */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Processing Time Details</CardTitle>
+              <CardDescription>Detailed breakdown of processing times by model and word count</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-md border">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="p-3 text-left">Model</th>
+                      <th className="p-3 text-left">Engine Type</th>
+                      <th className="p-3 text-left">Word Count Bucket</th>
+                      <th className="p-3 text-left">Avg Processing Time</th>
+                      <th className="p-3 text-left">Count</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dashboardData.operational.processingTimes.map((item, index) => (
+                      <tr key={index} className="border-b hover:bg-muted/30">
+                        <td className="p-3 font-medium">{item.model}</td>
+                        <td className="p-3">{item.engineType}</td>
+                        <td className="p-3">{item.wordCountBucket}</td>
+                        <td className="p-3">{formatTime(item.avgProcessingTime)}</td>
+                        <td className="p-3">{item.count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Model Utilization Details */}
+          {dashboardData.operational.modelUtilization.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Model Utilization Details</CardTitle>
+                <CardDescription>Detailed breakdown of model usage patterns and efficiency</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md border">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-3 text-left">Model</th>
+                        <th className="p-3 text-left">Utilization Rate</th>
+                        <th className="p-3 text-left">Idle Days</th>
+                        <th className="p-3 text-left">Needs Update</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dashboardData.operational.modelUtilization.map((item, index) => (
+                        <tr key={index} className="border-b hover:bg-muted/30">
+                          <td className="p-3 font-medium">{item.model}</td>
+                          <td className="p-3">{formatPercentage(item.utilizationRate / 100)}</td>
+                          <td className="p-3">{item.idleDays} days</td>
+                          <td className="p-3">
+                            <Badge variant={item.needsUpdate ? 'destructive' : 'default'}>
+                              {item.needsUpdate ? 'Update Required' : 'Up to Date'}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* Translator Impact Tab */}
+        <TabsContent value="translator-impact" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Translator Impact Analysis</CardTitle>
+              <CardDescription>
+                Compare machine translations with human-edited versions to measure translator impact
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {translatorImpactData && translatorImpactData.comparisons.length > 0 ? (
+                <div className="space-y-4">
+                  <div className="rounded-md border">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="p-3 text-left">Source Text</th>
+                          <th className="p-3 text-left">Language</th>
+                          <th className="p-3 text-left">Job</th>
+                          <th className="p-3 text-left">Edit Type</th>
+                          <th className="p-3 text-left">Improvement</th>
+                          <th className="p-3 text-left">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {translatorImpactData.comparisons.slice(0, 20).map((item) => (
+                          <tr key={item.id} className="border-b hover:bg-muted/30">
+                            <td className="p-3 max-w-xs truncate">{item.sourceText}</td>
+                            <td className="p-3">{item.languagePair}</td>
+                            <td className="p-3">{item.jobName}</td>
+                            <td className="p-3">{getEditTypeBadge(item.editType)}</td>
+                            <td className="p-3">+{(item.improvementScore * 100).toFixed(1)}%</td>
+                            <td className="p-3">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleComparisonClick(item)}
+                              >
+                                View Diff
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  No translator impact data available
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Translator Summary */}
+          {translatorImpactData && translatorImpactData.summary.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Translator Summary</CardTitle>
+                <CardDescription>Summary statistics by translator</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md border">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-3 text-left">Translator ID</th>
+                        <th className="p-3 text-left">Total Edits</th>
+                        <th className="p-3 text-left">Avg Improvement</th>
+                        <th className="p-3 text-left">Avg Edit Distance</th>
+                        <th className="p-3 text-left">Language Pairs</th>
+                        <th className="p-3 text-left">Edit Distribution</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {translatorImpactData.summary.map((item) => (
+                        <tr key={item.translatorId} className="border-b hover:bg-muted/30">
+                          <td className="p-3 font-medium">{item.translatorId}</td>
+                          <td className="p-3">{item.totalEdits}</td>
+                          <td className="p-3">+{(item.avgImprovementScore * 100).toFixed(1)}%</td>
+                          <td className="p-3">{item.avgEditDistance.toFixed(1)}</td>
+                          <td className="p-3">{item.languagePairs.join(', ')}</td>
+                          <td className="p-3">
+                            <div className="flex space-x-1">
+                              <Badge variant="default">{item.editTypes.minor} minor</Badge>
+                              <Badge variant="secondary">{item.editTypes.moderate} moderate</Badge>
+                              <Badge variant="destructive">{item.editTypes.major} major</Badge>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Translation Impact Chart */}
+          {editTypeChartData.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Translation Impact by Edit Type</CardTitle>
+                <CardDescription>Distribution of edit types and their impact on quality</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ChartContainer config={preferenceChartConfig} className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={editTypeChartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="editType" />
+                      <YAxis />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Bar dataKey="count" fill="var(--color-selections)" name="Count" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+          )}
+          {editTypeChartData.length === 0 && (
+            <Card>
+              <CardContent className="text-center py-8 text-muted-foreground">
+                No translation impact chart data available
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* TM & Glossary Tab */}
+        <TabsContent value="tm-glossary" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Translation Memory Impact</CardTitle>
+              <CardDescription>Impact of translation memory matches on quality and efficiency</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {dashboardData.tmGlossary.tmImpact.length > 0 ? (
+                <ChartContainer config={tmImpactChartConfig} className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={dashboardData.tmGlossary.tmImpact}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="matchPercentage" />
+                      <YAxis />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Bar dataKey="avgQualityScore" fill="var(--color-avgQualityScore)" name="Quality Score" />
+                      <Bar dataKey="timeSaved" fill="var(--color-timeSaved)" name="Time Saved (min)" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  No translation memory impact data available
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Glossary Usage */}
+          {dashboardData.tmGlossary.glossaryUsage.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Glossary Usage Analysis</CardTitle>
+                <CardDescription>Analysis of glossary term usage and impact on translation quality</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md border">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-3 text-left">Term</th>
+                        <th className="p-3 text-left">Usage Count</th>
+                        <th className="p-3 text-left">Override Rate</th>
+                        <th className="p-3 text-left">Quality Impact</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dashboardData.tmGlossary.glossaryUsage.slice(0, 20).map((item, index) => (
+                        <tr key={index} className="border-b hover:bg-muted/30">
+                          <td className="p-3 font-medium">{item.term}</td>
+                          <td className="p-3">{item.usageCount}</td>
+                          <td className="p-3">{formatPercentage(item.overrideRate)}</td>
+                          <td className="p-3">{item.qualityImpact.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Term Overrides */}
+          {dashboardData.tmGlossary.termOverrides.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Term Override Analysis</CardTitle>
+                <CardDescription>Analysis of glossary term overrides and their impact</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md border">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-3 text-left">Term</th>
+                        <th className="p-3 text-left">Original Translation</th>
+                        <th className="p-3 text-left">Override Translation</th>
+                        <th className="p-3 text-left">Frequency</th>
+                        <th className="p-3 text-left">Quality Delta</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dashboardData.tmGlossary.termOverrides.slice(0, 15).map((item, index) => (
+                        <tr key={index} className="border-b hover:bg-muted/30">
+                          <td className="p-3 font-medium">{item.term}</td>
+                          <td className="p-3 max-w-xs truncate">{item.originalTranslation}</td>
+                          <td className="p-3 max-w-xs truncate">{item.overrideTranslation}</td>
+                          <td className="p-3">{item.frequency}</td>
+                          <td className="p-3">
+                            <span className={item.qualityDelta >= 0 ? 'text-green-600' : 'text-red-600'}>
+                              {item.qualityDelta >= 0 ? '+' : ''}{item.qualityDelta.toFixed(2)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* TM Impact Details */}
+          {dashboardData.tmGlossary.tmImpact.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Translation Memory Impact Details</CardTitle>
+                <CardDescription>Detailed breakdown of TM match impact on quality and efficiency</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md border">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-3 text-left">Match Percentage</th>
+                        <th className="p-3 text-left">Avg Quality Score</th>
+                        <th className="p-3 text-left">Time Saved (min)</th>
+                        <th className="p-3 text-left">Approval Rate</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dashboardData.tmGlossary.tmImpact.map((item, index) => (
+                        <tr key={index} className="border-b hover:bg-muted/30">
+                          <td className="p-3 font-medium">{item.matchPercentage}</td>
+                          <td className="p-3">{item.avgQualityScore.toFixed(2)}</td>
+                          <td className="p-3">{item.timeSaved.toFixed(1)}</td>
+                          <td className="p-3">{formatPercentage(item.approvalRate)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Comparison Modal */}
+      <Dialog open={isComparisonModalOpen} onOpenChange={setIsComparisonModalOpen}>
+        <DialogContent className="max-w-none w-auto h-auto">
+          <DialogHeader>
+            <DialogTitle>Translation Comparison</DialogTitle>
+            <DialogDescription>
+              Compare machine translation with human-edited version
+            </DialogDescription>
+          </DialogHeader>
+          {selectedComparison && (
+            <TranslationComparison
+              originalMT={selectedComparison.originalMT}
+              humanEdited={selectedComparison.humanEdited}
+              sourceText={selectedComparison.sourceText}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

@@ -3,6 +3,10 @@
 # =============================================================================
 # Ignore the entire directory containing large ML models
 models/
+model_cache/
+*.ckpt
+*.bin        
+*.safetensors
 
 # Ignore environment files which may contain secrets
 .env
