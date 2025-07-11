@@ -76,8 +76,8 @@ cd hitl-translation
 The backend serves the translation models and the main API.
 
 ```bash
-# Navigate to the backend directory
-cd backend
+# Navigate to the project directory
+/path/to/your/download
 
 # Create a virtual environment
 python -m venv venv
@@ -94,15 +94,12 @@ Edit the `.env` file with your PostgreSQL database connection string and the fol
 
 ```env
 DATABASE_URL="postgresql://user:password@localhost:5432/mydb"
-METRICX_API_URL="http://localhost:8000"
 REACT_APP_API_URL="http://localhost:8001"
 FUZZY_MATCH_THRESHOLD=0.6
 AUTO_TM_CREATION=true
 TRANSFORMERS_CACHE=./models
 HF_HOME=./models
 PYTORCH_TRANSFORMERS_CACHE=./models
-METRICX_MODEL_VARIANT=metricx-24-hybrid
-METRICX_DEVICE=auto
 LOG_LEVEL=INFO
 TRANSFORMERS_TRUST_REMOTE_CODE=1
 ```
@@ -113,13 +110,6 @@ Run the Prisma command to push the schema to your database.
 python -m prisma db push
 ```
 
-**Run the Backend Server:**
-```bash
-cd backend
-uvicorn main:app --host 0.0.0.0 --port 8001 --reload
-```
-The backend API will be available at `http://localhost:8001`.
-
 ## 4. Frontend Setup
 
 The frontend is the Next.js quality dashboard with Shadcn components.
@@ -127,13 +117,14 @@ The frontend is the Next.js quality dashboard with Shadcn components.
 ```bash
 # Install Node.js dependencies
 npm install
-
-# Run the frontend development server
-npm run dev
 ```
 
-The dashboard will start, typically on port `5173`. Check your terminal for the exact URL (e.g., `http://localhost:5173`).
-
+** 5. Run the Front & Backends (using concurrently):**
+```bash
+npm run dev:full
+```
+The backend API will be available at `http://localhost:8001`.
+The frontend, using Next.js and Shadcn components, will be availble typically on port `5173`. Check your terminal for the exact URL (e.g., `http://localhost:5173`).
 
 ---
 
@@ -142,12 +133,6 @@ The dashboard will start, typically on port `5173`. Check your terminal for the 
 The FastAPI backend provides several endpoints for debugging and interacting with the system. View the full, interactive documentation provided by Swagger UI at:
 
 **[http://localhost:8001/docs](http://localhost:8001/docs)**
-
-Key endpoints include:
-
-* `/api/translation-requests`: Create and view translation jobs.
-* `/api/dashboard/post-edit-metrics`: Get aggregated quality metrics for the dashboard.
-* `/api/debug/recalculate-all-metrics`: (POST) A crucial endpoint to force recalculation of all metrics for post-edited strings.
 
 ## Contributing
 
