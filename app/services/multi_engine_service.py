@@ -1,12 +1,12 @@
 import logging
 from typing import Dict, List, Any
 from datetime import datetime
-from app.services.translation_service import TranslationService # Import the actual TranslationService class
+from app.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
 
 class CleanMultiEngineService:
-    def __init__(self, translation_service_instance: TranslationService): # Type hint translation_service_instance
+    def __init__(self, translation_service_instance: TranslationService):
         """Initialize with dependency injection for translation service"""
         self.translation_service = translation_service_instance
         self._is_initialized = False
@@ -22,23 +22,21 @@ class CleanMultiEngineService:
                 },
                 'pivot_strategy': {
                     'pivot_lang': 'en',
-                    'via_models': ['OPUS_JA_EN', 'HELSINKI_EN_FR'], # JP-EN then EN-FR for JP-FR
+                    'via_models': ['OPUS_JA_EN', 'HELSINKI_EN_FR'],
                     'applies_to': ['jp-fr']
                 },
                 'confidence': 0.80
             },
             'elan_quality': {
                 'name': 'ELAN Specialist',
-                'supported_pairs': ['jp-en', 'jp-fr', 'en-fr'], # Added 'en-fr' as it's a common pair, assuming ELAN handles it
+                'supported_pairs': ['jp-en'],  # FIXED: Only Japanese-English
                 'model_mapping': {
-                    'jp-en': 'ELAN_JA_EN',          
-                    'fr-en': 'ELAN_JA_EN',      # This might be a typo in original if ELAN is JP-EN focused
-                    'en-fr': 'ELAN_JA_EN'       # Assuming ELAN can do EN-FR, otherwise remove
+                    'jp-en': 'ELAN_JA_EN'  # FIXED: Only correct mapping
                 },
                 'pivot_strategy': {
                     'pivot_lang': 'en',
-                    'via_models': ['ELAN_JA_EN', 'HELSINKI_EN_FR'], # JP-EN then EN-FR for JP-FR
-                    'applies_to': ['jp-fr']
+                    'via_models': ['ELAN_JA_EN', 'HELSINKI_EN_FR'],
+                    'applies_to': ['jp-fr']  # Keep JP-FR via pivot
                 },
                 'confidence': 0.90
             },
@@ -70,7 +68,7 @@ class CleanMultiEngineService:
         self._is_initialized = True
     
     @property 
-    def is_initialized(self):  # Add this property
+    def is_initialized(self):
         """Check if the service has been properly initialized"""
         return self._is_initialized
         
@@ -111,17 +109,12 @@ class CleanMultiEngineService:
                 translated_text = self.translation_service.translate_by_model_type(
                     text.strip(), 
                     model_to_use, 
-                    source_lang=source_lang.lower(), # Pass raw source lang (e.g., 'en')
-                    target_lang=target_lang.lower(), # Pass raw target lang (e.g., 'jp')
-                    target_lang_tag=prefix_or_lang_tag # Pass for NLLB's specific lang tag or T5's prefix
+                    source_lang=source_lang.lower(),
+                    target_lang=target_lang.lower(),
+                    target_lang_tag=prefix_or_lang_tag
                 )
 
             processing_time = (datetime.now() - start_time).total_seconds() * 1000
-
-            # Assuming detokenize_japanese is in a utility module and imported where needed
-            # from app.utils.text_processing import detokenize_japanese
-            # if target_lang.upper() == 'JP':
-            #     translated_text = detokenize_japanese(translated_text)
 
             return {
                 'engine': engine_id,
@@ -152,13 +145,11 @@ class CleanMultiEngineService:
             first_model, second_model = pivot_models
             
             # For pivot models, we might need to explicitly get target_lang_tag for the pivot step
-            # For example, if first_model is NLLB, its target might be 'eng_Latn'
-            # Look up source-pivot model details from translation_service.language_pair_models
             pivot_lang_code = pivot_strategy['pivot_lang'].lower()
             
             first_model_config = next(
                 (m_info for pair_list in self.translation_service.language_pair_models.values()
-                 for m_info in pair_list if m_info[0] == first_model and pair_list[0][0].split('-')[0].lower() == source_lang.lower()), # Crude check for source part of pair
+                 for m_info in pair_list if m_info[0] == first_model and pair_list[0][0].split('-')[0].lower() == source_lang.lower()),
                 None
             )
             first_model_target_tag = first_model_config[2] if first_model_config and len(first_model_config) > 2 else None
@@ -174,10 +165,10 @@ class CleanMultiEngineService:
             if isinstance(intermediate, str) and "Translation failed" in intermediate:
                 raise Exception(f"Pivot step 1 failed: {intermediate}")
 
-            # Look up pivot-target model details from translation_service.language_pair_models
+            # Look up pivot-target model details
             second_model_config = next(
                 (m_info for pair_list in self.translation_service.language_pair_models.values()
-                 for m_info in pair_list if m_info[0] == second_model and pair_list[0][0].split('-')[0].lower() == pivot_lang_code), # Crude check for source part of pair
+                 for m_info in pair_list if m_info[0] == second_model and pair_list[0][0].split('-')[0].lower() == pivot_lang_code),
                 None
             )
             second_model_target_tag = second_model_config[2] if second_model_config and len(second_model_config) > 2 else None
@@ -205,7 +196,7 @@ class CleanMultiEngineService:
         
         for engine_id, config in self.engine_configs.items():
             # Check if model paths exist for direct models for this specific pair
-            model_key = config['model_mapping'].get(pair) # Get model_key specific to this pair from engine_config
+            model_key = config['model_mapping'].get(pair)
             model_path_exists = False
             if model_key:
                 # Check actual model path existence from translation_service.model_paths
@@ -215,16 +206,16 @@ class CleanMultiEngineService:
             # Special handling for pivots
             is_pivot_available = self._can_handle_via_pivot(config, source_lang, target_lang)
             if is_pivot_available:
-                 # Check if the underlying pivot models themselves are available in translation_service.model_paths
+                 # Check if the underlying pivot models themselves are available
                  pivot_strategy = config['pivot_strategy']
                  model1_available = pivot_strategy['via_models'][0] in self.translation_service.model_paths and \
                                     self.translation_service.model_paths[pivot_strategy['via_models'][0]][0] is not None
                  model2_available = pivot_strategy['via_models'][1] in self.translation_service.model_paths and \
                                     self.translation_service.model_paths[pivot_strategy['via_models'][1]][0] is not None
                  if not (model1_available and model2_available):
-                     is_pivot_available = False # Mark pivot as not available if its underlying models aren't
+                     is_pivot_available = False
             
-            # An engine is available if it supports the pair AND its model path exists, OR it's a valid pivot.
+            # An engine is available if it supports the pair AND its model path exists, OR it's a valid pivot
             if (pair in config['supported_pairs'] and model_path_exists) or is_pivot_available:
                 available.append(engine_id)
         
@@ -280,7 +271,7 @@ class CleanMultiEngineService:
             task = self.translate_with_engine(text, source_lang, target_lang, engine)
             tasks.append(task)
 
-        import asyncio # Ensure asyncio is imported
+        import asyncio
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         final_results = []

@@ -17,41 +17,41 @@ class TranslationService:
         logger.info(f"TranslationService initialized. Using device: {self.device}")
 
         self.model_paths = {
-            'HELSINKI_EN_FR': ('Helsinki-NLP_opus-mt-en-fr', None), 
-            'HELSINKI_FR_EN': ('Helsinki-NLP_opus-mt-fr-en', None), 
-            'HELSINKI_EN_JP': ('Helsinki-NLP_opus-mt-en-jap', None), 
-            'OPUS_JA_EN': ('opus-mt-ja-en', None), 
-            'ELAN_JA_EN': ('Mitsua/elan-mt-bt-ja-en', None), 
-            'T5_MULTILINGUAL': ('google-t5_t5-base', 'translate Japanese to English: '), 
-            'NLLB_200': ('nllb-200-distilled-600M', 'jpn_Jpan'),             
+            'HELSINKI_EN_FR': ('Helsinki-NLP_opus-mt-en-fr', None),
+            'HELSINKI_FR_EN': ('Helsinki-NLP_opus-mt-fr-en', None),
+            'HELSINKI_EN_JP': ('Helsinki-NLP_opus-mt-en-jap', None),
+            'OPUS_JA_EN': ('opus-mt-ja-en', None),
+            'ELAN_JA_EN': ('Mitsua/elan-mt-bt-ja-en', None),
+            'T5_MULTILINGUAL': ('google-t5_t5-base', None), # Changed to None
+            'NLLB_200': ('nllb-200-distilled-600M', 'jpn_Jpan'),
         }
-        
+
         self.language_pair_models = {
             'EN-FR': [
-                ('HELSINKI_EN_FR', self.model_paths['HELSINKI_EN_FR'][0], None), # Direct MarianMT
-                ('NLLB_200', self.model_paths['NLLB_200'][0], 'fra_Latn'), # NLLB for EN-FR
-                ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate English to French: ') # T5 for EN-FR
+                ('HELSINKI_EN_FR', self.model_paths['HELSINKI_EN_FR'][0], None),
+                ('NLLB_200', self.model_paths['NLLB_200'][0], 'fra_Latn'),
+                ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate English to French: ')
             ],
             'FR-EN': [
-                ('HELSINKI_FR_EN', self.model_paths['HELSINKI_FR_EN'][0], None), # Direct MarianMT
-                ('NLLB_200', self.model_paths['NLLB_200'][0], 'eng_Latn'), # NLLB for FR-EN
-                ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate French to English: ') # T5 for FR-EN
+                ('HELSINKI_FR_EN', self.model_paths['HELSINKI_FR_EN'][0], None),
+                ('NLLB_200', self.model_paths['NLLB_200'][0], 'eng_Latn'),
+                ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate French to English: ')
             ],
             'EN-JP': [
-                ('HELSINKI_EN_JP', self.model_paths['HELSINKI_EN_JP'][0], None), # Direct MarianMT
-                ('NLLB_200', self.model_paths['NLLB_200'][0], 'jpn_Jpan'), # NLLB for EN-JP
-                ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate English to Japanese: ') # T5 for EN-JP
+                ('HELSINKI_EN_JP', self.model_paths['HELSINKI_EN_JP'][0], None),
+                ('NLLB_200', self.model_paths['NLLB_200'][0], 'jpn_Jpan'),
+                ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate English to Japanese: ')
             ],
             'JP-EN': [
-                ('OPUS_JA_EN', self.model_paths['OPUS_JA_EN'][0], None), # Direct MarianMT (Opus)
-                ('ELAN_JA_EN', self.model_paths['ELAN_JA_EN'][0], None), # Direct ELAN (assuming it's similar to MarianMT in usage)
-                ('NLLB_200', self.model_paths['NLLB_200'][0], 'eng_Latn'), # NLLB for JP-EN
-                ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate Japanese to English: ') # T5 for JP-EN
+                ('OPUS_JA_EN', self.model_paths['OPUS_JA_EN'][0], None),
+                ('ELAN_JA_EN', self.model_paths['ELAN_JA_EN'][0], None),
+                ('NLLB_200', self.model_paths['NLLB_200'][0], 'eng_Latn'),
+                ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate Japanese to English: ')
             ],
             'JP-FR': [
-                ('PIVOT_JP_EN_FR', None, None), # Conceptual pivot, handled by multi-engine service
-                ('NLLB_200', self.model_paths['NLLB_200'][0], 'fra_Latn'), # NLLB for JP-FR
-                ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate Japanese to French: ') # T5 for JP-FR
+                ('PIVOT_JP_EN_FR', None, None),
+                ('NLLB_200', self.model_paths['NLLB_200'][0], 'fra_Latn'),
+                ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate Japanese to French: ')
             ],
         }
 
@@ -62,11 +62,10 @@ class TranslationService:
 
         model_path_info = self.model_paths.get(model_key)
         if not model_path_info:
-            # Fallback to searching language_pair_models if not found in model_paths directly
             for pair_models in self.language_pair_models.values():
                 for info in pair_models:
                     if info[0] == model_key:
-                        model_path_info = info[1:] # Get (path, tag) tuple
+                        model_path_info = (info[1], info[2]) # Get path and potential tag
                         break
                 if model_path_info:
                     break
@@ -94,13 +93,18 @@ class TranslationService:
                 logger.info(f"Loading from Hugging Face Hub: {model_name_or_path}")
                 tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, cache_dir=settings.MODEL_CACHE_DIR)
                 model = AutoModelForSeq2SeqLM.from_pretrained(model_name_or_path, cache_dir=settings.MODEL_CACHE_DIR).to(self.device)
-            
-            pipe = pipeline(
-                "translation",
-                model=model,
-                tokenizer=tokenizer,
-                device=0 if self.device == "cuda" else -1
-            )
+
+            pipe = None
+
+            if not model_key.startswith('T5'):
+                pipe = pipeline(
+                    "translation",
+                    model=model,
+                    tokenizer=tokenizer,
+                    device=0 if self.device == "cuda" else -1
+                )
+            else:
+                logger.info(f"Skipping pipeline creation for T5 model '{model_key}'. Will use model.generate directly.")
 
             self.models[model_key] = model
             self.tokenizers[model_key] = tokenizer
@@ -122,9 +126,7 @@ class TranslationService:
                 return "Translation failed: Model not loaded or directly translatable."
 
             if model_key.startswith('T5'):
-                # T5 models require a specific prefix
                 if target_lang_tag is None:
-                    # Fallback to generic T5 prompt if tag isn't provided (should be provided by language_pair_models)
                     lang_map = {
                         "en": "English", "fr": "French", "jp": "Japanese",
                         "ja": "Japanese", "fra": "French", "eng": "English"
@@ -136,7 +138,25 @@ class TranslationService:
                     text_to_translate = prompt + text
                 else:
                     text_to_translate = target_lang_tag + text
-                translated = pipe(text_to_translate, max_length=512)[0]['translation_text']
+
+                logger.info(f"T5 Input - text_to_translate: '{text_to_translate}'")
+                logger.info(f"T5 Input - source_lang: '{source_lang}', target_lang: '{target_lang}', target_lang_tag: '{target_lang_tag}'")
+
+                inputs = tokenizer(text_to_translate, return_tensors="pt").to(self.device)
+
+                logger.info(f"T5 Input - tokenizer output (input_ids shape): {inputs['input_ids'].shape}")
+                logger.info(f"T5 Input - tokenizer output (input_ids): {inputs['input_ids']}")
+
+                translated_tokens = model.generate(
+                    **inputs,
+                    max_length=512
+                )
+                logger.info(f"T5 Output - generated_tokens shape: {translated_tokens.shape}")
+                logger.info(f"T5 Output - generated_tokens: {translated_tokens}")
+
+                translated = tokenizer.decode(translated_tokens[0], skip_special_tokens=True)
+                logger.info(f"T5 Output - decoded_text: '{translated}'")
+
             elif model_key.startswith('NLLB'):
                 # NLLB models require specific target_lang tag to be passed to generate
                 if target_lang_tag is None:
@@ -147,9 +167,7 @@ class TranslationService:
                     target_lang_tag = nllb_lang_tags.get(target_lang.lower(), None)
                     if target_lang_tag is None:
                         raise ValueError(f"NLLB model '{model_key}' requires a 'target_lang_tag' for translation. Could not determine for {target_lang}.")
-                
-                # NLLB models generally have a `lang_code_to_id` or `get_lang_id` method on their tokenizer.
-                # If not, `convert_tokens_to_ids` might work for special tokens.
+
                 forced_bos_token_id = None
                 if hasattr(tokenizer, 'get_lang_id'):
                     forced_bos_token_id = tokenizer.get_lang_id(target_lang_tag)
@@ -159,7 +177,6 @@ class TranslationService:
                      # This means target_lang_tag is a string like '__jpn_Jpan__' which is in the vocab
                     forced_bos_token_id = tokenizer.convert_tokens_to_ids(target_lang_tag)
                 else:
-                    # Fallback or error if the language tag cannot be converted
                     logger.warning(f"NLLB: Could not find explicit lang_id for '{target_lang_tag}'. Attempting generic conversion (may fail).")
                     forced_bos_token_id = tokenizer.convert_tokens_to_ids(target_lang_tag)
 
@@ -168,12 +185,14 @@ class TranslationService:
 
                 inputs = tokenizer(text, return_tensors="pt").to(self.device)
                 translated_tokens = model.generate(
-                    **inputs, 
+                    **inputs,
                     forced_bos_token_id=forced_bos_token_id,
                     max_length=512
                 )
                 translated = tokenizer.batch_decode(translated_tokens, skip_special_tokens=True)[0]
             else:
+                if pipe is None:
+                    raise RuntimeError(f"Pipeline not initialized for model key: {model_key}. This should not happen for non-T5 models.")
                 translated = pipe(text, max_length=512)[0]['translation_text']
 
             return translated
@@ -184,7 +203,7 @@ class TranslationService:
     def translate_with_fallback(self, text: str, source_lang: str, target_lang: str) -> str:
         """Attempt translation with primary model, fallback to other configured models in order."""
         pair = f"{source_lang.upper()}-{target_lang.upper()}"
-        
+
         if pair in self.language_pair_models and self.language_pair_models[pair]:
             for model_config in self.language_pair_models[pair]:
                 current_model_key = model_config[0]
@@ -192,7 +211,7 @@ class TranslationService:
 
                 logger.info(f"Attempting translation with {current_model_key} for {source_lang}-{target_lang}...")
                 translated_text = self.translate_by_model_type(text, current_model_key, source_lang, target_lang, target_lang_tag_for_current)
-                
+
                 if not translated_text.startswith("Translation failed"):
                     return translated_text
                 else:

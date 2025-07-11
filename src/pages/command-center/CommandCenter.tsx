@@ -33,7 +33,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { AlertTriangle, CheckCircle, Download, Edit, FileDown, Plus, RefreshCw, Search, Trash2, Upload, XCircle } from 'lucide-react';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 // API Configuration
 const API_BASE_URL = 'http://localhost:8001';
@@ -45,7 +45,7 @@ const languageOptions = [
   { label: 'French', value: 'FR' },
 ];
 
-// Types
+// Types (keeping existing ones, adding EditableItem)
 interface TranslationRequest {
   id: string;
   sourceLanguage: string;
@@ -138,12 +138,14 @@ interface FuzzyMatch {
   last_used: string;
 }
 
+type EditableItem = TranslationMemory | GlossaryTerm | DoNotTranslateItem | OffensiveWord | null;
+
 export const CommandCenter: React.FC = () => {
   const [jobSearchTerm, setJobSearchTerm] = useState('');
   const [targetLanguageFilter, setTargetLanguageFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sourceLanguageFilter, setSourceLanguageFilter] = useState<string>('all');
-  
+
   const [selectedJob, setSelectedJob] = useState<TranslationRequest | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('translation-memories');
@@ -159,7 +161,7 @@ export const CommandCenter: React.FC = () => {
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState<any>(null);
+  const [editingItem, setEditingItem] = useState<EditableItem>(null); // Applied EditableItem type
 
   // Status states for better UX
   const [submitStatus, setSubmitStatus] = useState<{type: 'success' | 'error' | 'idle', message: string}>({type: 'idle', message: ''});
@@ -181,182 +183,54 @@ export const CommandCenter: React.FC = () => {
   // File upload ref
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    fetchAllData();
-  }, []);
+  // --- PAGINATION STATE FOR TRANSLATION JOBS ---
+  const [currentPageJobs, setCurrentPageJobs] = useState(1);
+  const [itemsPerPageJobs, setItemsPerPageJobs] = useState(25); // Default to 25 items
+  const itemsPerPageOptionsJobs = [25, 50, 100, 0]; // 0 will mean "All"
+  // --- END PAGINATION STATE FOR TRANSLATION JOBS ---
 
-  const getLanguageLabel = (code: string) => {
-    return languageOptions.find(lang => lang.value === code)?.label || code;
-  };
+  // --- PAGINATION STATE FOR TM TAB ---
+  const [currentPageTM, setCurrentPageTM] = useState(1);
+  const [itemsPerPageTM, setItemsPerPageTM] = useState(25);
+  const itemsPerPageOptionsTM = [25, 50, 100, 0];
+  // --- END PAGINATION STATE FOR TM TAB ---
 
-  const getStatusBadge = (status: string) => {
-    const variants = {
-      'COMPLETED': 'default',
-      'IN_PROGRESS': 'secondary',
-      'PENDING': 'outline',
-      'FAILED': 'destructive',
-      'MULTI_ENGINE_REVIEW': 'secondary'
-    } as const;
-    
-    return (
-      <Badge variant={variants[status as keyof typeof variants] || 'outline'}>
-        {status.charAt(0).toUpperCase() + status.slice(1).toLowerCase().replace('_', ' ')}
-      </Badge>
-    );
-  };
+  // --- PAGINATION STATE FOR GLOSSARY TAB ---
+  const [currentPageGlossary, setCurrentPageGlossary] = useState(1);
+  const [itemsPerPageGlossary, setItemsPerPageGlossary] = useState(25);
+  const itemsPerPageOptionsGlossary = [25, 50, 100, 0];
+  // --- END PAGINATION STATE FOR GLOSSARY TAB ---
 
-  // Enhanced Fuzzy Match Display Component
-  const FuzzyMatchDisplay: React.FC<{
-    sourceText: string;
-    sourceLanguage: string;
-    targetLanguage: string;
-  }> = ({ sourceText, sourceLanguage, targetLanguage }) => {
-    const [fuzzyMatches, setFuzzyMatches] = useState<FuzzyMatch[]>([]);
-    const [loading, setLoading] = useState(false);
+  // --- PAGINATION STATE FOR DNT TAB ---
+  const [currentPageDNT, setCurrentPageDNT] = useState(1);
+  const [itemsPerPageDNT, setItemsPerPageDNT] = useState(25);
+  const itemsPerPageOptionsDNT = [25, 50, 100, 0];
+  // --- END PAGINATION STATE FOR DNT TAB ---
 
-    useEffect(() => {
-      if (sourceText.length > 10) {
-        searchFuzzyMatches();
-      } else {
-        setFuzzyMatches([]);
-      }
-    }, [sourceText, sourceLanguage, targetLanguage]);
+  // --- PAGINATION STATE FOR OFFENSIVE WORDS TAB ---
+  const [currentPageOffensive, setCurrentPageOffensive] = useState(1);
+  const [itemsPerPageOffensive, setItemsPerPageOffensive] = useState(25);
+  const itemsPerPageOptionsOffensive = [25, 50, 100, 0];
+  // --- END PAGINATION STATE FOR OFFENSIVE WORDS TAB ---
 
-    const searchFuzzyMatches = async () => {
-      setLoading(true);
-      try {
-        const response = await fetch(
-          `${API_BASE_URL}/api/translation-memory/fuzzy-matches?` +
-          `source_text=${encodeURIComponent(sourceText)}&` +
-          `source_language=${sourceLanguage}&` +
-          `target_language=${targetLanguage}&` +
-          `threshold=0.6`
-        );
-        
-        if (response.ok) {
-          const data = await response.json();
-          setFuzzyMatches(data.matches);
-        }
-      } catch (error) {
-        console.error('Failed to fetch fuzzy matches:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    const copyToTarget = (targetText: string) => {
-      if (activeTab === 'translation-memories') {
-        setNewTMForm(prev => ({ ...prev, targetText }));
-      }
-    };
-
-    if (loading) {
-      return (
-        <Card className="mt-4">
-          <CardContent className="pt-6">
-            <div className="text-center text-sm text-muted-foreground">
-              Searching for fuzzy matches...
-            </div>
-          </CardContent>
-        </Card>
-      );
-    }
-
-    if (fuzzyMatches.length === 0) return null;
-
-    return (
-      <Card className="mt-4">
-        <CardHeader>
-          <CardTitle className="text-sm flex items-center gap-2">
-            🔍 Fuzzy Matches Found ({fuzzyMatches.length})
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            {fuzzyMatches.map((match, index) => (
-              <div key={index} className="p-3 border rounded-md hover:bg-muted/50 transition-colors">
-                <div className="flex justify-between items-center mb-2">
-                  <Badge variant="outline" className="text-xs">
-                    {match.match_percentage}% match
-                  </Badge>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="secondary" className="text-xs">{match.quality}</Badge>
-                    <Button 
-                      size="sm" 
-                      variant="ghost" 
-                      onClick={() => copyToTarget(match.target_text)}
-                      className="h-6 px-2 text-xs"
-                    >
-                      Use
-                    </Button>
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <div className="text-sm"><strong>Source:</strong> {match.source_text}</div>
-                  <div className="text-sm"><strong>Target:</strong> {match.target_text}</div>
-                  <div className="text-xs text-muted-foreground">
-                    Domain: {match.domain} • Last used: {new Date(match.last_used).toLocaleDateString()}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    );
-  };
-
-  const getQualityBadge = (quality: string) => {
-    const variants = {
-      high: 'default',
-      medium: 'secondary',
-      low: 'destructive'
-    } as const;
-    
-    return (
-      <Badge variant={variants[quality as keyof typeof variants] || 'outline'}>
-        {quality.charAt(0).toUpperCase() + quality.slice(1)}
-      </Badge>
-    );
-  };
-
-  const getSeverityBadge = (severity: string) => {
-    const variants = {
-      high: 'destructive',
-      medium: 'secondary',
-      low: 'outline'
-    } as const;
-    
-    return (
-      <Badge variant={variants[severity as keyof typeof variants] || 'outline'}>
-        {severity.charAt(0).toUpperCase() + severity.slice(1)}
-      </Badge>
-    );
-  };
-
-  // Status message helper
-  const showStatus = (type: 'success' | 'error', message: string) => {
-    setSubmitStatus({ type, message });
-    setTimeout(() => setSubmitStatus({ type: 'idle', message: '' }), 3000);
-  };
-
-  // Fetch all data from backend with error handling
-  const fetchAllData = async () => {
+  // Refactored fetchAllData into useCallback for stable dependency
+  const fetchAllData = useCallback(async () => {
     setLoading(true);
     try {
       console.log('Fetching data from:', API_BASE_URL);
-      
-      // Fetch translation requests
+
       const requestsResponse = await fetch(`${API_BASE_URL}/api/translation-requests?include=strings,metrics`);
       if (requestsResponse.ok) {
         const requests = await requestsResponse.json();
         console.log('Fetched translation requests:', requests.length);
-        setTranslationRequests(requests);
+        const sortedRequests = requests.sort((a: TranslationRequest, b: TranslationRequest) =>
+          new Date(b.requestDate).getTime() - new Date(a.requestDate).getTime()
+        );
+        setTranslationRequests(sortedRequests);
       } else {
         console.error('Failed to fetch translation requests:', requestsResponse.status);
       }
 
-      // Fetch Command Center data from backend
       try {
         const tmResponse = await fetch(`${API_BASE_URL}/api/translation-memory`);
         if (tmResponse.ok) {
@@ -411,29 +285,189 @@ export const CommandCenter: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  }, []); // fetchAllData has no external dependencies here.
+
+  useEffect(() => {
+    fetchAllData();
+  }, [fetchAllData]); 
+
+  const getLanguageLabel = (code: string) => {
+    return languageOptions.find((lang: {value: string}) => lang.value === code)?.label || code;
+  };
+
+  const getStatusBadge = (status: string) => {
+    const variants = {
+      'COMPLETED': 'default',
+      'IN_PROGRESS': 'secondary',
+      'PENDING': 'outline',
+      'FAILED': 'destructive',
+      'MULTI_ENGINE_REVIEW': 'secondary'
+    } as const;
+
+    return (
+      <Badge variant={variants[status as keyof typeof variants] || 'outline'}>
+        {status.charAt(0).toUpperCase() + status.slice(1).toLowerCase().replace('_', ' ')}
+      </Badge>
+    );
+  };
+
+  // Enhanced Fuzzy Match Display Component
+  const FuzzyMatchDisplay: React.FC<{
+    sourceText: string;
+    sourceLanguage: string;
+    targetLanguage: string;
+  }> = ({ sourceText, sourceLanguage, targetLanguage }) => {
+    const [fuzzyMatches, setFuzzyMatches] = useState<FuzzyMatch[]>([]);
+    const [loading, setLoading] = useState(false);
+
+    // searchFuzzyMatches now wrapped in useCallback
+    const searchFuzzyMatches = useCallback(async () => {
+      setLoading(true);
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/api/translation-memory/fuzzy-matches?` +
+          `source_text=${encodeURIComponent(sourceText)}&` +
+          `source_language=${sourceLanguage}&` +
+          `target_language=${targetLanguage}&` +
+          `threshold=0.6`
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          setFuzzyMatches(data.matches);
+        }
+      } catch (error) {
+        console.error('Failed to fetch fuzzy matches:', error);
+      } finally {
+        setLoading(false);
+      }
+    }, [sourceText, sourceLanguage, targetLanguage]); // Dependencies for useCallback
+
+    useEffect(() => {
+      if (sourceText.length > 10) {
+        searchFuzzyMatches();
+      } else {
+        setFuzzyMatches([]);
+      }
+    }, [sourceText, sourceLanguage, targetLanguage, searchFuzzyMatches]); 
+
+    const copyToTarget = (targetText: string) => {
+      if (activeTab === 'translation-memories') {
+        setNewTMForm(prev => ({ ...prev, targetText }));
+      }
+    };
+
+    if (loading) {
+      return (
+        <Card className="mt-4">
+          <CardContent className="pt-6">
+            <div className="text-center text-sm text-muted-foreground">
+              Searching for fuzzy matches...
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    if (fuzzyMatches.length === 0) return null;
+
+    return (
+      <Card className="mt-4">
+        <CardHeader>
+          <CardTitle className="text-sm flex items-center gap-2">
+            🔍 Fuzzy Matches Found ({fuzzyMatches.length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {fuzzyMatches.map((match: FuzzyMatch, index: number) => ( // Explicitly typed match and index
+              <div key={index} className="p-3 border rounded-md hover:bg-muted/50 transition-colors">
+                <div className="flex justify-between items-center mb-2">
+                  <Badge variant="outline" className="text-xs">
+                    {match.match_percentage}% match
+                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="text-xs">{match.quality}</Badge>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => copyToTarget(match.target_text)}
+                      className="h-6 px-2 text-xs"
+                    >
+                      Use
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-sm"><strong>Source:</strong> {match.source_text}</div>
+                  <div className="text-sm"><strong>Target:</strong> {match.target_text}</div>
+                  <div className="text-xs text-muted-foreground">
+                    Domain: {match.domain} • Last used: {new Date(match.last_used).toLocaleDateString()}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const getQualityBadge = (quality: string) => {
+    const variants = {
+      high: 'default',
+      medium: 'secondary',
+      low: 'destructive'
+    } as const;
+
+    return (
+      <Badge variant={variants[quality as keyof typeof variants] || 'outline'}>
+        {quality.charAt(0).toUpperCase() + quality.slice(1)}
+      </Badge>
+    );
+  };
+
+  const getSeverityBadge = (severity: string) => {
+    const variants = {
+      high: 'destructive',
+      medium: 'secondary',
+      low: 'outline'
+    } as const;
+
+    return (
+      <Badge variant={variants[severity as keyof typeof variants] || 'outline'}>
+        {severity.charAt(0).toUpperCase() + severity.slice(1)}
+      </Badge>
+    );
+  };
+
+  // Status message helper
+  const showStatus = (type: 'success' | 'error', message: string) => {
+    setSubmitStatus({ type, message });
+    setTimeout(() => setSubmitStatus({ type: 'idle', message: '' }), 3000);
   };
 
   // Filter jobs with multiple criteria
   const filteredJobs = useMemo(() => {
     let filtered = translationRequests;
-    
+
     // Filter by target language
     if (targetLanguageFilter.length > 0) {
-      filtered = filtered.filter(job => 
+      filtered = filtered.filter(job =>
         job.targetLanguages.some(lang => targetLanguageFilter.includes(lang))
       );
     }
-    
+
     // Filter by source language
     if (sourceLanguageFilter !== 'all') {
       filtered = filtered.filter(job => job.sourceLanguage === sourceLanguageFilter);
     }
-    
+
     // Filter by status
     if (statusFilter !== 'all') {
       filtered = filtered.filter(job => job.status === statusFilter);
     }
-    
+
     // Filter by search term (filename, language pair, etc.)
     if (jobSearchTerm) {
       filtered = filtered.filter(job =>
@@ -442,25 +476,73 @@ export const CommandCenter: React.FC = () => {
         job.mtModel.toLowerCase().includes(jobSearchTerm.toLowerCase())
       );
     }
-    
-    return filtered;
+
+    return filtered; // Return the fully filtered list before pagination
   }, [translationRequests, targetLanguageFilter, sourceLanguageFilter, statusFilter, jobSearchTerm]);
 
-  // Filter reference data based on search term
-  const filterReferenceData = (data: any[], searchFields: string[]) => {
+  // Pagination calculations for Translation Jobs
+  const totalFilteredJobsCount = filteredJobs.length;
+  const totalPagesJobs = itemsPerPageJobs === 0
+    ? 1
+    : Math.ceil(totalFilteredJobsCount / itemsPerPageJobs);
+  const paginatedJobs = useMemo(() => {
+    const startIndex = (currentPageJobs - 1) * itemsPerPageJobs;
+    const endIndex = itemsPerPageJobs === 0 ? totalFilteredJobsCount : startIndex + itemsPerPageJobs;
+    return filteredJobs.slice(startIndex, endIndex);
+  }, [filteredJobs, currentPageJobs, itemsPerPageJobs, totalFilteredJobsCount]);
+
+  const filterReferenceData = useCallback(<T extends TranslationMemory | GlossaryTerm | DoNotTranslateItem | OffensiveWord>(data: T[], searchFields: Array<keyof T>) => { // Explicitly typed generic T and searchFields
     if (!searchTerm) return data;
-    
+
     return data.filter(item =>
       searchFields.some(field =>
-        item[field]?.toLowerCase().includes(searchTerm.toLowerCase())
+        String(item[field])?.toLowerCase().includes(searchTerm.toLowerCase()) // Added String() to handle non-string fields
       )
     );
-  };
+  }, [searchTerm]); // searchTerm is the dependency
 
-  const filteredTranslationMemories = filterReferenceData(translationMemories, ['sourceText', 'targetText', 'domain']);
-  const filteredGlossaryTerms = filterReferenceData(glossaryTerms, ['term', 'translation', 'domain']);
-  const filteredDoNotTranslateItems = filterReferenceData(doNotTranslateItems, ['text', 'category']);
-  const filteredOffensiveWords = filterReferenceData(offensiveWords, ['word', 'category']);
+  const rawFilteredTranslationMemories = useMemo(() => filterReferenceData(translationMemories, ['sourceText', 'targetText', 'domain']), [translationMemories, filterReferenceData]);
+  const rawFilteredGlossaryTerms = useMemo(() => filterReferenceData(glossaryTerms, ['term', 'translation', 'domain']), [glossaryTerms, filterReferenceData]);
+  const rawFilteredDoNotTranslateItems = useMemo(() => filterReferenceData(doNotTranslateItems, ['text', 'category']), [doNotTranslateItems, filterReferenceData]);
+  const rawFilteredOffensiveWords = useMemo(() => filterReferenceData(offensiveWords, ['word', 'category']), [offensiveWords, filterReferenceData]);
+
+
+  // Pagination calculations for TM tab
+  const totalTMCount = rawFilteredTranslationMemories.length;
+  const totalPagesTM = itemsPerPageTM === 0 ? 1 : Math.ceil(totalTMCount / itemsPerPageTM);
+  const paginatedTranslationMemories = useMemo(() => {
+    const startIndex = (currentPageTM - 1) * itemsPerPageTM;
+    const endIndex = itemsPerPageTM === 0 ? totalTMCount : startIndex + itemsPerPageTM;
+    return rawFilteredTranslationMemories.slice(startIndex, endIndex);
+  }, [rawFilteredTranslationMemories, currentPageTM, itemsPerPageTM, totalTMCount]);
+
+  // Pagination calculations for Glossary tab
+  const totalGlossaryCount = rawFilteredGlossaryTerms.length;
+  const totalPagesGlossary = itemsPerPageGlossary === 0 ? 1 : Math.ceil(totalGlossaryCount / itemsPerPageGlossary);
+  const paginatedGlossaryTerms = useMemo(() => {
+    const startIndex = (currentPageGlossary - 1) * itemsPerPageGlossary;
+    const endIndex = itemsPerPageGlossary === 0 ? totalGlossaryCount : startIndex + itemsPerPageGlossary;
+    return rawFilteredGlossaryTerms.slice(startIndex, endIndex);
+  }, [rawFilteredGlossaryTerms, currentPageGlossary, itemsPerPageGlossary, totalGlossaryCount]);
+
+  // Pagination calculations for DNT tab
+  const totalDNTCount = rawFilteredDoNotTranslateItems.length;
+  const totalPagesDNT = itemsPerPageDNT === 0 ? 1 : Math.ceil(totalDNTCount / itemsPerPageDNT);
+  const paginatedDoNotTranslateItems = useMemo(() => {
+    const startIndex = (currentPageDNT - 1) * itemsPerPageDNT;
+    const endIndex = itemsPerPageDNT === 0 ? totalDNTCount : startIndex + itemsPerPageDNT;
+    return rawFilteredDoNotTranslateItems.slice(startIndex, endIndex);
+  }, [rawFilteredDoNotTranslateItems, currentPageDNT, itemsPerPageDNT, totalDNTCount]);
+
+  // Pagination calculations for Offensive Words tab
+  const totalOffensiveCount = rawFilteredOffensiveWords.length;
+  const totalPagesOffensive = itemsPerPageOffensive === 0 ? 1 : Math.ceil(totalOffensiveCount / itemsPerPageOffensive);
+  const paginatedOffensiveWords = useMemo(() => {
+    const startIndex = (currentPageOffensive - 1) * itemsPerPageOffensive;
+    const endIndex = itemsPerPageOffensive === 0 ? totalOffensiveCount : startIndex + itemsPerPageOffensive;
+    return rawFilteredOffensiveWords.slice(startIndex, endIndex);
+  }, [rawFilteredOffensiveWords, currentPageOffensive, itemsPerPageOffensive, totalOffensiveCount]);
+
 
   // Add new item functions with UX feedback
   const addTranslationMemory = async () => {
@@ -470,7 +552,7 @@ export const CommandCenter: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newTMForm)
       });
-      
+
       if (response.ok) {
         const result = await response.json();
         setTranslationMemories(prev => [...prev, result.data]);
@@ -493,7 +575,7 @@ export const CommandCenter: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newGlossaryForm)
       });
-      
+
       if (response.ok) {
         const result = await response.json();
         setGlossaryTerms(prev => [...prev, result.data]);
@@ -516,7 +598,7 @@ export const CommandCenter: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newDNTForm)
       });
-      
+
       if (response.ok) {
         const result = await response.json();
         setDoNotTranslateItems(prev => [...prev, result.data]);
@@ -539,7 +621,7 @@ export const CommandCenter: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newOffensiveForm)
       });
-      
+
       if (response.ok) {
         const result = await response.json();
         setOffensiveWords(prev => [...prev, result.data]);
@@ -602,7 +684,7 @@ export const CommandCenter: React.FC = () => {
   };
 
   // Upload CSV function
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => { // Explicitly typed event
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -639,15 +721,15 @@ export const CommandCenter: React.FC = () => {
     if (!job.translationStrings) return;
 
     let csvContent = 'sourceText,translatedText,sourceLanguage,targetLanguage,status,isApproved\n';
-    
-    job.translationStrings.forEach(string => {
+
+    job.translationStrings.forEach((string: TranslationString) => { // Explicitly typed string
       const row = [
         `"${string.sourceText.replace(/"/g, '""')}"`,
         `"${string.translatedText.replace(/"/g, '""')}"`,
         job.sourceLanguage,
         string.targetLanguage,
         string.status,
-        string.isApproved
+        String(string.isApproved) // Convert boolean to string for CSV
       ].join(',');
       csvContent += row + '\n';
     });
@@ -708,7 +790,8 @@ export const CommandCenter: React.FC = () => {
       } else {
         showStatus('error', 'Failed to delete item');
       }
-    } catch (error) {
+    }
+    catch (error) {
       console.error('Failed to delete item:', error);
       showStatus('error', 'Failed to delete item');
     }
@@ -725,7 +808,7 @@ export const CommandCenter: React.FC = () => {
                 <Label>Source Text</Label>
                 <Textarea
                   value={newTMForm.sourceText}
-                  onChange={(e) => setNewTMForm({...newTMForm, sourceText: e.target.value})}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNewTMForm({...newTMForm, sourceText: e.target.value})} // Explicitly typed event
                   placeholder="Enter source text"
                 />
               </div>
@@ -733,7 +816,7 @@ export const CommandCenter: React.FC = () => {
                 <Label>Target Text</Label>
                 <Textarea
                   value={newTMForm.targetText}
-                  onChange={(e) => setNewTMForm({...newTMForm, targetText: e.target.value})}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNewTMForm({...newTMForm, targetText: e.target.value})} // Explicitly typed event
                   placeholder="Enter target text"
                 />
               </div>
@@ -741,12 +824,12 @@ export const CommandCenter: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Source Language</Label>
-                <Select value={newTMForm.sourceLanguage} onValueChange={(value) => setNewTMForm({...newTMForm, sourceLanguage: value})}>
+                <Select value={newTMForm.sourceLanguage} onValueChange={(value: string) => setNewTMForm({...newTMForm, sourceLanguage: value})}> {/* Explicitly typed value */}
                   <SelectTrigger>
                     <SelectValue placeholder="Select source language" />
                   </SelectTrigger>
                   <SelectContent>
-                    {languageOptions.map(lang => (
+                    {languageOptions.map((lang: {label: string; value: string}) => ( // Explicitly typed lang
                       <SelectItem key={lang.value} value={lang.value}>{lang.label}</SelectItem>
                     ))}
                   </SelectContent>
@@ -754,12 +837,12 @@ export const CommandCenter: React.FC = () => {
               </div>
               <div>
                 <Label>Target Language</Label>
-                <Select value={newTMForm.targetLanguage} onValueChange={(value) => setNewTMForm({...newTMForm, targetLanguage: value})}>
+                <Select value={newTMForm.targetLanguage} onValueChange={(value: string) => setNewTMForm({...newTMForm, targetLanguage: value})}> {/* Explicitly typed value */}
                   <SelectTrigger>
                     <SelectValue placeholder="Select target language" />
                   </SelectTrigger>
                   <SelectContent>
-                    {languageOptions.map(lang => (
+                    {languageOptions.map((lang: {label: string; value: string}) => ( // Explicitly typed lang
                       <SelectItem key={lang.value} value={lang.value}>{lang.label}</SelectItem>
                     ))}
                   </SelectContent>
@@ -771,13 +854,13 @@ export const CommandCenter: React.FC = () => {
                 <Label>Domain</Label>
                 <Input
                   value={newTMForm.domain}
-                  onChange={(e) => setNewTMForm({...newTMForm, domain: e.target.value})}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewTMForm({...newTMForm, domain: e.target.value})} // Explicitly typed event
                   placeholder="e.g., technology, medical"
                 />
               </div>
               <div>
                 <Label>Quality</Label>
-                <Select value={newTMForm.quality} onValueChange={(value) => setNewTMForm({...newTMForm, quality: value})}>
+                <Select value={newTMForm.quality} onValueChange={(value: string) => setNewTMForm({...newTMForm, quality: value})}> {/* Explicitly typed value */}
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -789,7 +872,7 @@ export const CommandCenter: React.FC = () => {
                 </Select>
               </div>
             </div>
-            
+
             {/* Show fuzzy matches when typing */}
             {newTMForm.sourceText && newTMForm.sourceLanguage && newTMForm.targetLanguage && (
               <FuzzyMatchDisplay
@@ -798,7 +881,7 @@ export const CommandCenter: React.FC = () => {
                 targetLanguage={newTMForm.targetLanguage}
               />
             )}
-            
+
             <Button onClick={addTranslationMemory} className="w-full">Add Translation Memory</Button>
           </div>
         );
@@ -811,7 +894,7 @@ export const CommandCenter: React.FC = () => {
                 <Label>Term</Label>
                 <Input
                   value={newGlossaryForm.term}
-                  onChange={(e) => setNewGlossaryForm({...newGlossaryForm, term: e.target.value})}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewGlossaryForm({...newGlossaryForm, term: e.target.value})} // Explicitly typed event
                   placeholder="Enter term"
                 />
               </div>
@@ -819,7 +902,7 @@ export const CommandCenter: React.FC = () => {
                 <Label>Translation</Label>
                 <Input
                   value={newGlossaryForm.translation}
-                  onChange={(e) => setNewGlossaryForm({...newGlossaryForm, translation: e.target.value})}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewGlossaryForm({...newGlossaryForm, translation: e.target.value})} // Explicitly typed event
                   placeholder="Enter translation"
                 />
               </div>
@@ -827,12 +910,12 @@ export const CommandCenter: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Source Language</Label>
-                <Select value={newGlossaryForm.sourceLanguage} onValueChange={(value) => setNewGlossaryForm({...newGlossaryForm, sourceLanguage: value})}>
+                <Select value={newGlossaryForm.sourceLanguage} onValueChange={(value: string) => setNewGlossaryForm({...newGlossaryForm, sourceLanguage: value})}> {/* Explicitly typed value */}
                   <SelectTrigger>
                     <SelectValue placeholder="Select source language" />
                   </SelectTrigger>
                   <SelectContent>
-                    {languageOptions.map(lang => (
+                    {languageOptions.map((lang: {label: string; value: string}) => ( // Explicitly typed lang
                       <SelectItem key={lang.value} value={lang.value}>{lang.label}</SelectItem>
                     ))}
                   </SelectContent>
@@ -840,12 +923,12 @@ export const CommandCenter: React.FC = () => {
               </div>
               <div>
                 <Label>Target Language</Label>
-                <Select value={newGlossaryForm.targetLanguage} onValueChange={(value) => setNewGlossaryForm({...newGlossaryForm, targetLanguage: value})}>
+                <Select value={newGlossaryForm.targetLanguage} onValueChange={(value: string) => setNewGlossaryForm({...newGlossaryForm, targetLanguage: value})}> {/* Explicitly typed value */}
                   <SelectTrigger>
                     <SelectValue placeholder="Select target language" />
                   </SelectTrigger>
                   <SelectContent>
-                    {languageOptions.map(lang => (
+                    {languageOptions.map((lang: {label: string; value: string}) => ( // Explicitly typed lang
                       <SelectItem key={lang.value} value={lang.value}>{lang.label}</SelectItem>
                     ))}
                   </SelectContent>
@@ -856,7 +939,7 @@ export const CommandCenter: React.FC = () => {
               <Label>Domain</Label>
               <Input
                 value={newGlossaryForm.domain}
-                onChange={(e) => setNewGlossaryForm({...newGlossaryForm, domain: e.target.value})}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewGlossaryForm({...newGlossaryForm, domain: e.target.value})} // Explicitly typed event
                 placeholder="e.g., technology, medical"
               />
             </div>
@@ -864,7 +947,7 @@ export const CommandCenter: React.FC = () => {
               <Label>Definition</Label>
               <Textarea
                 value={newGlossaryForm.definition}
-                onChange={(e) => setNewGlossaryForm({...newGlossaryForm, definition: e.target.value})}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNewGlossaryForm({...newGlossaryForm, definition: e.target.value})} // Explicitly typed event
                 placeholder="Enter definition"
               />
             </div>
@@ -879,7 +962,7 @@ export const CommandCenter: React.FC = () => {
               <Label>Text</Label>
               <Input
                 value={newDNTForm.text}
-                onChange={(e) => setNewDNTForm({...newDNTForm, text: e.target.value})}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewDNTForm({...newDNTForm, text: e.target.value})} // Explicitly typed event
                 placeholder="Enter text that should not be translated"
               />
             </div>
@@ -888,7 +971,7 @@ export const CommandCenter: React.FC = () => {
                 <Label>Category</Label>
                 <Input
                   value={newDNTForm.category}
-                  onChange={(e) => setNewDNTForm({...newDNTForm, category: e.target.value})}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewDNTForm({...newDNTForm, category: e.target.value})} // Explicitly typed event
                   placeholder="e.g., Brand, Acronym, Proper Noun"
                 />
               </div>
@@ -897,7 +980,7 @@ export const CommandCenter: React.FC = () => {
                 <MultiSelect
                   options={languageOptions}
                   selectedValues={newDNTForm.languages}
-                  onSelectionChange={(values) => setNewDNTForm({...newDNTForm, languages: values})}
+                  onSelectionChange={(values: string[]) => setNewDNTForm({...newDNTForm, languages: values})} // Explicitly typed values
                   placeholder="Select languages"
                 />
               </div>
@@ -906,7 +989,7 @@ export const CommandCenter: React.FC = () => {
               <Label>Notes</Label>
               <Textarea
                 value={newDNTForm.notes}
-                onChange={(e) => setNewDNTForm({...newDNTForm, notes: e.target.value})}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNewDNTForm({...newDNTForm, notes: e.target.value})} // Explicitly typed event
                 placeholder="Additional notes"
               />
             </div>
@@ -922,18 +1005,18 @@ export const CommandCenter: React.FC = () => {
                 <Label>Word</Label>
                 <Input
                   value={newOffensiveForm.word}
-                  onChange={(e) => setNewOffensiveForm({...newOffensiveForm, word: e.target.value})}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewOffensiveForm({...newOffensiveForm, word: e.target.value})} // Explicitly typed event
                   placeholder="Enter offensive word"
                 />
               </div>
               <div>
                 <Label>Language</Label>
-                <Select value={newOffensiveForm.language} onValueChange={(value) => setNewOffensiveForm({...newOffensiveForm, language: value})}>
+                <Select value={newOffensiveForm.language} onValueChange={(value: string) => setNewOffensiveForm({...newOffensiveForm, language: value})}> // Explicitly typed value
                   <SelectTrigger>
                     <SelectValue placeholder="Select language" />
                   </SelectTrigger>
                   <SelectContent>
-                    {languageOptions.map(lang => (
+                    {languageOptions.map((lang: {label: string; value: string}) => ( // Explicitly typed lang
                       <SelectItem key={lang.value} value={lang.value}>{lang.label}</SelectItem>
                     ))}
                   </SelectContent>
@@ -943,7 +1026,7 @@ export const CommandCenter: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Severity</Label>
-                <Select value={newOffensiveForm.severity} onValueChange={(value) => setNewOffensiveForm({...newOffensiveForm, severity: value})}>
+                <Select value={newOffensiveForm.severity} onValueChange={(value: string) => setNewOffensiveForm({...newOffensiveForm, severity: value})}> // Explicitly typed value
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -958,7 +1041,7 @@ export const CommandCenter: React.FC = () => {
                 <Label>Category</Label>
                 <Input
                   value={newOffensiveForm.category}
-                  onChange={(e) => setNewOffensiveForm({...newOffensiveForm, category: e.target.value})}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewOffensiveForm({...newOffensiveForm, category: e.target.value})} // Explicitly typed event
                   placeholder="e.g., profanity, hate speech"
                 />
               </div>
@@ -967,7 +1050,7 @@ export const CommandCenter: React.FC = () => {
               <Label>Alternatives (comma-separated)</Label>
               <Input
                 value={newOffensiveForm.alternatives}
-                onChange={(e) => setNewOffensiveForm({...newOffensiveForm, alternatives: e.target.value})}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewOffensiveForm({...newOffensiveForm, alternatives: e.target.value})} // Explicitly typed event
                 placeholder="alternative1, alternative2"
               />
             </div>
@@ -1010,8 +1093,8 @@ export const CommandCenter: React.FC = () => {
       {/* Status Message */}
       {submitStatus.type !== 'idle' && (
         <div className={`p-3 rounded-md text-sm flex items-center gap-2 ${
-          submitStatus.type === 'success' 
-            ? 'bg-green-50 text-green-800 border border-green-200' 
+          submitStatus.type === 'success'
+            ? 'bg-green-50 text-green-800 border border-green-200'
             : 'bg-red-50 text-red-800 border border-red-200'
         }`}>
           {submitStatus.type === 'success' ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
@@ -1028,7 +1111,7 @@ export const CommandCenter: React.FC = () => {
               <Input
                 placeholder="Search reference data..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)} // Explicitly typed event
               />
             </div>
             <div className="flex space-x-2">
@@ -1106,7 +1189,7 @@ export const CommandCenter: React.FC = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredTranslationMemories.map((memory) => (
+                  {paginatedTranslationMemories.map((memory: TranslationMemory) => ( // Explicitly typed memory
                     <TableRow key={memory.id}>
                       <TableCell className="max-w-xs truncate">{memory.sourceText}</TableCell>
                       <TableCell className="max-w-xs truncate">{memory.targetText}</TableCell>
@@ -1150,6 +1233,48 @@ export const CommandCenter: React.FC = () => {
                   ))}
                 </TableBody>
               </Table>
+              {/* Pagination controls for Translation Memories */}
+              <div className="flex justify-between items-center mt-4 text-sm text-muted-foreground">
+                <span>Showing {paginatedTranslationMemories.length} of {totalTMCount} entries</span>
+                <div className="flex items-center space-x-2">
+                  <Label htmlFor="items-per-page-tm" className="text-sm font-medium">Items per page:</Label>
+                  <Select
+                    value={String(itemsPerPageTM)}
+                    onValueChange={(value: string) => { // Explicitly typed value
+                      setItemsPerPageTM(Number(value));
+                      setCurrentPageTM(1);
+                    }}
+                  >
+                    <SelectTrigger className="w-[100px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {itemsPerPageOptionsTM.map((option: number, index: number) => ( // Explicitly typed option and index
+                        <SelectItem key={index} value={String(option)}>
+                          {option === 0 ? 'All' : option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPageTM(prev => Math.max(1, prev - 1))}
+                    disabled={currentPageTM === 1}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm">Page {currentPageTM} of {totalPagesTM}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPageTM(prev => Math.min(totalPagesTM, prev + 1))}
+                    disabled={currentPageTM === totalPagesTM || totalPagesTM === 0}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
             </TabsContent>
 
             {/* Glossary Tab */}
@@ -1167,7 +1292,7 @@ export const CommandCenter: React.FC = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredGlossaryTerms.map((term) => (
+                  {paginatedGlossaryTerms.map((term: GlossaryTerm) => ( // Explicitly typed term
                     <TableRow key={term.id}>
                       <TableCell className="font-medium">{term.term}</TableCell>
                       <TableCell>{term.translation}</TableCell>
@@ -1203,6 +1328,48 @@ export const CommandCenter: React.FC = () => {
                   ))}
                 </TableBody>
               </Table>
+              {/* Pagination controls for Glossary */}
+              <div className="flex justify-between items-center mt-4 text-sm text-muted-foreground">
+                <span>Showing {paginatedGlossaryTerms.length} of {totalGlossaryCount} entries</span>
+                <div className="flex items-center space-x-2">
+                  <Label htmlFor="items-per-page-glossary" className="text-sm font-medium">Items per page:</Label>
+                  <Select
+                    value={String(itemsPerPageGlossary)}
+                    onValueChange={(value: string) => { // Explicitly typed value
+                      setItemsPerPageGlossary(Number(value));
+                      setCurrentPageGlossary(1);
+                    }}
+                  >
+                    <SelectTrigger className="w-[100px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {itemsPerPageOptionsGlossary.map((option: number, index: number) => ( // Explicitly typed option and index
+                        <SelectItem key={index} value={String(option)}>
+                          {option === 0 ? 'All' : option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPageGlossary(prev => Math.max(1, prev - 1))}
+                    disabled={currentPageGlossary === 1}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm">Page {currentPageGlossary} of {totalPagesGlossary}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPageGlossary(prev => Math.min(totalPagesGlossary, prev + 1))}
+                    disabled={currentPageGlossary === totalPagesGlossary || totalPagesGlossary === 0}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
             </TabsContent>
 
             {/* Do Not Translate Tab */}
@@ -1219,7 +1386,7 @@ export const CommandCenter: React.FC = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredDoNotTranslateItems.map((item) => (
+                  {paginatedDoNotTranslateItems.map((item: DoNotTranslateItem) => ( // Explicitly typed item
                     <TableRow key={item.id}>
                       <TableCell className="font-medium">{item.text}</TableCell>
                       <TableCell>
@@ -1227,7 +1394,7 @@ export const CommandCenter: React.FC = () => {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
-                          {item.languages.map((lang, index) => (
+                          {item.languages.map((lang: string, index: number) => ( // Explicitly typed lang and index
                             <Badge key={index} variant="secondary" className="text-xs">
                               {getLanguageLabel(lang)}
                             </Badge>
@@ -1254,6 +1421,48 @@ export const CommandCenter: React.FC = () => {
                   ))}
                 </TableBody>
               </Table>
+              {/* Pagination controls for Do Not Translate */}
+              <div className="flex justify-between items-center mt-4 text-sm text-muted-foreground">
+                <span>Showing {paginatedDoNotTranslateItems.length} of {totalDNTCount} entries</span>
+                <div className="flex items-center space-x-2">
+                  <Label htmlFor="items-per-page-dnt" className="text-sm font-medium">Items per page:</Label>
+                  <Select
+                    value={String(itemsPerPageDNT)}
+                    onValueChange={(value: string) => { // Explicitly typed value
+                      setItemsPerPageDNT(Number(value));
+                      setCurrentPageDNT(1);
+                    }}
+                  >
+                    <SelectTrigger className="w-[100px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {itemsPerPageOptionsDNT.map((option: number, index: number) => ( // Explicitly typed option and index
+                        <SelectItem key={index} value={String(option)}>
+                          {option === 0 ? 'All' : option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPageDNT(prev => Math.max(1, prev - 1))}
+                    disabled={currentPageDNT === 1}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm">Page {currentPageDNT} of {totalPagesDNT}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPageDNT(prev => Math.min(totalPagesDNT, prev + 1))}
+                    disabled={currentPageDNT === totalPagesDNT || totalPagesDNT === 0}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
             </TabsContent>
 
             {/* Offensive Words Tab */}
@@ -1271,7 +1480,7 @@ export const CommandCenter: React.FC = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredOffensiveWords.map((word) => (
+                  {paginatedOffensiveWords.map((word: OffensiveWord) => ( // Explicitly typed word
                     <TableRow key={word.id}>
                       <TableCell className="font-medium">
                         <div className="flex items-center space-x-2">
@@ -1310,16 +1519,58 @@ export const CommandCenter: React.FC = () => {
                   ))}
                 </TableBody>
               </Table>
+              {/* Pagination controls for Offensive Words */}
+              <div className="flex justify-between items-center mt-4 text-sm text-muted-foreground">
+                <span>Showing {paginatedOffensiveWords.length} of {totalOffensiveCount} entries</span>
+                <div className="flex items-center space-x-2">
+                  <Label htmlFor="items-per-page-offensive" className="text-sm font-medium">Items per page:</Label>
+                  <Select
+                    value={String(itemsPerPageOffensive)}
+                    onValueChange={(value: string) => { // Explicitly typed value
+                      setItemsPerPageOffensive(Number(value));
+                      setCurrentPageOffensive(1);
+                    }}
+                  >
+                    <SelectTrigger className="w-[100px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {itemsPerPageOptionsOffensive.map((option: number, index: number) => ( // Explicitly typed option and index
+                        <SelectItem key={index} value={String(option)}>
+                          {option === 0 ? 'All' : option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPageOffensive(prev => Math.max(1, prev - 1))}
+                    disabled={currentPageOffensive === 1}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm">Page {currentPageOffensive} of {totalPagesOffensive}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPageOffensive(prev => Math.min(totalPagesOffensive, prev + 1))}
+                    disabled={currentPageOffensive === totalPagesOffensive || totalPagesOffensive === 0}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
             </TabsContent>
           </Tabs>
         </CardContent>
       </Card>
 
-      {/* CHANGE 2: Translation Jobs Table with integrated filters */}
+      {/* Translation Jobs Table with integrated filters */}
       <Card>
         <CardHeader>
           <CardTitle>Translation Jobs Overview</CardTitle>
-          {/* CHANGE 2: Moved filters inside the table card */}
+          {/* Moved filters inside the table card */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
             <div>
               <Label className="text-sm font-medium">Search Jobs</Label>
@@ -1328,20 +1579,20 @@ export const CommandCenter: React.FC = () => {
                 <Input
                   placeholder="Search filename, model..."
                   value={jobSearchTerm}
-                  onChange={(e) => setJobSearchTerm(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setJobSearchTerm(e.target.value)} // Explicitly typed event
                   className="pl-10"
                 />
               </div>
             </div>
             <div>
               <Label className="text-sm font-medium">Source Language</Label>
-              <Select value={sourceLanguageFilter} onValueChange={setSourceLanguageFilter}>
+              <Select value={sourceLanguageFilter} onValueChange={(value: string) => setSourceLanguageFilter(value)}> {/* Explicitly typed value */}
                 <SelectTrigger>
                   <SelectValue placeholder="All sources" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Sources</SelectItem>
-                  {languageOptions.map(lang => (
+                  {languageOptions.map((lang: {label: string; value: string}) => ( // Explicitly typed lang
                     <SelectItem key={lang.value} value={lang.value}>{lang.label}</SelectItem>
                   ))}
                 </SelectContent>
@@ -1352,15 +1603,15 @@ export const CommandCenter: React.FC = () => {
               <MultiSelect
                 options={languageOptions}
                 selectedValues={targetLanguageFilter}
-                onSelectionChange={setTargetLanguageFilter}
+                onSelectionChange={(values: string[]) => setTargetLanguageFilter(values)} // Explicitly typed values
                 placeholder="All targets"
               />
             </div>
             <div>
               <Label className="text-sm font-medium">Status</Label>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <Select value={statusFilter} onValueChange={(value: string) => setStatusFilter(value)}> {/* Explicitly typed value */}
                 <SelectTrigger>
-                  <SelectValue placeholder="All statuses" />
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Statuses</SelectItem>
@@ -1372,8 +1623,47 @@ export const CommandCenter: React.FC = () => {
               </Select>
             </div>
           </div>
-          <div className="text-sm text-muted-foreground mt-2">
-            Showing {filteredJobs.length} of {translationRequests.length} jobs
+          <div className="text-sm text-muted-foreground mt-2 flex justify-between items-center">
+            <span>Showing {paginatedJobs.length} of {totalFilteredJobsCount} jobs</span>
+            {/* Pagination controls for Translation Jobs */}
+            <div className="flex items-center space-x-2">
+              <Label htmlFor="items-per-page-jobs" className="text-sm font-medium">Items per page:</Label>
+              <Select
+                value={String(itemsPerPageJobs)}
+                onValueChange={(value: string) => { // Explicitly typed value
+                  setItemsPerPageJobs(Number(value));
+                  setCurrentPageJobs(1); // Reset to first page on items per page change
+                }}
+              >
+                <SelectTrigger className="w-[100px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {itemsPerPageOptionsJobs.map((option: number, index: number) => ( // Explicitly typed option and index
+                    <SelectItem key={index} value={String(option)}>
+                      {option === 0 ? 'All' : option}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPageJobs(prev => Math.max(1, prev - 1))}
+                disabled={currentPageJobs === 1}
+              >
+                Previous
+              </Button>
+              <span className="text-sm">Page {currentPageJobs} of {totalPagesJobs}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPageJobs(prev => Math.min(totalPagesJobs, prev + 1))}
+                disabled={currentPageJobs === totalPagesJobs || totalPagesJobs === 0}
+              >
+                Next
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -1391,8 +1681,8 @@ export const CommandCenter: React.FC = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredJobs.map((job) => (
-                <TableRow 
+              {paginatedJobs.map((job: TranslationRequest) => ( // Explicitly typed job
+                <TableRow
                   key={job.id}
                   className={selectedJob?.id === job.id ? 'bg-muted/50' : ''}
                 >
@@ -1405,7 +1695,7 @@ export const CommandCenter: React.FC = () => {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
-                      {job.targetLanguages.map((lang, index) => (
+                      {job.targetLanguages.map((lang: string, index: number) => ( // Explicitly typed lang and index
                         <Badge key={index} variant="secondary" className="text-xs">
                           {getLanguageLabel(lang)}
                         </Badge>
@@ -1463,7 +1753,7 @@ export const CommandCenter: React.FC = () => {
                 <strong>Source Language:</strong> {getLanguageLabel(selectedJob.sourceLanguage)}
               </div>
               <div>
-                <strong>Target Languages:</strong> {selectedJob.targetLanguages.map(lang => getLanguageLabel(lang)).join(', ')}
+                <strong>Target Languages:</strong> {selectedJob.targetLanguages.map((lang: string) => getLanguageLabel(lang)).join(', ')} {/* Explicitly typed lang */}
               </div>
               <div>
                 <strong>Word Count:</strong> {selectedJob.wordCount.toLocaleString()} {selectedJob.sourceLanguage === 'JP' ? 'characters' : 'words'}

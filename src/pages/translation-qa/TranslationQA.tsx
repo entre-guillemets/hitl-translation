@@ -80,7 +80,7 @@ const getEngineDisplayName = (engine: string) => {
     'elan_specialist': 'ELAN Specialist',
     'mt5_multilingual': 'mT5 Multilingual',
     'opus_enhanced': 'OPUS Enhanced',
-    't5_versatile': 'mT5 Versatile', 
+    't5_versatile': 'mT5 Versatile',
     'nllb_multilingual': 'NLLB Multilingual',
   };
   return names[engine] || engine;
@@ -92,8 +92,8 @@ const getEngineIcon = (engine: string) => {
     'elan_specialist': '🎯',
     'mt5_multilingual': '🌐',
     'opus_enhanced': '⭐',
-    't5_versatile': '🤖', 
-    'nllb_multilingual': '🌍', 
+    't5_versatile': '🤖',
+    'nllb_multilingual': '🌍',
   };
   return icons[engine] || '⚙️'; // Default icon
 };
@@ -119,9 +119,9 @@ const ModelOutputCard: React.FC<{
   const handleCopy = async () => {
     try {
         await navigator.clipboard.writeText(result.text);
-        
-        // Call select-engine endpoint to set this as the base translation
-        await fetch(`${API_BASE_URL}/api/translation-strings/${translationStringId}/select-engine`, {
+
+        // FIX: Add '/translation-requests' to the path for select-engine
+        await fetch(`${API_BASE_URL}/api/translation-requests/translation-strings/${translationStringId}/select-engine`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -130,9 +130,9 @@ const ModelOutputCard: React.FC<{
                 comments: "Selected via copy button"
             })
         });
-        
-        // Track preference
-        await fetch(`${API_BASE_URL}/api/translation-preferences`, {
+
+        // FIX: Add '/translation-requests' to the path for translation-preferences
+        await fetch(`${API_BASE_URL}/api/translation-requests/translation-preferences`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -143,7 +143,7 @@ const ModelOutputCard: React.FC<{
                 targetLanguage
             })
         });
-        
+
         onCopyToEditor(result.text);
         setShowCopySuccess(true);
         setTimeout(() => setShowCopySuccess(false), 2000);
@@ -154,17 +154,20 @@ const ModelOutputCard: React.FC<{
   const handleRatingSubmit = async () => {
     const annotationList = annotations.trim() ?
       [{ category: 'general', comment: annotations, severity: 'minor' }] : [];
-    
-    await fetch(`${API_BASE_URL}/api/rlhf/quality-rating`, { 
+
+    // FIX: Add '/api/analytics' prefix because the rlhf/quality-rating endpoint is in analytics.py
+    // As per your backend analytics.py, this endpoint is: @router.post("/rlhf/quality-rating")
+    // and the router prefix is /api/analytics, making the full path /api/analytics/rlhf/quality-rating
+    await fetch(`${API_BASE_URL}/api/analytics/rlhf/quality-rating`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         translationStringId,
-        qualityScore: rating, 
-        annotations: annotationList 
+        qualityScore: rating,
+        annotations: annotationList
       })
     });
-    
+
     onRatingSubmit(rating, annotationList);
     setAnnotations('');
   };
@@ -172,7 +175,8 @@ const ModelOutputCard: React.FC<{
   const handleAnnotationSubmit = async () => { // Made async
     if (newAnnotation.category && newAnnotation.comment && translationStringId) { // Check translationStringId
       try {
-        await fetch(`${API_BASE_URL}/api/translation-strings/${translationStringId}/annotations`, { // Call specific endpoint
+        // FIX: Add '/translation-requests' to the path for annotations
+        await fetch(`${API_BASE_URL}/api/translation-requests/translation-strings/${translationStringId}/annotations`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(newAnnotation)
@@ -216,14 +220,14 @@ const ModelOutputCard: React.FC<{
           Confidence: {(result.confidence * 100).toFixed(0)}%
         </div>
 
-        <Button 
-          onClick={handleCopy} 
-          size="sm" 
+        <Button
+          onClick={handleCopy}
+          size="sm"
           className="w-full"
           variant={showCopySuccess ? "default" : "outline"}
         >
           <Copy className="w-4 h-4 mr-2" />
-          {showCopySuccess ? "Copied!" : "Copy"}
+          {showCopySuccess ? "Copied to Editor!" : "Copy to Editor"}
         </Button>
 
         <div className="space-y-2">
@@ -254,8 +258,8 @@ const ModelOutputCard: React.FC<{
 
         <div className="space-y-2">
           <Label className="text-xs">Add Annotation</Label>
-          <Select 
-            value={newAnnotation.category} 
+          <Select
+            value={newAnnotation.category}
             onValueChange={(value) => setNewAnnotation({...newAnnotation, category: value})}
           >
             <SelectTrigger className="h-8">
@@ -269,8 +273,8 @@ const ModelOutputCard: React.FC<{
               <SelectItem value="grammar">Grammar</SelectItem>
             </SelectContent>
           </Select>
-          <Select 
-            value={newAnnotation.severity} 
+          <Select
+            value={newAnnotation.severity}
             onValueChange={(value) => setNewAnnotation({...newAnnotation, severity: value})}
           >
             <SelectTrigger className="h-8">
@@ -374,7 +378,7 @@ const BulkReviewOverlay: React.FC<{
 }) => {
   const engineResults = selectedString.engineResults || [];
   const fuzzyMatches = selectedString.fuzzyMatches || [];
-  
+
   // Translator details state
   const [reviewerExpertise, setReviewerExpertise] = useState('');
   const [approvalType, setApprovalType] = useState('');
@@ -447,26 +451,6 @@ const BulkReviewOverlay: React.FC<{
                     </SelectContent>
                   </Select>
                 </div>
-
-                {selectedString.qualityMetrics && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-sm">Quality Assessment</CardTitle>
-                    </CardHeader>
-                    <CardContent className="flex gap-4 text-xs">
-                      <div>MetricX: {selectedString.qualityMetrics.metricXScore?.toFixed(1) || 'N/A'}</div>
-                      {selectedString.qualityMetrics.bleuScore && (
-                        <div>BLEU: {(selectedString.qualityMetrics.bleuScore * 100).toFixed(1)}%</div>
-                      )}
-                      {selectedString.qualityMetrics.cometScore && (
-                        <div>COMET: {(selectedString.qualityMetrics.cometScore * 100).toFixed(1)}%</div>
-                      )}
-                      {selectedString.qualityMetrics.terScore && (
-                        <div>TER: {(selectedString.qualityMetrics.terScore).toFixed(1)}%</div> //* TER is already % from backend */}
-                      )}
-                    </CardContent>
-                  </Card>
-                )}
               </CardContent>
             </Card>
           </div> {/* End grid layout for side-by-side */}
@@ -719,7 +703,8 @@ export const TranslationQA: React.FC = () => {
     if (!selectedString) return;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/translation-strings/${selectedString.id}`, {
+      // FIX: Add '/translation-requests' to the path
+      const response = await fetch(`${API_BASE_URL}/api/translation-requests/translation-strings/${selectedString.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -769,7 +754,8 @@ export const TranslationQA: React.FC = () => {
     if (!selectedString) return;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/translation-strings/${selectedString.id}`, {
+      // FIX: Add '/translation-requests' to the path
+      const response = await fetch(`${API_BASE_URL}/api/translation-requests/translation-strings/${selectedString.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -838,7 +824,8 @@ export const TranslationQA: React.FC = () => {
 
   const handleQualityRating = async (rating: number, annotations: any[]) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/rlhf/quality-rating`, {
+      // FIX: Add '/api/analytics' prefix to quality-rating endpoint
+      const response = await fetch(`${API_BASE_URL}/api/analytics/rlhf/quality-rating`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -862,7 +849,8 @@ export const TranslationQA: React.FC = () => {
     if (!selectedString) return;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/translation-strings/${selectedString.id}/annotations`, {
+      // FIX: Add '/translation-requests' to the path for annotations
+      const response = await fetch(`${API_BASE_URL}/api/translation-requests/translation-strings/${selectedString.id}/annotations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(annotation)
@@ -881,17 +869,17 @@ export const TranslationQA: React.FC = () => {
 
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
-      case 'approved': 
+      case 'approved':
         return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400';
-      case 'reviewed': 
+      case 'reviewed':
         return 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400';
       case 'requires_review': // Changed from 'requires review'
         return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400';
-      case 'multi_engine_review': 
+      case 'multi_engine_review':
         return 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400';
-      case 'draft': 
+      case 'draft':
         return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300';
-      default: 
+      default:
         return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300';
     }
   };
@@ -900,7 +888,7 @@ export const TranslationQA: React.FC = () => {
     if (!selectedRequest) return [];
 
     return selectedRequest.translationStrings.filter(string => {
-      const matchesLanguage = filterLanguage === 'all' || string.targetLanguage.toLowerCase() === filterLanguage.toLowerCase(); // Added .toLowerCase()
+      const matchesLanguage = filterLanguage === 'all' || string.targetLanguage.toLowerCase() === filterLanguage.toLowerCase();
       const matchesStatus = filterStatus === 'all' || string.status.toLowerCase() === filterStatus.toLowerCase();
       const matchesSearch = searchTerm === '' ||
         string.sourceText.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -913,7 +901,7 @@ export const TranslationQA: React.FC = () => {
   const getProgressPercentage = (request: TranslationRequest) => {
     const total = request.translationStrings.length;
     const approved = request.translationStrings.filter(s =>
-      s.status === 'APPROVED' || s.isApproved // 'Approved' string literal removed for consistency
+      s.status === 'APPROVED' || s.isApproved
     ).length;
     return total > 0 ? (approved / total) * 100 : 0;
   };
@@ -954,18 +942,18 @@ export const TranslationQA: React.FC = () => {
 
       {submitStatus.type !== 'idle' && (
         <div className={`px-6 py-3 border-b ${
-          submitStatus.type === 'success' 
-            ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800' 
+          submitStatus.type === 'success'
+            ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800'
             : 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'
         }`}>
           <div className="flex items-center">
-            {submitStatus.type === 'success' ? 
-              <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 mr-2" /> : 
+            {submitStatus.type === 'success' ?
+              <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 mr-2" /> :
               <XCircle className="w-5 h-5 text-red-600 dark:text-red-400 mr-2" />
             }
             <span className={
-              submitStatus.type === 'success' 
-                ? 'text-green-800 dark:text-green-200' 
+              submitStatus.type === 'success'
+                ? 'text-green-800 dark:text-green-200'
                 : 'text-red-800 dark:text-red-200'
             }>
               {submitStatus.message}
@@ -1028,8 +1016,8 @@ export const TranslationQA: React.FC = () => {
                 <Card
                   key={request.id}
                   className={`cursor-pointer transition-colors ${
-                    selectedRequest?.id === request.id 
-                      ? 'ring-2 ring-primary' 
+                    selectedRequest?.id === request.id
+                      ? 'ring-2 ring-primary'
                       : 'hover:bg-muted/50'
                   }`}
                   onClick={() => setSelectedRequest(request)}

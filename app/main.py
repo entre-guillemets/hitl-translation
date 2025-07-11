@@ -24,7 +24,8 @@ from app.services.fuzzy_matching_service import FuzzyMatchingService
 from app.services.multi_engine_service import CleanMultiEngineService
 from app.services.translation_service import translation_service
 from app.services.metricx_service import MetricXService
-from app.services.health_service import HealthService # NEW: Import HealthService
+from app.services.health_service import HealthService
+
 
 # Configure logging
 logging.basicConfig(
@@ -58,7 +59,7 @@ app.add_middleware(
     expose_headers=["*"]
 )
 
-# Include routers - order might matter for dependencies if not using lifespan
+# Include routers 
 app.include_router(health.router)
 app.include_router(translation_requests.router)
 app.include_router(data_management.router)
@@ -66,6 +67,7 @@ app.include_router(wmt_benchmarks.router)
 app.include_router(quality_assessment.router)
 app.include_router(debugging.router)
 app.include_router(analytics.router)
+app.include_router(analytics.router, prefix="/api")
 
 # Database startup/shutdown events
 @app.on_event("startup")

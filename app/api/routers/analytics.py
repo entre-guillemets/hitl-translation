@@ -13,7 +13,7 @@ from app.schemas.quality import QualityRating
 from prisma.enums import AnnotationCategory, AnnotationSeverity, QualityLabel, MTModel
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/analytics", tags=["Quality Assessment", "Analytics"])
+router = APIRouter(prefix="/analytics", tags=["Quality Assessment", "Analytics"])
 
 # Global variable and setter for health_service
 health_service = None

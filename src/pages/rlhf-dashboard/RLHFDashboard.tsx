@@ -26,10 +26,14 @@ export const RLHFDashboard: React.FC = () => {
 
   const fetchAnalytics = async () => {
     try {
-      const response = await fetch('http://localhost:8001/api/rlhf/analytics');
+      // Corrected URL to match backend's combined path
+      const response = await fetch('http://localhost:8001/api/analytics/rlhf/analytics');
       if (response.ok) {
         const data = await response.json();
         setAnalytics(data);
+      } else {
+        console.error('Failed to fetch RLHF analytics:', response.status, await response.text());
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
     } catch (error) {
       console.error('Failed to fetch RLHF analytics:', error);
@@ -41,15 +45,19 @@ export const RLHFDashboard: React.FC = () => {
   const triggerTraining = async () => {
     setIsTraining(true);
     try {
-      const response = await fetch('http://localhost:8001/api/rlhf/train-reward-model', {
+      // Corrected URL for training endpoint (assuming it follows the same pattern in backend)
+      const response = await fetch('http://localhost:8001/api/analytics/rlhf/train-reward-model', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ force_retrain: true })
       });
-      
+
       if (response.ok) {
         alert('Reward model training started successfully!');
         await fetchAnalytics(); // Refresh data
+      } else {
+        console.error('Failed to start training:', response.status, await response.text());
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
     } catch (error) {
       console.error('Failed to start training:', error);
@@ -110,7 +118,7 @@ export const RLHFDashboard: React.FC = () => {
           Refresh
         </Button>
       </div>
-      
+
       {/* Key Metrics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card>
@@ -123,7 +131,7 @@ export const RLHFDashboard: React.FC = () => {
             <p className="text-xs text-muted-foreground">Human feedback entries</p>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Preference Pairs</CardTitle>
@@ -134,7 +142,7 @@ export const RLHFDashboard: React.FC = () => {
             <p className="text-xs text-muted-foreground">Comparison pairs</p>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Training Ready</CardTitle>
@@ -149,14 +157,14 @@ export const RLHFDashboard: React.FC = () => {
             </p>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Model Status</CardTitle>
             <Star className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <Button 
+            <Button
               onClick={triggerTraining}
               disabled={isTraining || !analytics.training_data_available}
               className="w-full"
@@ -169,7 +177,7 @@ export const RLHFDashboard: React.FC = () => {
           </CardContent>
         </Card>
       </div>
-      
+
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
@@ -189,7 +197,7 @@ export const RLHFDashboard: React.FC = () => {
             </ResponsiveContainer>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardHeader>
             <CardTitle>Average Quality Scores by Type</CardTitle>

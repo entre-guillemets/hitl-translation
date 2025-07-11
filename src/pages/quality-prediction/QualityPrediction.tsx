@@ -3,7 +3,15 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
 import { MultiSelect } from '@/components/ui/multi-select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -98,6 +106,12 @@ const QualityPrediction: React.FC = () => {
   const [trendType, setTrendType] = useState<'language_pair' | 'model' | 'date'>('language_pair');
   const [showTrends, setShowTrends] = useState(false);
 
+  // --- NEW PAGINATION STATE ---
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(25); // Default to 25 items
+  const itemsPerPageOptions = [25, 50, 100, 0]; // 0 will mean "All"
+  // --- END NEW PAGINATION STATE ---
+
   // Fetch data when component mounts
   useEffect(() => {
     fetchTranslationRequests();
@@ -117,9 +131,11 @@ const QualityPrediction: React.FC = () => {
       COMPLETED: 'default',
       IN_PROGRESS: 'secondary',
       PENDING: 'outline',
-      CANCELLED: 'destructive'
+      CANCELLED: 'destructive',
+      // Add other statuses if needed, e.g., 'MULTI_ENGINE_REVIEW'
+      'MULTI_ENGINE_REVIEW': 'secondary' // Example from CommandCenter
     } as const;
-    
+
     return (
       <Badge variant={variants[status as keyof typeof variants] || 'outline'}>
         {status.charAt(0).toUpperCase() + status.slice(1).toLowerCase().replace('_', ' ')}
@@ -139,24 +155,30 @@ const QualityPrediction: React.FC = () => {
   // Get quality metrics display for a request
   const getQualityMetricsDisplay = (translationStrings?: TranslationString[]) => {
     if (!translationStrings || translationStrings.length === 0) return null;
-    
-    const stringsWithMetrics = translationStrings.filter(str => 
+
+    const stringsWithMetrics = translationStrings.filter(str =>
       str.qualityMetrics && str.qualityMetrics.length > 0
     );
-    
+
     if (stringsWithMetrics.length === 0) return null;
-    
+
     const avgScore = stringsWithMetrics.reduce((sum, str) => {
-      const latestMetric = str.qualityMetrics![0];
+      // Ensure we are taking the latest metric if multiple exist
+      const latestMetric = str.qualityMetrics!.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
       return sum + latestMetric.cometScore;
     }, 0) / stringsWithMetrics.length;
-    
+
+    // The qualityLabel should also come from the latest metric or be an aggregate
+    // For simplicity, let's derive it from the average score as a fallback or if not present
+    const overallQualityLabel = getCometQualityBadge(avgScore).label;
+
     return {
       avgScore,
       count: stringsWithMetrics.length,
-      label: stringsWithMetrics[0].qualityMetrics![0].qualityLabel
+      label: overallQualityLabel // Use derived label for consistency
     };
   };
+
 
   // Mock data fallback
   const getMockData = (): TranslationRequest[] => [
@@ -171,8 +193,24 @@ const QualityPrediction: React.FC = () => {
       fileName: 'sample_document.txt',
       status: 'COMPLETED',
       mtModel: 'MARIAN_MT_EN_FR',
-      translationStrings: [],
-      cometPredictions: [{
+      translationStrings: [{
+        id: 'mock-string-1',
+        sourceText: 'Hello world',
+        translatedText: 'Bonjour le monde',
+        targetLanguage: 'FR',
+        status: 'COMPLETED',
+        isApproved: true,
+        processingTimeMs: 100,
+        qualityMetrics: [{
+          id: 'mock-metric-1',
+          cometScore: 0.75,
+          qualityLabel: 'Good',
+          calculationEngine: 'COMET',
+          createdAt: new Date().toISOString(),
+          hasReference: true
+        }]
+      }],
+      cometPredictions: [{ // This array is for legacy support
         translationStringId: 'mock-string-1',
         cometScore: 0.75,
         qualityLabel: 'Good',
@@ -185,10 +223,11 @@ const QualityPrediction: React.FC = () => {
   const fetchTranslationRequests = async () => {
     setLoading(true);
     setError(null);
-    
+    setCurrentPage(1); // Reset to first page on refresh
+
     try {
       console.log('Fetching translation requests from:', API_ENDPOINTS.TRANSLATION_REQUESTS);
-      
+
       const response = await fetch(`${API_ENDPOINTS.TRANSLATION_REQUESTS}?include=strings,predictions,qualityMetrics`, {
         method: 'GET',
         headers: {
@@ -196,32 +235,36 @@ const QualityPrediction: React.FC = () => {
           'Content-Type': 'application/json',
         },
       });
-      
+
       console.log('Response status:', response.status);
-      
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
+
       const contentType = response.headers.get('content-type');
       if (!contentType || !contentType.includes('application/json')) {
         const responseText = await response.text();
         console.error('Non-JSON response received:', responseText);
         throw new Error('Server returned non-JSON response');
       }
-      
+
       const data = await response.json();
       console.log('Raw API response:', data);
       console.log('Number of requests:', data.length);
-      
-      setTranslationRequests(data);
+
+      // Sort requests by date in descending order immediately after fetching
+      const sortedRequests = data.sort((a: TranslationRequest, b: TranslationRequest) =>
+        new Date(b.requestDate).getTime() - new Date(a.requestDate).getTime()
+      );
+      setTranslationRequests(sortedRequests);
       setApiAvailable(true);
       setError(null);
-      
+
     } catch (err) {
       console.error('API fetch failed:', err);
       setApiAvailable(false);
-      
+
       // Use mock data as fallback
       const mockData = getMockData();
       setTranslationRequests(mockData);
@@ -235,11 +278,11 @@ const QualityPrediction: React.FC = () => {
   const fetchCometTrends = async () => {
     try {
       const response = await fetch(`${API_ENDPOINTS.COMET_TRENDS}?group_by=${trendType}&days=30`);
-      
+
       if (!response.ok) {
         throw new Error('Failed to fetch trends');
       }
-      
+
       const data = await response.json();
       setTrendsData(data.trends || []);
     } catch (err) {
@@ -253,27 +296,27 @@ const QualityPrediction: React.FC = () => {
     setProcessingMetrics(requestId);
     try {
       console.log('Predicting quality for request:', requestId);
-      
+
       const response = await fetch(`${API_ENDPOINTS.PREDICT_QUALITY}?request_id=${requestId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
       });
-  
+
       if (!response.ok) {
         throw new Error('Failed to predict quality');
       }
-  
+
       const result = await response.json();
       console.log('Quality prediction result:', result);
-  
+
       // Force refresh the data to show updated predictions
       await fetchTranslationRequests();
-      
+
       // Clear any previous errors
       setError(null);
-      
+
     } catch (err) {
       console.error('Failed to predict quality:', err);
       setError(err instanceof Error ? err.message : 'Failed to predict quality');
@@ -293,7 +336,7 @@ const QualityPrediction: React.FC = () => {
     try {
       const requestIds = Array.from(selectedRequests);
       console.log('Batch predicting quality for requests:', requestIds);
-      
+
       const response = await fetch(API_ENDPOINTS.PREDICT_QUALITY_BATCH, {
         method: 'POST',
         headers: {
@@ -312,9 +355,9 @@ const QualityPrediction: React.FC = () => {
       // Clear selection and refresh data
       setSelectedRequests(new Set());
       await fetchTranslationRequests();
-      
+
       setError(null);
-      
+
     } catch (err) {
       console.error('Failed to batch predict quality:', err);
       setError(err instanceof Error ? err.message : 'Failed to batch predict quality');
@@ -328,7 +371,7 @@ const QualityPrediction: React.FC = () => {
     setBatchProcessing(true);
     try {
       console.log('Processing all pending quality assessments');
-      
+
       const response = await fetch(API_ENDPOINTS.PROCESS_ALL_PENDING, {
         method: 'POST',
         headers: {
@@ -345,9 +388,9 @@ const QualityPrediction: React.FC = () => {
 
       // Refresh data to show updated metrics
       await fetchTranslationRequests();
-      
+
       setError(null);
-      
+
     } catch (err) {
       console.error('Failed to process all pending:', err);
       setError(err instanceof Error ? err.message : 'Failed to process all pending');
@@ -375,7 +418,7 @@ const QualityPrediction: React.FC = () => {
   // Get average COMET score for a request (legacy support)
   const getAverageCometScore = (request: TranslationRequest) => {
     if (!hasPredictions(request)) return null;
-    
+
     const scores = request.cometPredictions!.map(p => p.cometScore);
     return scores.reduce((sum, score) => sum + score, 0) / scores.length;
   };
@@ -385,12 +428,12 @@ const QualityPrediction: React.FC = () => {
     return getQualityMetricsDisplay(request.translationStrings) !== null || hasPredictions(request);
   };
 
-  // Filter and sort requests
+  // Filter and sort requests (this now returns the full filtered/sorted list)
   const filteredAndSortedRequests = useMemo(() => {
     let filtered = translationRequests;
-    
+
     if (targetLanguageFilter.length > 0) {
-      filtered = filtered.filter(request => 
+      filtered = filtered.filter(request =>
         request.targetLanguages.some(lang => targetLanguageFilter.includes(lang))
       );
     }
@@ -423,6 +466,20 @@ const QualityPrediction: React.FC = () => {
     return filtered;
   }, [translationRequests, targetLanguageFilter, sortConfig]);
 
+  // --- NEW PAGINATION CALCULATION FOR THIS TABLE ---
+  const totalFilteredAndSortedRequests = filteredAndSortedRequests.length;
+  const totalPages = itemsPerPage === 0
+    ? 1
+    : Math.ceil(totalFilteredAndSortedRequests / itemsPerPage);
+
+  const paginatedRequests = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = itemsPerPage === 0 ? totalFilteredAndSortedRequests : startIndex + itemsPerPage;
+    return filteredAndSortedRequests.slice(startIndex, endIndex);
+  }, [filteredAndSortedRequests, currentPage, itemsPerPage, totalFilteredAndSortedRequests]);
+  // --- END NEW PAGINATION CALCULATION ---
+
+
   const requestSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
@@ -435,26 +492,26 @@ const QualityPrediction: React.FC = () => {
     if (!sortConfig || sortConfig.key !== key) {
       return <ChevronUp className="h-4 w-4 opacity-30" />;
     }
-    return sortConfig.direction === 'asc' ? 
-      <ChevronUp className="h-4 w-4" /> : 
+    return sortConfig.direction === 'asc' ?
+      <ChevronUp className="h-4 w-4" /> :
       <ChevronDown className="h-4 w-4" />;
   };
 
   // Generate chart data for selected request
   const getChartData = (request: TranslationRequest) => {
     const qualityDisplay = getQualityMetricsDisplay(request.translationStrings);
-    
+
     if (qualityDisplay) {
       // Use quality metrics data
       return request.translationStrings!
         .filter(str => str.qualityMetrics && str.qualityMetrics.length > 0)
         .map(str => ({
           language: getLanguageLabel(str.targetLanguage),
-          COMET: str.qualityMetrics![0].cometScore * 100,
+          COMET: str.qualityMetrics![0].cometScore * 100, // Assuming first metric is the relevant one
           qualityLabel: str.qualityMetrics![0].qualityLabel
         }));
     }
-    
+
     if (hasPredictions(request)) {
       // Use legacy predictions data
       return request.cometPredictions!.map(prediction => ({
@@ -463,7 +520,7 @@ const QualityPrediction: React.FC = () => {
         qualityLabel: prediction.qualityLabel
       }));
     }
-    
+
     return [];
   };
 
@@ -501,8 +558,8 @@ const QualityPrediction: React.FC = () => {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Quality Prediction</h1>
         <div className="flex space-x-2">
-          <Button 
-            onClick={() => setShowTrends(!showTrends)} 
+          <Button
+            onClick={() => setShowTrends(!showTrends)}
             variant="outline"
           >
             <TrendingUp className="h-4 w-4 mr-2" />
@@ -526,19 +583,6 @@ const QualityPrediction: React.FC = () => {
           </CardContent>
         </Card>
       )}
-
-      {/* Connection Status */}
-      <Card className={apiAvailable ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}>
-        <CardContent className="pt-6">
-          <div className="flex items-center space-x-2">
-            <div className={`h-3 w-3 rounded-full ${apiAvailable ? 'bg-green-500' : 'bg-red-500'}`}></div>
-            <p className={apiAvailable ? "text-green-800" : "text-red-800"}>
-              {apiAvailable ? 'Connected to FastAPI Backend' : 'Backend Connection Failed'}
-            </p>
-            <span className="text-sm text-gray-600">({API_BASE_URL})</span>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Batch Operations */}
       {selectedRequests.size > 0 && (
@@ -612,21 +656,21 @@ const QualityPrediction: React.FC = () => {
           <CardHeader>
             <CardTitle>COMET Quality Trends</CardTitle>
             <div className="flex space-x-2">
-              <Button 
+              <Button
                 variant={trendType === 'language_pair' ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => setTrendType('language_pair')}
               >
                 By Language Pair
               </Button>
-              <Button 
+              <Button
                 variant={trendType === 'model' ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => setTrendType('model')}
               >
                 By Model
               </Button>
-              <Button 
+              <Button
                 variant={trendType === 'date' ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => setTrendType('date')}
@@ -641,10 +685,11 @@ const QualityPrediction: React.FC = () => {
                 <XAxis dataKey="label" />
                 <YAxis domain={[0, 1]} tickFormatter={(value) => `${(value * 100).toFixed(0)}%`} />
                 <Tooltip formatter={(value) => [`${(Number(value) * 100).toFixed(1)}%`, 'Average COMET Score']} />
-                <Line 
-                  type="monotone" 
-                  dataKey="averageCometScore" 
-                  stroke="#8884d8" 
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey="averageCometScore"
+                  stroke="#8884d8"
                   strokeWidth={2}
                   name="Average COMET Score"
                 />
@@ -672,9 +717,49 @@ const QualityPrediction: React.FC = () => {
                 placeholder="Filter by target languages"
               />
             </div>
-            <div className="text-sm text-muted-foreground">
-              Showing {filteredAndSortedRequests.length} of {translationRequests.length} requests
+            {/* --- NEW PAGINATION CONTROLS FOR THIS TABLE --- */}
+            <div className="text-sm text-muted-foreground flex justify-between items-center w-full mt-2">
+                <span>Showing {paginatedRequests.length} of {totalFilteredAndSortedRequests} requests</span>
+                <div className="flex items-center space-x-2">
+                    <Label htmlFor="items-per-page" className="text-sm font-medium">Items per page:</Label>
+                    <Select
+                        value={String(itemsPerPage)}
+                        onValueChange={(value) => {
+                            setItemsPerPage(Number(value));
+                            setCurrentPage(1); // Reset to first page on items per page change
+                        }}
+                    >
+                        <SelectTrigger className="w-[100px]">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {itemsPerPageOptions.map((option, index) => (
+                                <SelectItem key={index} value={String(option)}>
+                                    {option === 0 ? 'All' : option}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                        disabled={currentPage === 1}
+                    >
+                        Previous
+                    </Button>
+                    <span className="text-sm">Page {currentPage} of {totalPages}</span>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                        disabled={currentPage === totalPages || totalPages === 0}
+                    >
+                        Next
+                    </Button>
+                </div>
             </div>
+            {/* --- END NEW PAGINATION CONTROLS --- */}
           </div>
         </CardHeader>
         <CardContent>
@@ -694,8 +779,8 @@ const QualityPrediction: React.FC = () => {
                     checked={selectedRequests.size === filteredAndSortedRequests.length && filteredAndSortedRequests.length > 0}
                   />
                 </TableHead>
-                <TableHead 
-                  onClick={() => requestSort('requestDate')} 
+                <TableHead
+                  onClick={() => requestSort('requestDate')}
                   className="cursor-pointer hover:bg-muted/50"
                 >
                   <div className="flex items-center space-x-1">
@@ -703,8 +788,8 @@ const QualityPrediction: React.FC = () => {
                     {getSortIcon('requestDate')}
                   </div>
                 </TableHead>
-                <TableHead 
-                  onClick={() => requestSort('sourceLanguage')} 
+                <TableHead
+                  onClick={() => requestSort('sourceLanguage')}
                   className="cursor-pointer hover:bg-muted/50"
                 >
                   <div className="flex items-center space-x-1">
@@ -712,8 +797,8 @@ const QualityPrediction: React.FC = () => {
                     {getSortIcon('sourceLanguage')}
                   </div>
                 </TableHead>
-                <TableHead 
-                  onClick={() => requestSort('targetLanguages')} 
+                <TableHead
+                  onClick={() => requestSort('targetLanguages')}
                   className="cursor-pointer hover:bg-muted/50"
                 >
                   <div className="flex items-center space-x-1">
@@ -721,8 +806,8 @@ const QualityPrediction: React.FC = () => {
                     {getSortIcon('targetLanguages')}
                   </div>
                 </TableHead>
-                <TableHead 
-                  onClick={() => requestSort('fileName')} 
+                <TableHead
+                  onClick={() => requestSort('fileName')}
                   className="cursor-pointer hover:bg-muted/50"
                 >
                   <div className="flex items-center space-x-1">
@@ -730,8 +815,8 @@ const QualityPrediction: React.FC = () => {
                     {getSortIcon('fileName')}
                   </div>
                 </TableHead>
-                <TableHead 
-                  onClick={() => requestSort('wordCount')} 
+                <TableHead
+                  onClick={() => requestSort('wordCount')}
                   className="cursor-pointer hover:bg-muted/50"
                 >
                   <div className="flex items-center space-x-1">
@@ -739,8 +824,8 @@ const QualityPrediction: React.FC = () => {
                     {getSortIcon('wordCount')}
                   </div>
                 </TableHead>
-                <TableHead 
-                  onClick={() => requestSort('status')} 
+                <TableHead
+                  onClick={() => requestSort('status')}
                   className="cursor-pointer hover:bg-muted/50"
                 >
                   <div className="flex items-center space-x-1">
@@ -753,12 +838,12 @@ const QualityPrediction: React.FC = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredAndSortedRequests.map((request) => {
+              {paginatedRequests.map((request) => { // Use paginatedRequests here
                 const qualityDisplay = getQualityMetricsDisplay(request.translationStrings);
                 const avgScore = getAverageCometScore(request);
-                
+
                 return (
-                  <TableRow 
+                  <TableRow
                     key={request.id}
                     className={selectedRequest?.id === request.id ? 'bg-muted/50' : 'hover:bg-muted/30'}
                   >
@@ -796,7 +881,7 @@ const QualityPrediction: React.FC = () => {
                             <span className={`font-semibold ${getCometColor(qualityDisplay.avgScore)}`}>
                               COMET: {formatScore(qualityDisplay.avgScore)}
                             </span>
-                            <Badge 
+                            <Badge
                               variant={getCometQualityBadge(qualityDisplay.avgScore).variant}
                               className="text-xs"
                             >
@@ -813,7 +898,7 @@ const QualityPrediction: React.FC = () => {
                             <span className={`font-semibold ${getCometColor(avgScore)}`}>
                               COMET: {formatScore(avgScore)}
                             </span>
-                            <Badge 
+                            <Badge
                               variant={getCometQualityBadge(avgScore).variant}
                               className="text-xs"
                             >
@@ -887,12 +972,12 @@ const QualityPrediction: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {(() => {
                   const qualityDisplay = getQualityMetricsDisplay(selectedRequest.translationStrings);
-                  
+
                   if (qualityDisplay && selectedRequest.translationStrings) {
                     return selectedRequest.translationStrings
                       .filter(str => str.qualityMetrics && str.qualityMetrics.length > 0)
                       .map((str, index) => {
-                        const metric = str.qualityMetrics![0];
+                        const metric = str.qualityMetrics![0]; // Assuming first metric is the relevant one
                         return (
                           <div key={index} className="text-center">
                             <div className="text-2xl font-bold mb-2">
@@ -906,7 +991,7 @@ const QualityPrediction: React.FC = () => {
                             <div className="text-xs text-muted-foreground mt-1">
                               Neural-based quality prediction
                             </div>
-                            <Badge 
+                            <Badge
                               variant={getCometQualityBadge(metric.cometScore).variant}
                               className="mt-2"
                             >
@@ -916,7 +1001,7 @@ const QualityPrediction: React.FC = () => {
                         );
                       });
                   }
-                  
+
                   if (hasPredictions(selectedRequest)) {
                     return selectedRequest.cometPredictions!.map((prediction, index) => (
                       <div key={index} className="text-center">
@@ -931,7 +1016,7 @@ const QualityPrediction: React.FC = () => {
                         <div className="text-xs text-muted-foreground mt-1">
                           Neural-based quality prediction
                         </div>
-                        <Badge 
+                        <Badge
                           variant={getCometQualityBadge(prediction.cometScore).variant}
                           className="mt-2"
                         >
@@ -940,7 +1025,7 @@ const QualityPrediction: React.FC = () => {
                       </div>
                     ));
                   }
-                  
+
                   return null;
                 })()}
               </div>
