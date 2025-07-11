@@ -20,7 +20,7 @@ export interface QualityPredictionData {
     fileName: string;
     fileContent: string;
     status: 'pending' | 'quality-predicted' | 'completed' | 'reviewed';
-    qualityPredictions?: QualityPrediction[];
+    qualityPredictions?: QualityPredictionData[];
     createdAt: Date;
   }
   

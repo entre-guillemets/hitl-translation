@@ -22,5 +22,8 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
   },
-  "include": ["src", "layout.tsx", "services/TranslationService.ts", "services/QualityMetricsService.ts", "services/ModelManager.ts"]
+  "include": [
+    "src",
+    "layout.tsx"
+  ]
 }
