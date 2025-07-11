@@ -110,7 +110,7 @@ Run the Prisma command to push the schema to your database.
 python -m prisma db push
 ```
 
-## 4. Frontend Setup
+### 4. Frontend Setup
 
 The frontend is the Next.js quality dashboard with Shadcn components.
 
@@ -119,7 +119,7 @@ The frontend is the Next.js quality dashboard with Shadcn components.
 npm install
 ```
 
-** 5. Run the Front & Backends (using concurrently):**
+### 5. Run the Front & Backends (using concurrently):**
 ```bash
 npm run dev:full
 ```
