@@ -80,8 +80,8 @@ const getEngineDisplayName = (engine: string) => {
     'elan_specialist': 'ELAN Specialist',
     'mt5_multilingual': 'mT5 Multilingual',
     'opus_enhanced': 'OPUS Enhanced',
-    't5_versatile': 'mT5 Versatile', // Added for consistency
-    'nllb_multilingual': 'NLLB Multilingual', // Added for consistency
+    't5_versatile': 'mT5 Versatile', 
+    'nllb_multilingual': 'NLLB Multilingual',
   };
   return names[engine] || engine;
 };
@@ -92,8 +92,8 @@ const getEngineIcon = (engine: string) => {
     'elan_specialist': '🎯',
     'mt5_multilingual': '🌐',
     'opus_enhanced': '⭐',
-    't5_versatile': '🤖', // Added for consistency
-    'nllb_multilingual': '🌍', // Added for consistency
+    't5_versatile': '🤖', 
+    'nllb_multilingual': '🌍', 
   };
   return icons[engine] || '⚙️'; // Default icon
 };
@@ -155,13 +155,13 @@ const ModelOutputCard: React.FC<{
     const annotationList = annotations.trim() ?
       [{ category: 'general', comment: annotations, severity: 'minor' }] : [];
     
-    await fetch(`${API_BASE_URL}/api/rlhf/quality-rating`, { // Changed to rlhf/quality-rating as per your initial main.py
+    await fetch(`${API_BASE_URL}/api/rlhf/quality-rating`, { 
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         translationStringId,
-        qualityScore: rating, // Changed to qualityScore
-        annotations: annotationList // Pass annotation list
+        qualityScore: rating, 
+        annotations: annotationList 
       })
     });
     

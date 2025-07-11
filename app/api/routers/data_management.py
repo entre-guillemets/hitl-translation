@@ -197,7 +197,7 @@ async def create_offensive_word(word_data: OffensiveWordCreate):
                 "language": word_data.language,
                 "severity": severity_enum_val, # Use enum value
                 "category": category_enum_val, # Use enum value
-                "alternatives": word_data.alternatives, # `alternatives` is a list, needs direct assignment
+                "alternatives": word_data.alternatives, 
                 "detectionCount": 0
             }
         )

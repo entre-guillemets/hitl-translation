@@ -27,7 +27,6 @@ const API_ENDPOINTS = {
   HEALTH: `${API_BASE_URL}/api/health`,
 };
 
-// Updated interfaces for quality metrics
 interface QualityMetrics {
   id: string;
   cometScore: number;

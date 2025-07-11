@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { AlertTriangle, Circle, Download, RefreshCw } from 'lucide-react'; // Import Circle icon
+import { AlertTriangle, Circle, Download, RefreshCw } from 'lucide-react'; 
 import React, { useEffect, useMemo, useState } from 'react';
 import ReactDiffViewer from 'react-diff-viewer-continued';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, XAxis, YAxis } from 'recharts';
@@ -62,8 +62,8 @@ interface ModelPerformanceData {
 }
 
 interface ModelLeaderboardEntry {
-  name?: string;           // Added for new functionality
-  type?: string;           // Added for new functionality
+  name?: string;          
+  type?: string;          
   model: string;
   engineType: string;
   avgBleu: number;
@@ -71,8 +71,8 @@ interface ModelLeaderboardEntry {
   avgTer: number; // This comes as a percentage (e.g., 50.0 for 50%) from backend
   avgMetricX: number;
   totalTranslations: number;
-  languagePairs?: string[];  // Added for new functionality
-  models?: string[];         // Added for new functionality
+  languagePairs?: string[];  
+  models?: string[];         
   confidenceInterval: {
     bleuLow: number;
     bleuHigh: number;
@@ -443,7 +443,7 @@ const TranslationComparison: React.FC<{
   );
 };
 
-// NEW: Model Performance Controls Component
+// Model Performance Controls Component
 const ModelPerformanceControls: React.FC<{
   chartGroupBy: 'model' | 'language_pair';
   setChartGroupBy: (value: 'model' | 'language_pair') => void;
@@ -489,7 +489,7 @@ const ModelPerformanceControls: React.FC<{
   </div>
 );
 
-// NEW: Multi-Metric Chart Component
+// Multi-Metric Chart Component
 const MultiMetricChart: React.FC<{ data: ModelLeaderboardEntry[] }> = ({ data }) => {
   // Transform data to use the correct field names
   const chartData = data.map(item => ({
@@ -532,7 +532,7 @@ const QualityDashboard: React.FC = () => {
   const [selectedComparison, setSelectedComparison] = useState<TranslationComparisonEntry | null>(null);
   const [isComparisonModalOpen, setIsComparisonModalOpen] = useState(false);
 
-  // NEW: State for chart controls
+  // State for chart controls
   const [chartGroupBy, setChartGroupBy] = useState<'model' | 'language_pair'>('model');
   const [selectedLanguagePair, setSelectedLanguagePair] = useState<string>('all');
   const [dateRange, setDateRange] = useState<{ from?: string; to?: string }>({});
@@ -554,7 +554,7 @@ const QualityDashboard: React.FC = () => {
   }, [translatorImpactData]);
 
 
-  // UPDATED: Enhanced fetchDashboardData with new parameters
+  // Enhanced fetchDashboardData with new parameters
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
@@ -623,7 +623,7 @@ const QualityDashboard: React.FC = () => {
     }
   };
 
-  // UPDATED: useEffect with new dependencies
+  // useEffect with new dependencies
   useEffect(() => {
     fetchDashboardData();
     fetchPostEditData();
@@ -650,8 +650,6 @@ const QualityDashboard: React.FC = () => {
     
     return <Badge variant={variants[severity as keyof typeof variants] || 'outline'}>{severity}</Badge>;
   };
-
-  // Removed getHealthBadge as it's replaced by the Circle icon directly
 
   const handleComparisonClick = (comparison: TranslationComparisonEntry) => {
     setSelectedComparison(comparison);

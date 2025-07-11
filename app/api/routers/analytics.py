@@ -120,7 +120,6 @@ async def get_human_preferences_data(date_filter, lang_filter):
         if not prisma.is_connected():
             await prisma.connect()
         
-        # MODIFIED: Fetch all relevant engine preferences and aggregate manually
         all_prefs = await prisma.enginepreference.find_many(where={**date_filter, **lang_filter}) 
         
         engine_stats = {}
@@ -324,7 +323,6 @@ async def get_multi_engine_data(date_filter, lang_filter):
         if not prisma.is_connected():
             await prisma.connect()
 
-        # Selection trends - MODIFIED to aggregate manually instead of using _count in group_by
         all_engine_preferences = await prisma.enginepreference.find_many(
             where={**date_filter, **lang_filter}
         )
@@ -345,8 +343,7 @@ async def get_multi_engine_data(date_filter, lang_filter):
 
         selection_trends = []
         for (selection_method, model_combination), data in selection_trends_dict.items():
-            # For 'date', you might want to group by actual date of creation, not just now()
-            # For simplicity, keeping datetime.now() for this example as in original.
+            
             selection_trends.append({
                 "date": datetime.now().strftime("%Y-%m-%d"), 
                 "selectionMethod": data["selectionMethod"],
@@ -377,7 +374,7 @@ async def get_multi_engine_data(date_filter, lang_filter):
                             "intermediateQuality": 0 # Placeholder, needs actual intermediate quality
                         })
         
-        # Inter-rater agreement (simplified) - MODIFIED to aggregate manually
+        # Inter-rater agreement (simplified) 
         all_annotations_for_inter_rater = await prisma.annotation.find_many(
             where={**date_filter, "reviewer": {"not": None}}
         )
@@ -420,7 +417,7 @@ async def get_quality_scores_data(date_filter, lang_filter):
                 "bleuScore": {"not": None},
                 "cometScore": {"not": None},
                 "terScore": {"not": None},
-                "metricXScore": {"not": None} # Ensure MetricX is also considered
+                "metricXScore": {"not": None} 
             }
         )
 
@@ -552,8 +549,8 @@ async def get_operational_data(date_filter, lang_filter):
                 "model": "Database Connection",
                 "isActive": detailed_status.get("database") == "connected",
                 "lastUsed": datetime.now().isoformat(),
-                "totalTranslations": 0, # Not applicable for DB
-                "avgProcessingTime": 0 # Not applicable for DB
+                "totalTranslations": 0, 
+                "avgProcessingTime": 0 
             })
 
             # MetricX Service Status
@@ -597,8 +594,7 @@ async def get_operational_data(date_filter, lang_filter):
                         if stats["model"] == engine_name: # Assuming engine_name from health matches modelName in ModelOutput
                             total_t = stats["count"]
                             avg_p_time = stats["avgProcessingTime"]
-                            # To get actual lastUsed, you'd need to query ModelOutput or TranslationRequest by modelName
-                            # For now, using current time as a placeholder or could refine with last record time
+
                             latest_output_for_model = await prisma.modeloutput.find_first(
                                 where={"modelName": engine_name},
                                 order={"createdAt": "desc"}
@@ -609,7 +605,7 @@ async def get_operational_data(date_filter, lang_filter):
                     
                     system_health_data.append({
                         "model": engine_name,
-                        "isActive": True, # If listed in available_engines, assume it's active
+                        "isActive": True, 
                         "lastUsed": last_used_time,
                         "totalTranslations": total_t,
                         "avgProcessingTime": avg_p_time
@@ -617,11 +613,9 @@ async def get_operational_data(date_filter, lang_filter):
         else:
             logger.warning("HealthService not injected into analytics router. System Health data will be incomplete.")
 
-        # 3. Model Utilization Data (Placeholder for now, can be expanded)        
+        # 3. Model Utilization Data (Placeholder for now)        
         model_utilization_data = []
         for stats in processing_stats.values():
-            # Example heuristic: if a model has processed < 10 translations, it might be 'idle'
-            # Or if it hasn't been used in a long time (needs 'lastUsed' in ModelOutput)
             utilization_rate = (stats["count"] / max(1, sum(p['count'] for p in processing_times))) * 100 # Simple ratio
             model_utilization_data.append({
                 "model": stats["model"],
@@ -698,7 +692,6 @@ async def get_tm_glossary_data(date_filter, lang_filter):
                 else:
                     bucket["timeSaved"] = bucket["count"] * 0.5
 
-        # 🔧 FIX: Manual aggregation instead of group_by(_count) - This section was already correct.
         glossary_terms = await prisma.glossaryterm.find_many(
             where={**lang_filter, "isActive": True, "usageCount": {"gt": 0}}
         )
@@ -895,7 +888,6 @@ def group_by_language_pair(quality_metrics, lang_filter):
     for metric in quality_metrics:
         model_name, language_pair = extract_model_and_language_info(metric)
         
-        # NEW: Filter out specific model names from being associated with language pairs
         if model_name in ["Untraceable/Other", "Human-Post-Edit", "COMET-Prediction", "MetricX-Evaluation"]:
             continue # Skip this entry
 
@@ -931,7 +923,7 @@ def group_by_language_pair(quality_metrics, lang_filter):
                 "avgTer": calculate_average(stats["ter_scores"]) * 100,
                 "avgMetricX": calculate_average(stats["metricx_scores"]),
                 "totalTranslations": stats["total_translations"],
-                "models": list(stats["models"]) # This list will only contain non-filtered models
+                "models": list(stats["models"]) 
             })
     
     return sorted(leaderboard, key=lambda x: x["avgComet"], reverse=True)
@@ -943,7 +935,6 @@ async def get_engine_preference_analytics():
         if not prisma.is_connected():
             await prisma.connect()
         
-        # MODIFIED: Fetch all preferences and aggregate manually
         all_preferences = await prisma.enginepreference.find_many(where={})
 
         preferences_grouped = {}

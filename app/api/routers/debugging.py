@@ -173,7 +173,6 @@ async def test_multi_engine_translation(data: Dict[str, Any]):
         logger.error(f"Multi-engine test failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# NEW DEBUGGING ENDPOINT: Test database connectivity
 @router.get("/test-database")
 async def test_database():
     """Test basic database connectivity and a simple CRUD operation."""
@@ -275,7 +274,6 @@ async def clear_model_cache():
 async def get_recent_logs():
     """Get recent log entries (simplified)"""
     try:
-        # This is a simplified version - in production you'd read from log files
         return {
             "message": "Log viewing not implemented - check server logs",
             "suggestion": "Use 'tail -f logs/app.log' or similar to view logs",
@@ -457,7 +455,7 @@ async def populate_dashboard_data():
         # Get existing translation strings
         strings = await prisma.translationstring.find_many(
             include={"translationRequest": True},
-            take=10 # Start with just 10 for testing
+            take=100
         )
         
         created_count = 0
@@ -465,7 +463,6 @@ async def populate_dashboard_data():
         from prisma.enums import QualityLabel, EvaluationMode, ModelVariant # Import enums
 
         for string in strings:
-            # Create quality metrics if they don't have them
             existing_metric = await prisma.qualitymetrics.find_first(
                 where={"translationStringId": string.id}
             )
@@ -739,9 +736,7 @@ async def populate_all_dashboard_data():
                     }
                 )
                 created_model_outputs += 1
-        
-        # SKIP LocalModel creation for now
-        
+                
         return {
             "success": True,
             "created": {
