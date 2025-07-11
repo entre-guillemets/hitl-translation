@@ -84,6 +84,7 @@ python -m venv venv
 source venv/bin/activate
 
 # Install Python dependencies
+pip install sentencepiece==0.2.0
 pip install -r requirements.txt
 
 # Set up your environment variables
