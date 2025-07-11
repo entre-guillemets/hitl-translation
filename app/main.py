@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
 import traceback
-import os # Import os for environment variables if .env is used directly, or remove if settings handles it
+import os
 
 from app.core.config import settings
 from app.db.base import initialize_database, cleanup_database, prisma
@@ -40,7 +40,7 @@ comet_model = None
 metricx_service = None
 fuzzy_matcher = None
 multi_engine_service = None
-health_service = None # NEW: Global for HealthService
+health_service = None
 
 # Create FastAPI app
 app = FastAPI(
@@ -76,7 +76,7 @@ async def startup():
 
 @app.on_event("startup")
 async def startup_event():
-    global metricx_service, comet_model, fuzzy_matcher, multi_engine_service, health_service # NEW: Add health_service
+    global metricx_service, comet_model, fuzzy_matcher, multi_engine_service, health_service
     
     # Load COMET model with multiprocessing fix
     try:
@@ -99,15 +99,10 @@ async def startup_event():
         logger.error(f"❌ Failed to load COMET model: {e}")
         comet_model = None
 
-    # Load MetricX service (disabled as per your requirements)
     # MetricX will be None, but we still pass it to HealthService
     try:
         logger.info("MetricX loading disabled - using COMET for quality assessment")
         metricx_service = MetricXService() # Instantiate it even if it won't load models, so it can be passed.
-        # If MetricXService itself attempts to load models in __init__, and that fails,
-        # you'll need to handle that gracefully or wrap the problematic part.
-        # For this example, we assume MetricXService can be instantiated without immediate failure
-        # even if it's meant to be "disabled" (i.e., its predict methods would then fail).
     except Exception as e:
         logger.error(f"❌ MetricX initialization failed: {e}")
         metricx_service = None # Ensure it's None if init fails
