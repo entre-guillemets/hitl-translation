@@ -50,8 +50,8 @@ class HealthService:
         available_engines_list = []
         if self.multi_engine_service_instance:
             try:
-                multi_engine_ready = self.multi_engine_service_instance.is_initialized() # Assuming this method exists
-                available_engines_list = list(self.multi_engine_service_instance.engine_configs.keys()) # Assuming this attribute exists
+                multi_engine_ready = self.multi_engine_service_instance.is_initialized
+                available_engines_list = list(self.multi_engine_service_instance.engine_configs.keys())
             except Exception as e:
                 logger.warning(f"Multi-engine service check failed: {e}")
                 multi_engine_ready = False

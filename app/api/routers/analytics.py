@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import statistics
 import difflib
 from typing import Optional, List, Dict, Any
+from collections import Counter
 
 from app.db.base import prisma
 from app.schemas.quality import QualityRating
@@ -119,7 +120,8 @@ async def get_human_preferences_data(date_filter, lang_filter):
         if not prisma.is_connected():
             await prisma.connect()
         
-        all_prefs = await prisma.enginepreference.find_many(where={**date_filter, **lang_filter})
+        # MODIFIED: Fetch all relevant engine preferences and aggregate manually
+        all_prefs = await prisma.enginepreference.find_many(where={**date_filter, **lang_filter}) 
         
         engine_stats = {}
         for pref in all_prefs:
@@ -322,20 +324,34 @@ async def get_multi_engine_data(date_filter, lang_filter):
         if not prisma.is_connected():
             await prisma.connect()
 
-        # Selection trends
-        selection_trends_raw = await prisma.enginepreference.group_by(
-            by=["selectionMethod", "modelCombination"],
-            _count={"id": True},
+        # Selection trends - MODIFIED to aggregate manually instead of using _count in group_by
+        all_engine_preferences = await prisma.enginepreference.find_many(
             where={**date_filter, **lang_filter}
         )
         
+        selection_trends_dict = {}
+        for pref in all_engine_preferences:
+            selection_method = pref.selectionMethod or "unknown"
+            model_combination = pref.modelCombination or "single"
+            key = (selection_method, model_combination) # Use a tuple as key for grouping
+            
+            if key not in selection_trends_dict:
+                selection_trends_dict[key] = {
+                    "selectionMethod": selection_method,
+                    "modelCombination": model_combination,
+                    "count": 0
+                }
+            selection_trends_dict[key]["count"] += 1
+
         selection_trends = []
-        for trend in selection_trends_raw:
+        for (selection_method, model_combination), data in selection_trends_dict.items():
+            # For 'date', you might want to group by actual date of creation, not just now()
+            # For simplicity, keeping datetime.now() for this example as in original.
             selection_trends.append({
-                "date": datetime.now().strftime("%Y-%m-%d"),
-                "selectionMethod": trend["selectionMethod"] or "unknown",
-                "count": trend["_count"]["id"],
-                "modelCombination": trend["modelCombination"] or "single"
+                "date": datetime.now().strftime("%Y-%m-%d"), 
+                "selectionMethod": data["selectionMethod"],
+                "count": data["count"],
+                "modelCombination": data["modelCombination"]
             })
         
         # Pivot quality analysis
@@ -361,17 +377,22 @@ async def get_multi_engine_data(date_filter, lang_filter):
                             "intermediateQuality": 0 # Placeholder, needs actual intermediate quality
                         })
         
-        # Inter-rater agreement (simplified)
-        inter_rater_raw = await prisma.annotation.group_by(
-            by=["reviewer"],
-            _count={"id": True},
+        # Inter-rater agreement (simplified) - MODIFIED to aggregate manually
+        all_annotations_for_inter_rater = await prisma.annotation.find_many(
             where={**date_filter, "reviewer": {"not": None}}
         )
         
+        inter_rater_dict = {}
+        for annotation in all_annotations_for_inter_rater:
+            reviewer = annotation.reviewer
+            if reviewer not in inter_rater_dict:
+                inter_rater_dict[reviewer] = {"count": 0}
+            inter_rater_dict[reviewer]["count"] += 1
+        
         inter_rater = []
-        for rater in inter_rater_raw:
+        for reviewer, data in inter_rater_dict.items():
             inter_rater.append({
-                "annotatorPair": f"{rater['reviewer']}-system",
+                "annotatorPair": f"{reviewer}-system",
                 "agreement": 0.8, # Placeholder
                 "category": "overall"
             })
@@ -638,7 +659,11 @@ async def get_tm_glossary_data(date_filter, lang_filter):
         
         tm_impact = {}
         for string in tm_strings:
-            match_bucket = "high" if string.tmMatchPercentage >= 90 else "medium" if string.tmMatchPercentage >= 70 else "low"
+            match_bucket = (
+                "high" if string.tmMatchPercentage >= 90
+                else "medium" if string.tmMatchPercentage >= 70
+                else "low"
+            )
             if match_bucket not in tm_impact:
                 tm_impact[match_bucket] = {
                     "matchPercentage": match_bucket,
@@ -648,17 +673,20 @@ async def get_tm_glossary_data(date_filter, lang_filter):
                     "count": 0,
                     "approved": 0
                 }
-            
+
             tm_impact[match_bucket]["count"] += 1
             if string.isApproved:
                 tm_impact[match_bucket]["approved"] += 1
-            
+
             if string.qualityMetrics:
                 for metric in string.qualityMetrics:
-                    quality_score = metric.metricXScore if metric.metricXScore is not None else metric.cometScore
+                    quality_score = (
+                        metric.metricXScore if metric.metricXScore is not None
+                        else metric.cometScore
+                    )
                     if quality_score is not None:
                         tm_impact[match_bucket]["avgQualityScore"] += quality_score
-        
+
         for bucket in tm_impact.values():
             if bucket["count"] > 0:
                 bucket["avgQualityScore"] /= bucket["count"]
@@ -670,25 +698,25 @@ async def get_tm_glossary_data(date_filter, lang_filter):
                 else:
                     bucket["timeSaved"] = bucket["count"] * 0.5
 
-        glossary_usage_raw = await prisma.glossaryterm.group_by(
-            by=["term"],
-            _count={"id": True},
-            where={**lang_filter, "isActive": True, "usageCount": {"gt": 0}},
-            order_by={"usageCount": "desc"},
-            take=20
+        # 🔧 FIX: Manual aggregation instead of group_by(_count) - This section was already correct.
+        glossary_terms = await prisma.glossaryterm.find_many(
+            where={**lang_filter, "isActive": True, "usageCount": {"gt": 0}}
         )
-        
+
+        term_counts = Counter(term.term for term in glossary_terms)
+        top_terms = term_counts.most_common(20)
+
         glossary_usage = []
-        for usage in glossary_usage_raw:
+        for term, count in top_terms:
             glossary_usage.append({
-                "term": usage["term"],
-                "usageCount": usage["_count"]["id"],
-                "overrideRate": 0.1, # Placeholder
-                "qualityImpact": 0.05 # Placeholder
+                "term": term,
+                "usageCount": count,
+                "overrideRate": 0.1,  # Placeholder
+                "qualityImpact": 0.05  # Placeholder
             })
-        
-        term_overrides = [] # Placeholder
-        
+
+        term_overrides = []  # Placeholder
+
         return {
             "tmImpact": list(tm_impact.values()),
             "glossaryUsage": glossary_usage,
@@ -915,30 +943,47 @@ async def get_engine_preference_analytics():
         if not prisma.is_connected():
             await prisma.connect()
         
-        preferences_raw = await prisma.enginepreference.group_by(
-            by=["selectedEngine", "sourceLanguage", "targetLanguage", "preferenceReason"],
-            _count={"id": True},
-            _avg={"rating": True, "overallSatisfaction": True},
-            where={}
-        )
+        # MODIFIED: Fetch all preferences and aggregate manually
+        all_preferences = await prisma.enginepreference.find_many(where={})
+
+        preferences_grouped = {}
+        for pref in all_preferences:
+            key = (pref.selectedEngine, pref.sourceLanguage, pref.targetLanguage, pref.preferenceReason)
+            if key not in preferences_grouped:
+                preferences_grouped[key] = {
+                    "selectedEngine": pref.selectedEngine,
+                    "sourceLanguage": pref.sourceLanguage,
+                    "targetLanguage": pref.targetLanguage,
+                    "preferenceReason": pref.preferenceReason,
+                    "count": 0,
+                    "ratings": [],
+                    "overallSatisfactions": []
+                }
+            preferences_grouped[key]["count"] += 1
+            if pref.rating is not None:
+                preferences_grouped[key]["ratings"].append(pref.rating)
+            if pref.overallSatisfaction is not None:
+                preferences_grouped[key]["overallSatisfactions"].append(pref.overallSatisfaction)
         
         engine_preferences = []
-        for pref in preferences_raw:
+        for key, data in preferences_grouped.items():
+            avg_rating = sum(data["ratings"]) / len(data["ratings"]) if data["ratings"] else 0
+            avg_satisfaction = sum(data["overallSatisfactions"]) / len(data["overallSatisfactions"]) if data["overallSatisfactions"] else 0
+            
             engine_preferences.append({
-                "engine": pref["selectedEngine"],
-                "selectionCount": pref["_count"]["id"],
-                "avgRating": pref["_avg"]["rating"] or 0,
-                "languagePair": f"{pref['sourceLanguage']}-{pref['targetLanguage']}",
-                "preferenceReason": pref["preferenceReason"] or "unknown",
-                "overallSatisfaction": pref["_avg"]["overallSatisfaction"] or 0
+                "engine": data["selectedEngine"],
+                "selectionCount": data["count"],
+                "avgRating": avg_rating,
+                "languagePair": f"{data['sourceLanguage']}-{data['targetLanguage']}",
+                "preferenceReason": data["preferenceReason"] or "unknown",
+                "overallSatisfaction": avg_satisfaction
             })
         
-        total_preferences = await prisma.enginepreference.count()
-
-        all_prefs_for_manual = await prisma.enginepreference.find_many()
+        total_preferences = len(all_preferences) 
+        
         engine_counts = {}
         engine_ratings = {}
-        for pref in all_prefs_for_manual:
+        for pref in all_preferences: 
             engine = pref.selectedEngine
             engine_counts[engine] = engine_counts.get(engine, 0) + 1
             if pref.rating is not None:

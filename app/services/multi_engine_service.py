@@ -9,6 +9,7 @@ class CleanMultiEngineService:
     def __init__(self, translation_service_instance: TranslationService): # Type hint translation_service_instance
         """Initialize with dependency injection for translation service"""
         self.translation_service = translation_service_instance
+        self._is_initialized = False
         self.engine_configs = {
             'opus_fast': {
                 'name': 'Helsinki OPUS',
@@ -66,7 +67,13 @@ class CleanMultiEngineService:
                 'confidence': 0.92,
             }
         }
-
+        self._is_initialized = True
+    
+    @property 
+    def is_initialized(self):  # Add this property
+        """Check if the service has been properly initialized"""
+        return self._is_initialized
+        
     async def translate_with_engine(self, text: str, source_lang: str, target_lang: str, engine_id: str) -> Dict:
         """Translate using a specific engine with clean routing"""
         try:
