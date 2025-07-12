@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { AlertTriangle, Circle, Download, RefreshCw } from 'lucide-react'; 
+import { AlertTriangle, Circle, Download, RefreshCw } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import ReactDiffViewer from 'react-diff-viewer-continued';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, XAxis, YAxis } from 'recharts';
@@ -805,7 +805,6 @@ const QualityDashboard: React.FC = () => {
                         <th className="p-3 text-left">BLEU Score</th>
                         <th className="p-3 text-left">COMET Score</th>
                         <th className="p-3 text-left">TER Score</th>
-                        <th className="p-3 text-left">MetricX Score</th>
                         <th className="p-3 text-left">Total Translations</th>
                       </tr>
                     </thead>
@@ -817,66 +816,11 @@ const QualityDashboard: React.FC = () => {
                           <td className="p-3">{formatPercentage(item.avgBleu / 100)}</td>
                           <td className="p-3">{formatPercentage(item.avgComet / 100)}</td>
                           <td className="p-3">{formatPercentage(item.avgTer / 100)}</td>
-                          <td className="p-3">{item.avgMetricX.toFixed(2)}</td>
                           <td className="p-3">{item.totalTranslations}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Post-Edit Metrics */}
-          {postEditData && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Post-Edit Quality Metrics</CardTitle>
-                <CardDescription>
-                  Quality metrics based on human post-editing ({postEditData.totalPostEdits} post-edits)
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ChartContainer config={postEditChartConfig} className="h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={postEditData.languagePairMetrics}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="languagePair" />
-                      <YAxis domain={[0, 100]} />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Bar dataKey="avgBleu" fill="var(--color-avgBleu)" name="BLEU Score (%)" />
-                      <Bar dataKey="avgComet" fill="var(--color-avgComet)" name="COMET Score (%)" />
-                      <Bar dataKey="avgTer" fill="var(--color-avgTer)" name="TER Score (%)" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Correlation Matrix */}
-          {postEditData && postEditData.correlationMatrix.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Metric Correlation Matrix</CardTitle>
-                <CardDescription>Correlation between different quality metrics</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {postEditData.correlationMatrix.map((item, index) => (
-                    <div key={index} className="p-4 border rounded-lg text-center">
-                      <div className="text-sm font-medium text-muted-foreground">
-                        {item.metric1} vs {item.metric2}
-                      </div>
-                      <div className="text-2xl font-bold mt-2">
-                        {item.correlation.toFixed(3)}
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-1">
-                        p-value: {item.pValue.toFixed(3)}
-                      </div>
-                    </div>
-                  ))}
                 </div>
               </CardContent>
             </Card>
@@ -1251,6 +1195,61 @@ const QualityDashboard: React.FC = () => {
         </TabsContent>
 
         {/* Quality Scores Tab */}
+                  {/* Post-Edit Metrics */}
+                  {postEditData && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Post-Edit Quality Metrics</CardTitle>
+                        <CardDescription>
+                          Quality metrics based on human post-editing ({postEditData.totalPostEdits} post-edits)
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <ChartContainer config={postEditChartConfig} className="h-[300px]">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={postEditData.languagePairMetrics}>
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis dataKey="languagePair" />
+                              <YAxis domain={[0, 100]} />
+                              <ChartTooltip content={<ChartTooltipContent />} />
+                              <Bar dataKey="avgBleu" fill="var(--color-avgBleu)" name="BLEU Score (%)" />
+                              <Bar dataKey="avgComet" fill="var(--color-avgComet)" name="COMET Score (%)" />
+                              <Bar dataKey="avgTer" fill="var(--color-avgTer)" name="TER Score (%)" />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </ChartContainer>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Correlation Matrix */}
+                  {postEditData && postEditData.correlationMatrix.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Metric Correlation Matrix</CardTitle>
+                        <CardDescription>Correlation between different quality metrics</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                          {postEditData.correlationMatrix.map((item, index) => (
+                            <div key={index} className="p-4 border rounded-lg text-center">
+                              <div className="text-sm font-medium text-muted-foreground">
+                                {item.metric1} vs {item.metric2}
+                              </div>
+                              <div className="text-2xl font-bold mt-2">
+                                {item.correlation.toFixed(3)}
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-1">
+                                p-value: {item.pValue.toFixed(3)}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+
         <TabsContent value="quality-scores" className="space-y-6">
           <Card>
             <CardHeader>
