@@ -157,9 +157,14 @@ async def predict_translation_quality(request_id: str = Query(..., description="
             await prisma.connect()
 
         # Get translation request with strings
+        # MODIFIED: Include translationRequest for each translationString
         translation_request = await prisma.translationrequest.find_unique(
             where={"id": request_id},
-            include={"translationStrings": True}
+            include={
+                "translationStrings": {
+                    "include": {"translationRequest": True} # <--- MODIFIED HERE
+                }
+            }
         )
 
         if not translation_request:
@@ -189,9 +194,11 @@ async def predict_translation_quality(request_id: str = Query(..., description="
             logger.info(f"Saving quality metrics for string {translation_string.id}: score={comet_score}, label={quality_label}")
 
             # Create quality prediction record
+            # MODIFIED: Ensure translationRequestId is explicitly added
             quality_prediction = await prisma.qualitymetrics.create(
                 data={
                     "translationStringId": translation_string.id,
+                    "translationRequestId": translation_string.translationRequest.id, # <--- MODIFIED HERE
                     "cometScore": comet_score,
                     "qualityLabel": quality_label,
                     "hasReference": False,
@@ -237,9 +244,14 @@ async def predict_quality_batch(request_ids: List[str]):
         for request_id in request_ids:
             try:
                 # Get translation request with strings
+                # MODIFIED: Include translationRequest for each translationString
                 translation_request = await prisma.translationrequest.find_unique(
                     where={"id": request_id},
-                    include={"translationStrings": True}
+                    include={
+                        "translationStrings": { # Include translation strings
+                            "include": {"translationRequest": True} # <--- MODIFIED HERE
+                        }
+                    }
                 )
 
                 if not translation_request:
@@ -280,9 +292,11 @@ async def predict_quality_batch(request_ids: List[str]):
                     quality_label = get_comet_quality_label(comet_score)
 
                     # Create quality prediction record
+                    # MODIFIED: Ensure translationRequestId is explicitly added
                     quality_prediction = await prisma.qualitymetrics.create(
                         data={
                             "translationStringId": translation_string.id,
+                            "translationRequestId": translation_string.translationRequest.id, # <--- MODIFIED HERE
                             "cometScore": comet_score,
                             "qualityLabel": quality_label,
                             "hasReference": False,
@@ -334,6 +348,7 @@ async def process_all_pending_quality_assessments():
             await prisma.connect()
 
         # Get all translation strings without quality metrics
+        # MODIFIED: Include translationRequest for each translationString
         pending_strings = await prisma.translationstring.find_many(
             where={
                 "qualityMetrics": {
@@ -384,9 +399,11 @@ async def process_all_pending_quality_assessments():
                         comet_score = float(model_output.scores[j])
                         quality_label = get_comet_quality_label(comet_score)
 
+                        # MODIFIED: Ensure translationRequestId is explicitly added
                         await prisma.qualitymetrics.create(
                             data={
                                 "translationStringId": translation_string.id,
+                                "translationRequestId": translation_string.translationRequest.id, # <--- MODIFIED HERE
                                 "cometScore": comet_score,
                                 "qualityLabel": quality_label,
                                 "hasReference": False,

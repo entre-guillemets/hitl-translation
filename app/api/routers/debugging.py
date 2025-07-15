@@ -285,62 +285,66 @@ async def get_recent_logs():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/fix-reference-flags")
-async def fix_reference_flags():
-    """Fix hasReference flags for existing translations"""
+async def fix_quality_metrics_reference_flags():
+    """
+    Goes through all QualityMetrics entries and attempts to set hasReference=True
+    if originalTranslation and translatedText indicate a post-edit.
+    """
     try:
         if not prisma.is_connected():
             await prisma.connect()
 
-        strings = await prisma.translationstring.find_many()
+        # Fetch all QualityMetrics records
+        all_quality_metrics = await prisma.qualitymetrics.find_many(
+            include={
+                "translationString": True
+            }
+        )
+
+        logger.info(f"Attempting to fix reference flags for {len(all_quality_metrics)} QualityMetrics records.")
 
         updated_count = 0
-        for string in strings:
-            # Check if translation was actually edited
-            if (string.originalTranslation and 
-                string.translatedText and 
-                string.originalTranslation.strip() != string.translatedText.strip()):
-                
-                await prisma.translationstring.update(
-                    where={"id": string.id},
-                    data={"hasReference": True}
-                )
-                updated_count += 1
+        for i, metric in enumerate(all_quality_metrics):
+            if metric is None: # Should not happen, but defensive check
+                logger.error(f"Metric object at index {i} is None.")
+                continue
 
-        all_metrics = await prisma.qualitymetrics.find_many()
-        
-        metrics_updated = 0
-        from prisma.enums import ReferenceType # Import ReferenceType enum
-        for metric in all_metrics:
-            # Get the translation request to check if it has references
-            request = await prisma.translationrequest.find_unique(
-                where={"id": metric.translationRequestId},
-                include={"translationStrings": True}
-            )
-            
-            if request:
-                has_references = any(
-                    ts.hasReference for ts in request.translationStrings
+            if metric.id is None: # This is what we're specifically looking for
+                logger.error(f"Metric object at index {i} has a NULL ID. Full object: {metric.dict()}")
+                continue # Skip this problematic metric
+
+            if metric.translationString:
+                # Check if it's a post-edit
+                original_mt = metric.translationString.originalTranslation
+                post_edited = metric.translationString.translatedText
+                status = metric.translationString.status
+
+                is_post_edited = (
+                    original_mt and
+                    post_edited and
+                    original_mt.strip() != post_edited.strip() and
+                    status in ["REVIEWED", "APPROVED"]
                 )
-                
-                if has_references and not metric.hasReference:
+
+                if is_post_edited and not metric.hasReference:
+                    logger.info(f"Updating hasReference for metric ID: {metric.id}")
+                    # Update the hasReference flag
                     await prisma.qualitymetrics.update(
                         where={"id": metric.id},
-                        data={
-                            "hasReference": True,
-                            "referenceType": ReferenceType.POST_EDITED # Use enum
-                        }
+                        data={"hasReference": True}
                     )
-                    metrics_updated += 1
+                    updated_count += 1
+            else:
+                logger.debug(f"Metric ID {metric.id} has no associated translationString, skipping.")
 
-        return {
-            "success": True,
-            "updated_strings": updated_count,
-            "updated_metrics": metrics_updated
-        }
-
+        logger.info(f"Fixed hasReference flags for {updated_count} quality metrics successfully.")
+        return {"message": f"Fixed hasReference flags for {updated_count} quality metrics."}
     except Exception as e:
         logger.error(f"Error in fix_reference_flags: {e}")
-        return {"error": str(e)}
+        # Log the full traceback for more context
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/check-quality-metrics")
 async def check_quality_metrics():
@@ -658,7 +662,7 @@ async def populate_all_dashboard_data():
         created_annotations = 0
         created_model_outputs = 0
         
-        from prisma.enums import QualityLabel, EvaluationMode, ModelVariant, MemoryQuality, AnnotationCategory, AnnotationSeverity, SeverityLevel, OffensiveWordCategory # All enums needed
+        from prisma.enums import QualityLabel, EvaluationMode, ModelVariant, MemoryQuality, AnnotationCategory, AnnotationSeverity, OffensiveSeverity, OffensiveCategory # All enums needed
         from prisma import Json # For Json fields
 
         # 1. Create quality metrics for strings that don't have them
