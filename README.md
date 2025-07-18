@@ -12,6 +12,7 @@ This project provides a comprehensive platform for evaluating, comparing, and an
     * **BLEU**: Measures precision and recall of n-grams.
     * **TER (Translation Edit Rate)**: Calculates the number of edits required to change a hypothesis to a reference.
     * **COMET**: A state-of-the-art model-based metric that uses source, hypothesis, and reference for highly accurate quality scoring.
+    * **ChrF**: A character-level F-score that is known to correlate well with human judgments, especially for languages with rich morphology or different scripts.
 * **Interactive Analytics Dashboard**: A rich user interface built with Next.js, Shadcn UI, and Recharts to visualize:
     * Model performance leaderboards.
     * Post-edit quality analysis by language pair.
