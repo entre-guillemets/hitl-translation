@@ -61,7 +61,7 @@ interface LanguagePairMetricEntry {
   avgBleu: number;
   avgComet: number;
   avgTer: number; 
-  avgChrf: number; 
+  avgChrf: number; // Added ChrF
   count: number;
 }
 
@@ -80,7 +80,7 @@ interface ModelLeaderboardEntry {
   avgComet: number;
   avgTer: number; 
   avgMetricX: number;
-  avgChrf: number;  
+  avgChrf: number;  // Added ChrF
   totalTranslations: number;
   languagePairs?: string[];
   models?: string[];
@@ -89,8 +89,8 @@ interface ModelLeaderboardEntry {
     bleuHigh: number;
     cometLow: number;
     cometHigh: number;
-    chrfLow: number;
-    chrfHigh: number; 
+    chrfLow: number; // Added ChrF
+    chrfHigh: number; // Added ChrF
   };
 }
 
@@ -133,6 +133,7 @@ interface AnnotationData {
   severityBreakdown: SeverityBreakdownEntry[];
   spanAnalysis: SpanAnalysisEntry[];
   stackedPainIndexByErrorType: { [key: string]: any; model: string }[]; // Added for new chart
+  totalMQMScore: number; // Added for MQM score
 }
 
 interface ErrorHeatmapEntry {
@@ -220,8 +221,9 @@ interface CorrelationEntry {
 interface ScoreDistributionEntry {
   metric: string;
   scoreRange: string;
-  count: number;
-  percentage: number;
+  scores: number[]; // Added scores property
+  count?: number; // Optional, as scores array length can derive count
+  percentage?: number; // Optional, as not always provided by backend
 }
 
 interface ProcessingTimeEntry {
@@ -542,7 +544,7 @@ const MultiMetricChart: React.FC<{ data: ModelLeaderboardEntry[] }> = ({ data })
     avgBleu: item.avgBleu,
     avgComet: item.avgComet,
     avgTer: item.avgTer,
-    avgChrf: item.avgChrf,
+    avgChrf: item.avgChrf, // Added ChrF
     totalTranslations: item.totalTranslations
   }));
 
@@ -563,7 +565,7 @@ const MultiMetricChart: React.FC<{ data: ModelLeaderboardEntry[] }> = ({ data })
           <Bar dataKey="avgBleu" fill="var(--color-avgBleu)" name="BLEU Score (%)" />
           <Bar dataKey="avgComet" fill="var(--color-avgComet)" name="COMET Score (%)" />
           <Bar dataKey="avgTer" fill="var(--color-avgTer)" name="TER Score (%)" />
-          <Bar dataKey="avgChrf" fill="var(--color-avgChrf)" name="ChrF Score (%)" /> 
+          <Bar dataKey="avgChrf" fill="var(--color-avgChrf)" name="ChrF Score (%)" /> {/* Added ChrF */}
         </BarChart>
       </ResponsiveContainer>
     </ChartContainer>
@@ -607,7 +609,7 @@ const MetricCorrelationMatrix: React.FC<{ data: CorrelationEntry[] }> = ({ data 
       <CardHeader>
         <CardTitle>Quality Score Correlation Matrix</CardTitle>
         <CardDescription>
-          Correlation between BLEU, COMET, and TER scores. (Higher positive value = stronger positive correlation,
+          Correlation between BLEU, COMET, TER, and ChrF scores. (Higher positive value = stronger positive correlation,
           higher negative value = stronger negative correlation).
         </CardDescription>
       </CardHeader>
@@ -927,17 +929,30 @@ const QualityDashboard: React.FC = () => {
     }
   };
 
-  // useEffect with new dependencies
+  // REMOVED individual fetch calls for multi-engine, quality-scores, and tm-glossary
+  // as their data is expected to be part of the main dashboardData payload.
+  // The 'multiEngine', 'qualityScores', and 'tmGlossary' data will be accessed directly from dashboardData.
+  /*
+  const fetchMultiEngineData = async () => { ... };
+  const fetchQualityScoresData = async () => { ... };
+  const fetchTMGlossaryData = async () => { ... };
+  */
+
+  // useEffect with updated dependencies and removed specific fetches
   useEffect(() => {
     fetchDashboardData();
     fetchPostEditData();
     fetchTranslatorImpactData();
+    // Removed these calls:
+    // fetchMultiEngineData();
+    // fetchQualityScoresData();
+    // fetchTMGlossaryData();
   }, [
     chartGroupBy,
     selectedLanguagePair,
     dateRange,
-    preferencesEngineFilter, // Added for preferences filter
-    preferencesLanguagePairFilter // Added for preferences filter
+    preferencesEngineFilter,
+    preferencesLanguagePairFilter
   ]);
 
   const getEditTypeBadge = (editType: string) => {
@@ -976,6 +991,12 @@ const QualityDashboard: React.FC = () => {
 
   const formatTime = (timeMs: number) => {
     return `${timeMs.toFixed(0)}ms`;
+  };
+
+  // Helper for average of scores list for Quality Scores -> Score Distribution
+  const calculateAverage = (scores: number[] | undefined) => {
+    if (!scores || scores.length === 0) return 0;
+    return (scores.reduce((sum, current) => sum + current, 0) / scores.length).toFixed(1);
   };
 
   if (loading) {
@@ -1035,25 +1056,31 @@ const QualityDashboard: React.FC = () => {
       </div>
 
       <Tabs defaultValue="quality" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-6"> {/* Updated grid-cols for 6 tabs */}
-          <TabsTrigger value="quality">Quality</TabsTrigger> {/* New first tab */}
+        <TabsList className="grid w-full grid-cols-7">
+          <TabsTrigger value="quality">Quality</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>
-          <TabsTrigger value="translator-impact">Translator Impact</TabsTrigger> {/* Moved */}
+          <TabsTrigger value="translator-impact">Translator Impact</TabsTrigger>
           <TabsTrigger value="preferences">Preferences</TabsTrigger>
           <TabsTrigger value="annotations">Annotations</TabsTrigger>
           <TabsTrigger value="operational">Operational</TabsTrigger>
-          {/* <TabsTrigger value="multi-engine">Multi-Engine</TabsTrigger> */} {/* Removed as per order, assumed included or removed */}
-          {/* <TabsTrigger value="quality-scores">Quality Scores</TabsTrigger> */} {/* Removed as per order, assumed included or removed */}
-          {/* <TabsTrigger value="tm-glossary">TM & Glossary</TabsTrigger> */} {/* Removed as per order, assumed included or removed */}
+          <TabsTrigger value="tm-glossary">TM & Glossary</TabsTrigger>
+          {/* Note: Multi-Engine tab is intentionally excluded as per recent discussions, 
+             assuming its content is integrated elsewhere or no longer needed as a separate top-level tab.
+             If it's needed, it must be added here and its content (further down) uncommented.
+             If it's to be a top-level tab, you'd need to add:
+             <TabsTrigger value="multi-engine">Multi-Engine</TabsTrigger>
+             And then ensure dashboardData.multiEngine is directly used.
+             Given current issue, I'm removing the old API calls that were causing 404s.
+          */}
         </TabsList>
 
         {/* NEW: Quality Tab */}
         <TabsContent value="quality" className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6"> {/* Use grid for 2/3 and 1/3 split */}
-            <div className="lg:col-span-2"> {/* 2/3 width */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2">
               {/* Post-Edit Metrics */}
               {postEditData && (
-                <Card className="h-full"> {/* Ensure card takes full height of its container */}
+                <Card className="h-full">
                   <CardHeader>
                     <CardTitle>Post-Edit Quality Metrics</CardTitle>
                     <CardDescription>
@@ -1071,7 +1098,7 @@ const QualityDashboard: React.FC = () => {
                           <Bar dataKey="avgBleu" fill="var(--color-avgBleu)" name="BLEU Score (%)" />
                           <Bar dataKey="avgComet" fill="var(--color-avgComet)" name="COMET Score (%)" />
                           <Bar dataKey="avgTer" fill="var(--color-avgTer)" name="TER Score (%)" />
-                          <Bar dataKey="avgChrf" fill="var(--color-avgChrf)" name="ChrF Score (%)" /> 
+                          <Bar dataKey="avgChrf" fill="var(--color-avgChrf)" name="ChrF Score (%)" />
                         </BarChart>
                       </ResponsiveContainer>
                     </ChartContainer>
@@ -1079,18 +1106,84 @@ const QualityDashboard: React.FC = () => {
                 </Card>
               )}
             </div>
-            <div className="lg:col-span-1"> {/* 1/3 width */}
+            <div className="lg:col-span-1">
               {/* Correlation Matrix */}
               {postEditData && postEditData.correlationMatrix.length > 0 && (
                 <MetricCorrelationMatrix data={postEditData.correlationMatrix} />
               )}
             </div>
           </div>
+          
+          {/* Quality Scores - Evaluation Modes & Score Distribution */}
+          <Card>
+              <CardHeader>
+                  <CardTitle>Quality Score Evaluation Modes</CardTitle>
+                  <CardDescription>Overview of different evaluation modes and their average scores.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                  {dashboardData.qualityScores.evaluationModes.length > 0 ? (
+                      <div className="rounded-md border">
+                          <table className="w-full">
+                              <thead>
+                                  <tr className="border-b bg-muted/50">
+                                      <th className="p-3 text-left">Mode</th>
+                                      <th className="p-3 text-left">Count</th>
+                                      <th className="p-3 text-left">Average Score</th>
+                                      <th className="p-3 text-left">Confidence</th>
+                                  </tr>
+                              </thead>
+                              <tbody>
+                                  {dashboardData.qualityScores.evaluationModes.map((item, index) => (
+                                      <tr key={index} className="border-b hover:bg-muted/30">
+                                          <td className="p-3 font-medium">{item.mode}</td>
+                                          <td className="p-3">{item.count}</td>
+                                          <td className="p-3">{item.avgScore.toFixed(2)}</td>
+                                          <td className="p-3">{formatPercentage(item.confidence * 100)}</td>
+                                      </tr>
+                                  ))}
+                              </tbody>
+                          </table>
+                      </div>
+                  ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                          No evaluation modes data available.
+                      </div>
+                  )}
+              </CardContent>
+          </Card>
 
-          {/* This section (evaluationModes, scoreDistribution) would typically fall under "Quality Scores" tab.
-              Given the request, I'm assuming the primary "Quality" tab focuses on post-edit & correlation.
-              If these are still desired in the Quality tab, please clarify their placement.
-          */}
+          <Card>
+              <CardHeader>
+                  <CardTitle>Quality Score Distribution</CardTitle>
+                  <CardDescription>Distribution of scores for different metrics.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                  {dashboardData.qualityScores.scoreDistribution.length > 0 ? (
+                      <div className="space-y-4">
+                          {dashboardData.qualityScores.scoreDistribution.map((item, index) => (
+                              <div key={index} className="p-4 border rounded-lg">
+                                  <div className="text-sm font-medium text-muted-foreground mb-2">
+                                      {item.metric} (Range: {item.scoreRange})
+                                  </div>
+                                  <div className="flex justify-between items-center">
+                                      <span className="text-sm">Total Entries:</span>
+                                      <span className="text-sm font-medium">{item.scores.length}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center">
+                                      <span className="text-sm">Average Score:</span>
+                                      <span className="text-sm font-medium">{calculateAverage(item.scores)}</span>
+                                  </div>
+                                  {/* You can add a histogram/chart here for distribution if desired */}
+                              </div>
+                          ))}
+                      </div>
+                  ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                          No score distribution data available.
+                      </div>
+                  )}
+              </CardContent>
+          </Card>
         </TabsContent>
 
 
@@ -1101,7 +1194,7 @@ const QualityDashboard: React.FC = () => {
             <CardHeader>
               <CardTitle>Model Performance Comparison</CardTitle>
               <CardDescription>
-                Compare TER, BLEU, and COMET scores across models or language pairs (based on human post-edits)
+                Compare TER, BLEU, COMET, and ChrF scores across models or language pairs (based on human post-edits)
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -1140,7 +1233,7 @@ const QualityDashboard: React.FC = () => {
                         <th className="p-3 text-left">BLEU Score</th>
                         <th className="p-3 text-left">COMET Score</th>
                         <th className="p-3 text-left">TER Score</th>
-                        <th className="p-3 text-left">ChrF Score</th>
+                        <th className="p-3 text-left">ChrF Score</th> {/* Added ChrF */}
                         <th className="p-3 text-left">Total Translations</th>
                       </tr>
                     </thead>
@@ -1152,7 +1245,7 @@ const QualityDashboard: React.FC = () => {
                           <td className="p-3">{formatPercentage(item.avgBleu)}</td>
                           <td className="p-3">{formatPercentage(item.avgComet)}</td>
                           <td className="p-3">{formatPercentage(item.avgTer)}</td>
-                          <td className="p-3">{formatPercentage(item.avgChrf)}</td>
+                          <td className="p-3">{formatPercentage(item.avgChrf)}</td> {/* Added ChrF */}
                           <td className="p-3">{item.totalTranslations}</td>
                         </tr>
                       ))}
@@ -1300,7 +1393,7 @@ const QualityDashboard: React.FC = () => {
                       <tr className="border-b bg-muted/50">
                         <th className="p-3 text-left">Translator ID</th>
                         <th className="p-3 text-left">Total Edits</th>
-                        {/* <th className="p-3 text-left">Avg Improvement</th> Removed as requested */}
+                        <th className="p-3 text-left">Avg Improvement</th>
                         <th className="p-3 text-left">Avg Edit Distance</th>
                         <th className="p-3 text-left">Language Pairs</th>
                         <th className="p-3 text-left">Edit Distribution</th>
@@ -1311,7 +1404,7 @@ const QualityDashboard: React.FC = () => {
                         <tr key={item.translatorId} className="border-b hover:bg-muted/30">
                           <td className="p-3 font-medium">{item.translatorId}</td>
                           <td className="p-3">{item.totalEdits}</td>
-                          {/* <td className="p-3">+{(item.avgImprovementScore * 100).toFixed(1)}%</td> Removed as requested */}
+                          <td className="p-3">+{(item.avgImprovementScore * 100).toFixed(1)}%</td>
                           <td className="p-3">{item.avgEditDistance.toFixed(1)}</td>
                           <td className="p-3">{item.languagePairs.join(', ')}</td>
                           <td className="p-3">
@@ -1605,6 +1698,23 @@ const QualityDashboard: React.FC = () => {
               </CardContent>
             </Card>
           )}
+          
+          {/* Total MQM Score (New Card) */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Total MQM Score</CardTitle>
+              <CardDescription>
+                Overall Quality Estimation Score (Lower is better, weighted errors per string)
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-center p-4">
+                <span className="text-5xl font-bold text-primary">
+                  {dashboardData.annotations.totalMQMScore.toFixed(2)}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Original Severity Distribution - kept for completeness */}
           <Card>
@@ -1785,17 +1895,17 @@ const QualityDashboard: React.FC = () => {
                       <th className="p-3 text-left">Count</th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {dashboardData.operational.processingTimes.map((item, index) => (
-                      <tr key={index} className="border-b hover:bg-muted/30">
-                        <td className="p-3 font-medium">{item.model}</td>
-                        <td className="p-3">{item.engineType}</td>
-                        <td className="p-3">{item.wordCountBucket}</td>
-                        <td className="p-3">{formatTime(item.avgProcessingTime)}</td>
-                        <td className="p-3">{item.count}</td>
-                      </tr>
-                    ))}
-                  </tbody>
+                    <tbody>
+                        {dashboardData.operational.processingTimes.map((item, index) => (
+                        <tr key={index} className="border-b hover:bg-muted/30">
+                            <td className="p-3 font-medium">{item.model}</td>
+                            <td className="p-3">{item.engineType}</td>
+                            <td className="p-3">{item.wordCountBucket}</td>
+                            <td className="p-3">{formatTime(item.avgProcessingTime)}</td>
+                            <td className="p-3">{item.count}</td>
+                        </tr>
+                        ))}
+                    </tbody>
                 </table>
               </div>
             </CardContent>
@@ -1838,6 +1948,236 @@ const QualityDashboard: React.FC = () => {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        {/* TM & Glossary Tab (Restored) */}
+        <TabsContent value="tm-glossary" className="space-y-6">
+            <Card>
+                <CardHeader>
+                    <CardTitle>Translation Memory (TM) Impact</CardTitle>
+                    <CardDescription>Analysis of TM match percentages on quality and time saved.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    {dashboardData.tmGlossary.tmImpact.length > 0 ? (
+                        <ChartContainer config={tmImpactChartConfig} className="h-[300px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={dashboardData.tmGlossary.tmImpact}>
+                                    <CartesianGrid strokeDasharray="3 3" />
+                                    <XAxis dataKey="matchPercentage" />
+                                    <YAxis yAxisId="left" orientation="left" stroke="var(--color-avgQualityScore)" />
+                                    <YAxis yAxisId="right" orientation="right" stroke="var(--color-timeSaved)" />
+                                    <ChartTooltip content={<ChartTooltipContent />} />
+                                    <Legend />
+                                    <Bar yAxisId="left" dataKey="avgQualityScore" fill="var(--color-avgQualityScore)" name="Avg Quality Score" />
+                                    <Bar yAxisId="right" dataKey="timeSaved" fill="var(--color-timeSaved)" name="Time Saved (min)" />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </ChartContainer>
+                    ) : (
+                        <div className="text-center py-8 text-muted-foreground">
+                            No TM impact data available.
+                        </div>
+                    )}
+                    {dashboardData.tmGlossary.tmImpact.length > 0 && (
+                        <div className="rounded-md border mt-4">
+                            <table className="w-full">
+                                <thead>
+                                    <tr className="border-b bg-muted/50">
+                                        <th className="p-3 text-left">Match %</th>
+                                        <th className="p-3 text-left">Avg Quality Score</th>
+                                        <th className="p-3 text-left">Time Saved (min)</th>
+                                        <th className="p-3 text-left">Approval Rate</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {dashboardData.tmGlossary.tmImpact.map((item, index) => (
+                                        <tr key={index} className="border-b hover:bg-muted/30">
+                                            <td className="p-3 font-medium">{item.matchPercentage}</td>
+                                            <td className="p-3">{item.avgQualityScore.toFixed(2)}</td>
+                                            <td className="p-3">{item.timeSaved.toFixed(0)}</td>
+                                            <td className="p-3">{formatPercentage(item.approvalRate * 100)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+
+            <Card>
+                <CardHeader>
+                    <CardTitle>Glossary Usage</CardTitle>
+                    <CardDescription>Most frequently used glossary terms and their impact.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    {dashboardData.tmGlossary.glossaryUsage.length > 0 ? (
+                        <div className="rounded-md border">
+                            <table className="w-full">
+                                <thead>
+                                    <tr className="border-b bg-muted/50">
+                                        <th className="p-3 text-left">Term</th>
+                                        <th className="p-3 text-left">Usage Count</th>
+                                        <th className="p-3 text-left">Override Rate</th>
+                                        <th className="p-3 text-left">Quality Impact</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {dashboardData.tmGlossary.glossaryUsage.map((item, index) => (
+                                        <tr key={index} className="border-b hover:bg-muted/30">
+                                            <td className="p-3 font-medium">{item.term}</td>
+                                            <td className="p-3">{item.usageCount}</td>
+                                            <td className="p-3">{formatPercentage(item.overrideRate * 100)}</td>
+                                            <td className="p-3">{item.qualityImpact.toFixed(2)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    ) : (
+                        <div className="text-center py-8 text-muted-foreground">
+                            No glossary usage data available.
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+            {/* Term Overrides if data is available and you want to display it */}
+            {dashboardData.tmGlossary.termOverrides.length > 0 && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Term Overrides</CardTitle>
+                        <CardDescription>Analysis of frequently overridden glossary terms.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="rounded-md border">
+                            <table className="w-full">
+                                <thead>
+                                    <tr className="border-b bg-muted/50">
+                                        <th className="p-3 text-left">Term</th>
+                                        <th className="p-3 text-left">Original Translation</th>
+                                        <th className="p-3 text-left">Override Translation</th>
+                                        <th className="p-3 text-left">Frequency</th>
+                                        <th className="p-3 text-left">Quality Delta</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {dashboardData.tmGlossary.termOverrides.map((item, index) => (
+                                        <tr key={index} className="border-b hover:bg-muted/30">
+                                            <td className="p-3 font-medium">{item.term}</td>
+                                            <td className="p-3">{item.originalTranslation}</td>
+                                            <td className="p-3">{item.overrideTranslation}</td>
+                                            <td className="p-3">{item.frequency}</td>
+                                            <td className="p-3">{item.qualityDelta.toFixed(2)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+        </TabsContent>
+
+        {/* Multi-Engine Tab (This tab is now using data from dashboardData.multiEngine) */}
+        <TabsContent value="multi-engine" className="space-y-6">
+            <Card>
+                <CardHeader>
+                    <CardTitle>Multi-Engine Selection Trends</CardTitle>
+                    <CardDescription>Trends in how different MT engines and combinations are selected.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    {dashboardData.multiEngine.selectionTrends.length > 0 ? (
+                        <ChartContainer config={preferenceChartConfig} className="h-[400px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={dashboardData.multiEngine.selectionTrends}>
+                                    <CartesianGrid strokeDasharray="3 3" />
+                                    <XAxis dataKey="selectionMethod" angle={-45} textAnchor="end" height={100} />
+                                    <YAxis />
+                                    <ChartTooltip content={<ChartTooltipContent />} />
+                                    <Legend />
+                                    <Bar dataKey="count" fill="var(--color-count)" name="Selection Count" />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </ChartContainer>
+                    ) : (
+                        <div className="text-center py-8 text-muted-foreground">
+                            No multi-engine selection trend data available.
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+
+            <Card>
+                <CardHeader>
+                    <CardTitle>Pivot Translation Quality</CardTitle>
+                    <CardDescription>Quality analysis for pivot translations (e.g., JP-EN-FR).</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    {dashboardData.multiEngine.pivotQuality.length > 0 ? (
+                        <div className="rounded-md border">
+                            <table className="w-full">
+                                <thead>
+                                    <tr className="border-b bg-muted/50">
+                                        <th className="p-3 text-left">Model Combination</th>
+                                        <th className="p-3 text-left">Direct Quality</th>
+                                        <th className="p-3 text-left">Pivot Quality</th>
+                                        <th className="p-3 text-left">Intermediate Quality</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {dashboardData.multiEngine.pivotQuality.map((item, index) => (
+                                        <tr key={index} className="border-b hover:bg-muted/30">
+                                            <td className="p-3 font-medium">{item.modelCombination}</td>
+                                            <td className="p-3">{item.directQuality.toFixed(2)}</td>
+                                            <td className="p-3">{item.pivotQuality.toFixed(2)}</td>
+                                            <td className="p-3">{item.intermediateQuality.toFixed(2)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    ) : (
+                        <div className="text-center py-8 text-muted-foreground">
+                            No pivot quality data available.
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+
+            <Card>
+                <CardHeader>
+                    <CardTitle>Inter-Rater Agreement</CardTitle>
+                    <CardDescription>Agreement scores between different annotators.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    {dashboardData.multiEngine.interRaterAgreement.length > 0 ? (
+                        <div className="rounded-md border">
+                            <table className="w-full">
+                                <thead>
+                                    <tr className="border-b bg-muted/50">
+                                        <th className="p-3 text-left">Annotator Pair</th>
+                                        <th className="p-3 text-left">Agreement</th>
+                                        <th className="p-3 text-left">Category</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {dashboardData.multiEngine.interRaterAgreement.map((item, index) => (
+                                        <tr key={index} className="border-b hover:bg-muted/30">
+                                            <td className="p-3 font-medium">{item.annotatorPair}</td>
+                                            <td className="p-3">{item.agreement.toFixed(2)}</td>
+                                            <td className="p-3">{item.category}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    ) : (
+                        <div className="text-center py-8 text-muted-foreground">
+                            No inter-rater agreement data available.
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
         </TabsContent>
       </Tabs>
 
