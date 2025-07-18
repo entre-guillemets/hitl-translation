@@ -9,7 +9,6 @@ from collections import defaultdict, Counter
 from typing import Optional, List, Dict, Any
 import sacrebleu
 
-# CORRECTED: Ensure QualityRating is explicitly imported
 from app.schemas.quality import QualityRating 
 from app.db.base import prisma
 from prisma.enums import AnnotationCategory, AnnotationSeverity, QualityLabel, MTModel
@@ -78,15 +77,22 @@ def calculate_correlation(x_vals, y_vals):
 def get_engine_type_from_model(model_name: str) -> str:
     """Map model name (which is a string representation of MTModel enum) to engine type."""
     engine_mapping = {
-        MTModel.MARIAN_MT_EN_FR.value: "opus_fast",
-        MTModel.MARIAN_MT_FR_EN.value: "opus_fast",
-        MTModel.MARIAN_MT_EN_JP.value: "opus_fast",
-        MTModel.ELAN_MT_JP_EN.value: "elan_specialist",
-        MTModel.T5_BASE.value: "t5_versatile",
-        MTModel.NLLB_200.value: "nllb_multilingual",
-        MTModel.PIVOT_JP_EN_FR.value: "pivot_elan_helsinki",
-        "OPUS_JA_EN": "opus_fast",
-        "T5_MULTILINGUAL": "t5_versatile",
+        MTModel.MARIAN_MT_EN_FR.value:      "opus_fast",
+        MTModel.MARIAN_MT_FR_EN.value:      "opus_fast",
+        MTModel.MARIAN_MT_EN_JP.value:      "opus_fast",
+        MTModel.ELAN_MT_JP_EN.value:        "elan_specialist",
+        MTModel.T5_MULTILINGUAL.value:      "t5_versatile",
+        MTModel.CUSTOM_MODEL.value:         "custom",
+        MTModel.MULTI_ENGINE.value:         "multi_engine",
+        MTModel.PIVOT_JP_EN_FR.value:       "pivot_elan_helsinki",
+        MTModel.MT5_BASE.value:             "t5_versatile",         # <--- FIXED
+        MTModel.PLAMO_2_TRANSLATE.value:    "plamo",
+        MTModel.OPUS_MT_JA_EN.value:        "opus_fast",
+        MTModel.OPUS_MT_EN_JAP.value:       "opus_fast",
+        MTModel.OPUS_MT_TC_BIG_EN_FR.value: "opus_fast",
+        MTModel.NLLB_MULTILINGUAL.value:    "nllb_multilingual",    # <--- FIXED
+        MTModel.PIVOT_ELAN_HELSINKI.value:  "pivot_elan_helsinki",
+        MTModel.MT5_MULTILINGUAL.value:     "t5_versatile",
     }
     return engine_mapping.get(model_name, "unknown")
 
@@ -160,6 +166,45 @@ def calculate_translator_summary(comparisons: list) -> list:
         })
     
     return summary
+
+def compute_model_comparison(quality_metrics):
+    model_comparisons = {}
+    for metric in quality_metrics:
+        model_name, _ = extract_model_and_language_info(metric)
+        if model_name in ["Untraceable/Other", "Human-Post-Edit", "COMET-Prediction", "MetricX-Evaluation"]:
+            continue
+
+        if model_name not in model_comparisons:
+            model_comparisons[model_name] = {
+                "model": model_name,
+                "bleu_scores": [],
+                "comet_scores": [],
+                "ter_scores": [],
+                "chrf_scores": [],
+                "count": 0
+            }
+        if metric.bleuScore is not None:
+            model_comparisons[model_name]["bleu_scores"].append(metric.bleuScore)
+        if metric.cometScore is not None:
+            model_comparisons[model_name]["comet_scores"].append(metric.cometScore)
+        if metric.terScore is not None:
+            model_comparisons[model_name]["ter_scores"].append(metric.terScore)
+        if metric.chrfScore is not None:
+            model_comparisons[model_name]["chrf_scores"].append(metric.chrfScore)
+        model_comparisons[model_name]["count"] += 1
+
+    result = []
+    for model, stats in model_comparisons.items():
+        if stats["count"] > 0:
+            result.append({
+                "model": model,
+                "avgBleu": sum(stats["bleu_scores"]) / len(stats["bleu_scores"]) if stats["bleu_scores"] else 0,
+                "avgComet": sum(stats["comet_scores"]) / len(stats["comet_scores"]) if stats["comet_scores"] else 0,
+                "avgTer": sum(stats["ter_scores"]) / len(stats["ter_scores"]) if stats["ter_scores"] else 0,
+                "avgChrf": sum(stats["chrf_scores"]) / len(stats["chrf_scores"]) if stats["chrf_scores"] else 0,
+                "totalTranslations": stats["count"],
+            })
+    return result
 
 async def get_human_preferences_data(lang_filter: dict):
     """Get human preference data"""
@@ -788,9 +833,8 @@ async def get_model_performance_data(lang_filter: dict, group_by="model"):
 
         quality_metrics = await prisma.qualitymetrics.find_many(
             where={
-                "cometScore": {"not": None}, # Ensure COMET is present for primary sorting
+                "cometScore": {"not": None},
                 "hasReference": True,
-                # Removed strict "chrfScore": {"not": None} filter
             },
             include={
                 "translationRequest": {
@@ -814,10 +858,12 @@ async def get_model_performance_data(lang_filter: dict, group_by="model"):
         else:
             grouped_data = group_by_model(quality_metrics, lang_filter)
 
+        model_comparison = compute_model_comparison(quality_metrics)
+
         return {
             "leaderboard": grouped_data,
             "performanceOverTime": [],
-            "modelComparison": []
+            "modelComparison": model_comparison
         }
 
     except Exception as e:
@@ -833,37 +879,55 @@ def calculate_average(scores: list) -> float:
 def extract_model_and_language_info(metric):
     """
     Extracts model name and language pair from a quality metric entry.
-    Prioritizes specific model names, then falls back to translation request model,
-    then to calculation engine types, and finally to 'Untraceable/Other'.
+    Prioritizes the selected engine actually used for post-editing, then 
+    falls back to modelOutputs, then translation request model, then calculation engine,
+    then finally 'Untraceable/Other' as an absolute fallback.
     """
     model_name_extracted = None
     language_pair = "unknown-unknown"
 
-    if metric.translationString and metric.translationString.modelOutputs:
-        if len(metric.translationString.modelOutputs) > 0 and metric.translationString.modelOutputs[0].modelName:
-            model_name_extracted = metric.translationString.modelOutputs[0].modelName
+    # 1. Strongest: translationString.selectedEngine
+    if getattr(metric, "translationString", None) and getattr(metric.translationString, "selectedEngine", None):
+        model_name_extracted = metric.translationString.selectedEngine
+    
+    # 2. Fallback: modelOutputs[0].modelName
+    elif getattr(metric, "translationString", None) and getattr(metric.translationString, "modelOutputs", None):
+        mos = metric.translationString.modelOutputs
+        if isinstance(mos, list) and len(mos) > 0 and getattr(mos[0], "modelName", None):
+            model_name_extracted = mos[0].modelName
 
-    if model_name_extracted is None and metric.translationString and metric.translationString.translationRequest:
-        if metric.translationString.translationRequest.mtModel:
+    # 3. Fallback: translationRequest.mtModel (enum or string)
+    elif getattr(metric, "translationString", None) and getattr(metric.translationString, "translationRequest", None):
+        if getattr(metric.translationString.translationRequest, "mtModel", None):
             mt_model = metric.translationString.translationRequest.mtModel
             model_name_extracted = mt_model.value if hasattr(mt_model, 'value') else str(mt_model)
 
-    if model_name_extracted is None and metric.calculationEngine:
-        if "comet-prediction" in metric.calculationEngine.lower():
+    # 4. Fallback: calculationEngine hints
+    elif getattr(metric, "calculationEngine", None):
+        calc_engine = metric.calculationEngine.lower()
+        if "comet-prediction" in calc_engine:
             model_name_extracted = "COMET-Prediction"
-        elif "post-editing-metrics" in metric.calculationEngine.lower():
+        elif "post-editing-metrics" in calc_engine:
             model_name_extracted = "Human-Post-Edit"
+        else:
+            model_name_extracted = None
 
-    if model_name_extracted is None:
+    # 5. As a last fallback
+    if not model_name_extracted:
         model_name_extracted = "Untraceable/Other"
-        logger.warning(f"Could not trace model for metric {metric.id}, assigned '{model_name_extracted}'. Calculation Engine: {metric.calculationEngine}, Translation String ID: {metric.translationStringId}")
+        logger.warning(
+            f"Could not trace model for metric {getattr(metric, 'id', 'unknown')}, assigned '{model_name_extracted}'. "
+            f"Calculation Engine: {getattr(metric, 'calculationEngine', None)}, "
+            f"Translation String ID: {getattr(metric, 'translationStringId', None)}"
+        )
 
-
-    if metric.translationString and metric.translationString.translationRequest:
-        source_lang = metric.translationString.translationRequest.sourceLanguage
-        target_lang = metric.translationString.targetLanguage
+    # Extract language pair info (for dashboards)
+    if getattr(metric, "translationString", None) and getattr(metric.translationString, "translationRequest", None):
+        source_lang = getattr(metric.translationString.translationRequest, "sourceLanguage", "unknown")
+        target_lang = getattr(metric.translationString, "targetLanguage", "unknown")
         language_pair = f"{source_lang}-{target_lang}"
-    elif metric.translationRequestId:       
+    elif getattr(metric, "translationRequestId", None):
+        # Can be enhanced if translationRequest lookup added
         pass
 
     return model_name_extracted, language_pair
@@ -888,6 +952,7 @@ def group_by_model(quality_metrics, lang_filter):
     
     for metric in quality_metrics:
         model_name, language_pair = extract_model_and_language_info(metric)
+        print(f"Extracted model_name: {model_name}")
         
         if model_name in ["Untraceable/Other", "Human-Post-Edit", "COMET-Prediction", "MetricX-Evaluation"]:
             continue 
@@ -928,7 +993,7 @@ def group_by_model(quality_metrics, lang_filter):
                 "engineType": stats["engineType"],
                 "avgBleu": calculate_average(stats["bleu_scores"]) * 100,
                 "avgComet": calculate_average(stats["comet_scores"]) * 100,
-                "avgTer": calculate_average(stats["ter_scores"]) * 100,
+                "avgTer": calculate_average(stats["ter_scores"]) if stats["ter_scores"] else 0,
                 "avgChrf": calculate_average(stats["chrf_scores"]) if stats["chrf_scores"] else 0, 
                 "avgMetricX": calculate_average(stats["metricx_scores"]),
                 "totalTranslations": stats["total_translations"],
@@ -985,7 +1050,7 @@ def group_by_language_pair(quality_metrics, lang_filter):
                 "engineType": "N/A",
                 "avgBleu": calculate_average(stats["bleu_scores"]) * 100,
                 "avgComet": calculate_average(stats["comet_scores"]) * 100,
-                "avgTer": calculate_average(stats["ter_scores"]) * 100,
+                "avgTer": calculate_average(stats["ter_scores"]) if stats["ter_scores"] else 0,
                 "avgChrf": calculate_average(stats["chrf_scores"]) if stats["chrf_scores"] else 0,
                 "avgMetricX": calculate_average(stats["metricx_scores"]),
                 "totalTranslations": stats["total_translations"],

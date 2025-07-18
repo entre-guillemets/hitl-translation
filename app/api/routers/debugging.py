@@ -968,3 +968,35 @@ async def check_specific_metrics(requestIds: str = Query(...)):
     except Exception as e:
         logger.error(f"check_specific_metrics failed: {e}")
         return {"error": str(e)}
+
+@router.post("/backfill-selected-engine")
+async def backfill_selected_engine():
+    """
+    Scan all TranslationStrings where selectedEngine is null.
+    If any EnginePreference exists for the string, copy selectedEngine over.
+    """
+    try:
+        if not prisma.is_connected():
+            await prisma.connect()
+
+        # Fetch all translation strings needing the update
+        strings = await prisma.translationstring.find_many(where={"selectedEngine": None})
+        updated_count = 0
+
+        for ts in strings:
+            # Find related EnginePreference, if any
+            ep = await prisma.enginepreference.find_first(
+                where={"translationStringId": ts.id}
+            )
+            if ep and ep.selectedEngine:
+                await prisma.translationstring.update(
+                    where={"id": ts.id},
+                    data={"selectedEngine": ep.selectedEngine}
+                )
+                updated_count += 1
+
+        return {"updated": updated_count, "message": f"Updated {updated_count} translation strings with selectedEngine."}
+
+    except Exception as e:
+        logger.error(f"Error in backfill_selected_engine: {e}")
+        return {"error": str(e)}

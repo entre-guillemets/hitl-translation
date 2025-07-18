@@ -25,7 +25,10 @@ model TranslationRequest {
   totalProcessingTimeMs Int?
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
-  qualityMetrics        QualityMetrics?
+  
+  // CRITICAL CHANGE: Changed from QualityMetrics? to QualityMetrics[]
+  qualityMetrics        QualityMetrics[] // Enables one-to-many relationship
+  
   translationStrings    TranslationString[]
 
   @@map("translation_requests")
@@ -86,10 +89,14 @@ model QualityMetrics {
   hasReference         Boolean             @default(false)
   referenceType        ReferenceType?
   calculationEngine    String?
-  translationRequestId String?             @unique 
+  
+  // CRITICAL CHANGE: Removed @unique here. Now multiple QualityMetrics can point to the same TranslationRequest.
+  translationRequestId String?             
+  
   translationStringId  String?             
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
+  
   translationRequest   TranslationRequest? @relation(fields: [translationRequestId], references: [id])
   translationString    TranslationString?  @relation(fields: [translationStringId], references: [id])
 
