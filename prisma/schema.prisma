@@ -66,7 +66,7 @@ model TranslationString {
   annotations              Annotation[]
   enginePreferences        EnginePreference[]
   modelOutputs             ModelOutput[]
-  qualityMetrics           QualityMetrics[]
+  qualityMetrics           QualityMetrics[] 
   translationRequest       TranslationRequest @relation(fields: [translationRequestId], references: [id], onDelete: Cascade)
 
   @@map("translation_strings")
@@ -81,12 +81,13 @@ model QualityMetrics {
   bleuScore            Float?
   cometScore           Float?
   terScore             Float?
+  chrfScore            Float?              
   qualityLabel         QualityLabel?
   hasReference         Boolean             @default(false)
   referenceType        ReferenceType?
   calculationEngine    String?
-  translationRequestId String?             @unique
-  translationStringId  String?
+  translationRequestId String?             @unique 
+  translationStringId  String?             
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
   translationRequest   TranslationRequest? @relation(fields: [translationRequestId], references: [id])
@@ -108,7 +109,7 @@ model Annotation {
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
   confidenceInFix     Int?
-  errorType           ErrorType?
+  errorType           ErrorType? 
   sourceSpan          Json?
   suggestedFix        String?
   targetSpan          Json?
@@ -314,6 +315,7 @@ enum MTModel {
   OPUS_MT_TC_BIG_EN_FR
   NLLB_MULTILINGUAL
   PIVOT_ELAN_HELSINKI
+  MT5_MULTILINGUAL
 }
 
 enum RequestStatus {
@@ -378,13 +380,15 @@ enum QualityLabel {
 }
 
 enum AnnotationCategory {
-  GRAMMAR
-  WORD_CHOICE
-  CONTEXT
-  FLUENCY
-  TERMINOLOGY
-  STYLE
-  OTHER
+  ACCURACY          
+  FLUENCY           
+  TERMINOLOGY       
+  GRAMMAR           
+  WORD_CHOICE       
+  CONTEXT           
+  STYLE             
+  LOCALE_CONVENTION 
+  OTHER             
 }
 
 enum ApprovalType {
@@ -409,6 +413,8 @@ enum ErrorType {
   REGISTER
   AMBIGUITY
   CULTURAL_CONTEXT
+  PUNCTUATION 
+  SPELLING 
 }
 
 enum PreferenceReason {

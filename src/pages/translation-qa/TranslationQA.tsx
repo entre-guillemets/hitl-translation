@@ -78,6 +78,7 @@ const getEngineDisplayName = (engine: string) => {
   const names: { [key: string]: string } = {
     'opus_fast': 'OPUS Fast',
     'elan_specialist': 'ELAN Specialist',
+    'elan_quality': 'ELAN Quality',
     'mt5_multilingual': 'mT5 Multilingual',
     'opus_enhanced': 'OPUS Enhanced',
     't5_versatile': 'mT5 Versatile',
@@ -92,6 +93,7 @@ const getEngineIcon = (engine: string) => {
     'elan_specialist': '🎯',
     'mt5_multilingual': '🌐',
     'opus_enhanced': '⭐',
+    'elan_quality': '🎯', 
     't5_versatile': '🤖',
     'nllb_multilingual': '🌍',
   };
