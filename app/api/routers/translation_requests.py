@@ -2,8 +2,8 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Optional, List, Dict
 from datetime import datetime
 import logging
-import json # Added for parsing engineResults from JSON
-import asyncio # Added for create_multi_engine_translation_request
+import json 
+import asyncio 
 
 from app.schemas.translation import (
     TranslationRequestCreate, 
@@ -16,7 +16,6 @@ from app.db.base import prisma
 from app.services.translation_service import translation_service 
 from app.utils.text_processing import detokenize_japanese, get_model_for_language_pair
 
-# Import fuzzy_matcher and multi_engine_service globally and provide setter functions
 fuzzy_matcher = None
 multi_engine_service = None
 
@@ -49,7 +48,6 @@ async def get_translation_requests(include: Optional[str] = Query(None)):
             include_obj["translationStrings"] = True
             
         if 'qualityMetrics' in include_parts:
-            # Include quality metrics nested within translation strings
             if "translationStrings" in include_obj:
                 include_obj["translationStrings"] = {
                     "include": {
@@ -62,7 +60,6 @@ async def get_translation_requests(include: Optional[str] = Query(None)):
                     "include": {"qualityMetrics": True}
                 }
 
-        # Also include request-level quality metrics if needed
         if 'qualityMetrics' in include_parts:
             include_obj["qualityMetrics"] = True
 
@@ -78,7 +75,6 @@ async def get_translation_requests(include: Optional[str] = Query(None)):
             }
         )
         
-        # Sort in Python
         requests.sort(key=lambda x: x.createdAt, reverse=True)
         return requests
         
@@ -111,14 +107,14 @@ async def create_translation_request(request_data: TranslationRequestCreate):
             'OPUS_JA_EN': MTModel.ELAN_MT_JP_EN,
             'OPUS_EN_JP': MTModel.MARIAN_MT_EN_JP,
             'T5_BASE': MTModel.T5_BASE,
-            'T5_MULTILINGUAL': MTModel.T5_BASE,
+            'T5_MULTILINGUAL': MTModel.MT5_MULTILINGUAL,
             'NLLB_200': MTModel.NLLB_200,
             'CUSTOM_MODEL': MTModel.CUSTOM_MODEL,
             'MULTI_ENGINE': MTModel.MULTI_ENGINE,
             'PIVOT_JP_EN_FR': MTModel.PIVOT_JP_EN_FR,
         }
         
-        mt_model_enum = mt_model_mapping.get(request_data.mtModel, MTModel.MARIAN_MT_EN_FR)
+        mt_model_enum = mt_model_mapping.get(request_data.mtModel, MTModel.MT5_MULTILINGUAL)
         
         # Create the translation request in database
         db_request = await prisma.translationrequest.create(

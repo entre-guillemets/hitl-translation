@@ -139,12 +139,8 @@ The FastAPI backend provides several endpoints for debugging and interacting wit
 ## 🚧 Known Issues & Limitations
 ## Data & Analytics
 * Placeholder data replacement: Several analytics endpoints currently return hardcoded values (p-values, confidence intervals, correlation coefficients) instead of calculated statistics
-* Statistical significance testing: P-values are currently hardcoded at 0.05 rather than calculated from actual data distributions
-* Confidence interval calculations: Fixed at 0.95 instead of computed using bootstrap or t-distribution methods
-* System health timestamps: Last usage times default to datetime.now() rather than actual service usage tracking
 ## API Consistency
 * Mixed routing patterns: Frontend components use inconsistent API paths (/api/analytics/ vs /api/translation-requests/)
-* Error handling: Some endpoints lack proper fallback states when external services are unavailable
 * Data source indicators: Dashboard doesn't clearly distinguish between real data and placeholder/sample data
 ## Quality Metrics
 * Inter-rater agreement: Currently shows placeholder values; needs implementation when multiple reviewers are available
@@ -155,11 +151,8 @@ The FastAPI backend provides several endpoints for debugging and interacting wit
 * Implement proper confidence interval computation using scipy.stats
 * Add data source badges to distinguish API data from fallback samples
 * Standardize API routing patterns across all frontend components
-* Add real-time polling for dashboard updates
 * Cultural bias detection: Implement regex-based tone and cultural mismatch detection system
 * Advanced statistical analysis: Add bootstrap confidence intervals and proper correlation significance testing
-* Enhanced system monitoring: Real-time capacity tracking and utilization metrics
-* Improved error handling: Graceful degradation when external services are unavailable
 * Multi-annotator support: Inter-rater agreement calculations for quality assessment
 * Advanced bias detection: Move beyond regex to ML-based cultural adaptation metrics
 * Performance optimization: Batch processing for large-scale quality assessments
@@ -172,10 +165,7 @@ Database Dependencies
 ## External Service Dependencies
 * COMET model availability required for quality predictions
 * Translation engines must be accessible for multi-engine orchestration
-## Performance Considerations
-* Large batch processing may timeout on quality assessment endpoints
-* Dashboard loading times increase with historical data volume
-* Real-time updates limited to 30-second intervals to prevent API overload
+
 ## 📋 Testing Status
 ## Fully Tested
 ✅ Basic COMET scoring functionality
@@ -184,13 +174,9 @@ Database Dependencies
 ✅ Multi-engine orchestration
 ## Partially Tested
 ⚠️ Statistical correlation calculations (needs validation with larger datasets)
-⚠️ Cultural bias detection patterns (limited language coverage)
-⚠️ System health monitoring (basic functionality only)
 ## Needs Testing
 ❌ Confidence interval calculations under various data distributions
 ❌ Performance under high concurrent load
-❌ Error recovery when external services fail
-❌ Data migration and schema updates
 ## 🎯 Contribution Areas
 We welcome contributions in these areas:
 * Statistical methods: Implementing robust confidence intervals and significance testing

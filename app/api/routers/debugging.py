@@ -13,6 +13,7 @@ from app.db.base import prisma
 from app.services.translation_service import translation_service
 from app.services.multi_engine_service import CleanMultiEngineService
 from app.utils.text_processing import detokenize_japanese
+from app.api.routers.analytics import calculate_chrf
 
 # Global variables for models and services (set via main.py)
 comet_model = None
@@ -30,6 +31,11 @@ def set_metricx_service(service):
 def set_multi_engine_service(service):
     global multi_engine_service
     multi_engine_service = service
+
+def calculate_chrf(reference: str, hypothesis: str) -> float:
+    if not reference or not hypothesis:
+        return 0.0
+    return sacrebleu.corpus_chrf([hypothesis], [[reference]]).score
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/debug", tags=["Debugging"])
@@ -499,145 +505,117 @@ async def populate_dashboard_data():
 
 @router.post("/recalculate-all-metrics")
 async def recalculate_all_metrics():
-    """Recalculate quality metrics for all requests with post-edited strings"""
+    """Recalculate quality metrics for all translation strings with post-edited content"""
     try:
         if not prisma.is_connected():
             await prisma.connect()
 
-        requests_with_post_edits = await prisma.translationrequest.find_many(
+        # Get translation strings that have been human-edited and approved
+        # Remove the problematic null checks and handle them in Python
+        edited_strings = await prisma.translationstring.find_many(
             where={
-                "translationStrings": {
-                    "some": {
-                        "hasReference": True # Only requests where at least one string has a reference
-                    }
-                }
+                "hasReference": True,
+                "status": {"in": ["REVIEWED", "APPROVED"]}
             },
-            include={"translationStrings": True}
+            include={"translationRequest": True}
         )
 
         recalculated = []
         errors = []
 
-        from prisma.enums import QualityLabel, ReferenceType, EvaluationMode, ModelVariant # Import enums
+        from prisma.enums import QualityLabel, ReferenceType, EvaluationMode, ModelVariant
 
-        for req in requests_with_post_edits:
+        logger.info(f"Found {len(edited_strings)} edited translation strings to recalculate")
+
+        for ts in edited_strings:
             try:
-                # Delete existing quality metrics for this request to recalculate
+                # Verify we have the required data (handle null checks in Python)
+                if (not ts.sourceText or not ts.sourceText.strip() or
+                    not ts.originalTranslation or not ts.originalTranslation.strip() or
+                    not ts.translatedText or not ts.translatedText.strip()):
+                    logger.warning(f"SKIPPING String {ts.id} due to empty text.")
+                    continue
+
+                # Verify the text was actually changed
+                if ts.originalTranslation.strip() == ts.translatedText.strip():
+                    logger.warning(f"SKIPPING String {ts.id} - no actual changes detected.")
+                    continue
+
+                # Delete existing quality metrics for this string
                 await prisma.qualitymetrics.delete_many(
-                    where={"translationRequestId": req.id}
+                    where={"translationStringId": ts.id}
                 )
 
-                # Check if there are actual post-edits
-                has_post_edits = any(
-                    ts.originalTranslation and 
-                    ts.translatedText and 
-                    ts.originalTranslation.strip() != ts.translatedText.strip() and
-                    ts.status in ["REVIEWED", "APPROVED"]
-                    for ts in req.translationStrings
+                logger.info(f"\n--- Recalculating for String ID: {ts.id} ---")
+                
+                target_lang_code = ts.targetLanguage.lower()
+                tokenizer_option = 'ja-mecab' if target_lang_code == 'jp' else '13a'
+                logger.info(f"Using tokenizer '{tokenizer_option}' for metrics on lang '{target_lang_code}'")
+
+                # Calculate metrics
+                bleu_score = sacrebleu.BLEU().sentence_score(ts.originalTranslation, [ts.translatedText]).score / 100
+                ter_score = sacrebleu.TER().sentence_score(ts.originalTranslation, [ts.translatedText]).score
+                chrf_score = calculate_chrf(ts.translatedText, ts.originalTranslation)
+                
+                comet_score = 0.0
+                if comet_model:
+                    try:
+                        comet_data = [{"src": ts.sourceText, "mt": ts.originalTranslation, "ref": ts.translatedText}]
+                        comet_output = comet_model.predict(comet_data, batch_size=1)
+                        comet_score = comet_output.scores[0]
+                    except Exception as comet_error:
+                        logger.error(f"COMET calculation failed for {ts.id}: {comet_error}")
+                else:
+                    logger.warning(f"COMET model not loaded during recalculation.")
+
+                # Determine quality label based on TER score
+                if ter_score <= 20.0:
+                    quality_label = QualityLabel.EXCELLENT
+                elif ter_score <= 30.0:
+                    quality_label = QualityLabel.GOOD
+                elif ter_score <= 50.0:
+                    quality_label = QualityLabel.FAIR
+                else:
+                    quality_label = QualityLabel.POOR
+                
+                # Mock MetricX scores if service isn't available
+                metricx_score_val = 8.5
+                metricx_confidence_val = 0.92
+
+                # Create quality metrics for this translation string
+                await prisma.qualitymetrics.create(
+                    data={
+                        "translationString": {"connect": {"id": ts.id}},
+                        "metricXScore": metricx_score_val,
+                        "metricXConfidence": metricx_confidence_val,
+                        "metricXMode": EvaluationMode.REFERENCE_FREE,
+                        "metricXVariant": ModelVariant.METRICX_24_HYBRID,
+                        "bleuScore": bleu_score,
+                        "cometScore": comet_score,
+                        "terScore": ter_score,
+                        "chrfScore": chrf_score,
+                        "qualityLabel": quality_label,
+                        "hasReference": True,
+                        "referenceType": ReferenceType.POST_EDITED,
+                        "calculationEngine": "bulk-recalculation"
+                    }
                 )
 
-                if has_post_edits:
-                    total_bleu = 0.0
-                    total_ter = 0.0
-                    total_comet = 0.0
-                    processed_strings = 0
+                recalculated.append(ts.id)
+                logger.info(f"✅ Successfully recalculated metrics for string {ts.id}")
 
-                    for ts in req.translationStrings:
-                        current_string_id = ts.id
-                        current_original_mt = ts.originalTranslation
-                        current_post_edited = ts.translatedText
-                        current_source_text = ts.sourceText
-
-                        if (current_original_mt and 
-                            current_post_edited and 
-                            current_original_mt.strip() != current_post_edited.strip() and
-                            ts.status in ["REVIEWED", "APPROVED"]):
-                            
-                            try:
-                                logger.info(f"\n--- Recalculating for String ID: {current_string_id} ---")
-
-                                if (not current_source_text or not current_source_text.strip() or
-                                    not current_original_mt or not current_original_mt.strip() or
-                                    not current_post_edited or not current_post_edited.strip()):
-                                    logger.warning(f"SKIPPING String {current_string_id} due to empty text.")
-                                    continue
-                                
-                                target_lang_code = ts.targetLanguage.lower()
-                                tokenizer_option = 'ja-mecab' if target_lang_code == 'jp' else '13a'
-                                logger.info(f"Using tokenizer '{tokenizer_option}' for metrics on lang '{target_lang_code}'")
-
-                                bleu_score = sacrebleu.BLEU().sentence_score(current_original_mt, [current_post_edited]).score / 100
-                                ter_score = sacrebleu.TER().sentence_score(current_original_mt, [current_post_edited]).score
-                                
-                                comet_score = 0.0
-                                if comet_model:
-                                    try:
-                                        comet_data = [{"src": current_source_text, "mt": current_original_mt, "ref": current_post_edited}]
-                                        
-                                        comet_output = comet_model.predict(
-                                            comet_data, 
-                                            batch_size=1
-                                        )
-                                        comet_score = comet_output.scores[0]
-                                    except Exception as comet_error:
-                                        logger.error(f"COMET calculation failed during recalculation for {current_string_id}: {comet_error}")
-                                else:
-                                    logger.warning(f"COMET model not loaded during recalculation.")
-
-                                total_bleu += bleu_score
-                                total_ter += ter_score
-                                total_comet += comet_score
-                                processed_strings += 1
-
-                            except Exception as metric_error:
-                                logger.error(f"Error recalculating metrics for string {current_string_id}: {metric_error}")
-                                traceback.print_exc()
-                                continue
-
-                    if processed_strings > 0:
-                        avg_bleu = total_bleu / processed_strings
-                        avg_ter = total_ter / processed_strings
-                        avg_comet = total_comet / processed_strings
-
-                        if avg_ter <= 20.0:
-                            quality_label = QualityLabel.EXCELLENT
-                        elif avg_ter <= 30.0:
-                            quality_label = QualityLabel.GOOD
-                        elif avg_ter <= 50.0:
-                            quality_label = QualityLabel.FAIR
-                        else:
-                            quality_label = QualityLabel.POOR
-                        
-                        # Mock MetricX scores if service isn't available
-                        metricx_score_val = 8.5 # Mock value
-                        metricx_confidence_val = 0.92 # Mock value
-
-                        await prisma.qualitymetrics.create(
-                            data={
-                                "translationRequestId": req.id,
-                                "metricXScore": metricx_score_val,
-                                "metricXConfidence": metricx_confidence_val,
-                                "metricXMode": EvaluationMode.REFERENCE_FREE, # Using enum
-                                "metricXVariant": ModelVariant.METRICX_24_HYBRID, # Using enum
-                                "bleuScore": avg_bleu,
-                                "cometScore": avg_comet,
-                                "terScore": avg_ter,
-                                "qualityLabel": quality_label, # Using enum
-                                "hasReference": True,
-                                "referenceType": ReferenceType.POST_EDITED, # Using enum
-                                "calculationEngine": "bulk-recalculation"
-                            }
-                        )
-                    recalculated.append(req.id)
             except Exception as e:
-                errors.append({"requestId": req.id, "error": str(e)})
-                logger.error(f"Error processing request {req.id} during recalculation: {e}")
+                errors.append({"stringId": ts.id, "error": str(e)})
+                logger.error(f"Error processing string {ts.id} during recalculation: {e}")
                 traceback.print_exc()
+
+        logger.info(f"Recalculation complete. Success: {len(recalculated)}, Errors: {len(errors)}")
 
         return {
             "recalculated": recalculated,
             "errors": errors,
-            "total": len(recalculated)
+            "total": len(recalculated),
+            "total_processed": len(edited_strings)
         }
 
     except Exception as e:

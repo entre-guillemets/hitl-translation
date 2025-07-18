@@ -60,7 +60,8 @@ interface LanguagePairMetricEntry {
   languagePair: string;
   avgBleu: number;
   avgComet: number;
-  avgTer: number; // This comes as a percentage (e.g., 50.0 for 50%) from backend
+  avgTer: number; 
+  avgChrf: number; 
   count: number;
 }
 
@@ -77,8 +78,9 @@ interface ModelLeaderboardEntry {
   engineType: string;
   avgBleu: number;
   avgComet: number;
-  avgTer: number; // This comes as a percentage (e.g., 50.0 for 50%) from backend
+  avgTer: number; 
   avgMetricX: number;
+  avgChrf: number;  
   totalTranslations: number;
   languagePairs?: string[];
   models?: string[];
@@ -87,6 +89,8 @@ interface ModelLeaderboardEntry {
     bleuHigh: number;
     cometLow: number;
     cometHigh: number;
+    chrfLow: number;
+    chrfHigh: number; 
   };
 }
 
@@ -339,6 +343,10 @@ const multiMetricChartConfig = {
     label: "TER Score (%)",
     color: "hsl(var(--chart-3))",
   },
+  avgChrf: {
+    label: "ChrF Score (%)",
+    color: "hsl(var(--chart-4))",
+  },
 } satisfies ChartConfig;
 
 const postEditChartConfig = {
@@ -353,6 +361,10 @@ const postEditChartConfig = {
   avgTer: {
     label: "TER Score",
     color: "hsl(var(--chart-3))",
+  },
+  avgChrf: { 
+    label: "ChrF Score",
+    color: "hsl(var(--chart-4))",
   },
 } satisfies ChartConfig;
 
@@ -530,6 +542,7 @@ const MultiMetricChart: React.FC<{ data: ModelLeaderboardEntry[] }> = ({ data })
     avgBleu: item.avgBleu,
     avgComet: item.avgComet,
     avgTer: item.avgTer,
+    avgChrf: item.avgChrf,
     totalTranslations: item.totalTranslations
   }));
 
@@ -550,6 +563,7 @@ const MultiMetricChart: React.FC<{ data: ModelLeaderboardEntry[] }> = ({ data })
           <Bar dataKey="avgBleu" fill="var(--color-avgBleu)" name="BLEU Score (%)" />
           <Bar dataKey="avgComet" fill="var(--color-avgComet)" name="COMET Score (%)" />
           <Bar dataKey="avgTer" fill="var(--color-avgTer)" name="TER Score (%)" />
+          <Bar dataKey="avgChrf" fill="var(--color-avgChrf)" name="ChrF Score (%)" /> 
         </BarChart>
       </ResponsiveContainer>
     </ChartContainer>
@@ -1057,6 +1071,7 @@ const QualityDashboard: React.FC = () => {
                           <Bar dataKey="avgBleu" fill="var(--color-avgBleu)" name="BLEU Score (%)" />
                           <Bar dataKey="avgComet" fill="var(--color-avgComet)" name="COMET Score (%)" />
                           <Bar dataKey="avgTer" fill="var(--color-avgTer)" name="TER Score (%)" />
+                          <Bar dataKey="avgChrf" fill="var(--color-avgChrf)" name="ChrF Score (%)" /> 
                         </BarChart>
                       </ResponsiveContainer>
                     </ChartContainer>
@@ -1125,6 +1140,7 @@ const QualityDashboard: React.FC = () => {
                         <th className="p-3 text-left">BLEU Score</th>
                         <th className="p-3 text-left">COMET Score</th>
                         <th className="p-3 text-left">TER Score</th>
+                        <th className="p-3 text-left">ChrF Score</th>
                         <th className="p-3 text-left">Total Translations</th>
                       </tr>
                     </thead>
@@ -1136,6 +1152,7 @@ const QualityDashboard: React.FC = () => {
                           <td className="p-3">{formatPercentage(item.avgBleu)}</td>
                           <td className="p-3">{formatPercentage(item.avgComet)}</td>
                           <td className="p-3">{formatPercentage(item.avgTer)}</td>
+                          <td className="p-3">{formatPercentage(item.avgChrf)}</td>
                           <td className="p-3">{item.totalTranslations}</td>
                         </tr>
                       ))}

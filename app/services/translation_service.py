@@ -17,13 +17,13 @@ class TranslationService:
         logger.info(f"TranslationService initialized. Using device: {self.device}")
 
         self.model_paths = {
-            'HELSINKI_EN_FR': ('Helsinki-NLP_opus-mt-en-fr', None),
-            'HELSINKI_FR_EN': ('Helsinki-NLP_opus-mt-fr-en', None),
-            'HELSINKI_EN_JP': ('Helsinki-NLP_opus-mt-en-jap', None),
-            'OPUS_JA_EN': ('opus-mt-ja-en', None),
-            'ELAN_JA_EN': ('Mitsua/elan-mt-bt-ja-en', None),
-            'T5_MULTILINGUAL': ('google-t5_t5-base', None), # Changed to None
-            'NLLB_200': ('nllb-200-distilled-600M', 'jpn_Jpan'),
+            'HELSINKI_EN_FR': ('./models/Helsinki-NLP_opus-mt-en-fr', None), 
+            'HELSINKI_FR_EN': ('./models/Helsinki-NLP_opus-mt-fr-en', None), 
+            'HELSINKI_EN_JP': ('./models/Helsinki-NLP_opus-mt-en-jap', None), 
+            'OPUS_JA_EN': ('./models/opus-mt-ja-en', None), 
+            'ELAN_JA_EN': ('./models/Mitsua_elan-mt-bt-ja-en', None), 
+            'T5_MULTILINGUAL': ('./models/google-mt5_mt5-base', None),
+            'NLLB_200': ('./models/nllb-200-distilled-600M', 'jpn_Jpan'), 
         }
 
         self.language_pair_models = {
@@ -81,18 +81,8 @@ class TranslationService:
 
         logger.info(f"Attempting to load model '{model_name_or_path}' for key '{model_key}' using cache_dir='{settings.MODEL_CACHE_DIR}'...")
         try:
-            full_local_path = os.path.join(settings.MODEL_CACHE_DIR, model_name_or_path)
-
-            if os.path.isdir(full_local_path):
-                # Load from local directory if it exists
-                logger.info(f"Loading from local path: {full_local_path}")
-                tokenizer = AutoTokenizer.from_pretrained(full_local_path)
-                model = AutoModelForSeq2SeqLM.from_pretrained(full_local_path).to(self.device)
-            else:
-                # Otherwise, assume it's a Hugging Face Hub ID and let HF handle downloading/caching
-                logger.info(f"Loading from Hugging Face Hub: {model_name_or_path}")
-                tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, cache_dir=settings.MODEL_CACHE_DIR)
-                model = AutoModelForSeq2SeqLM.from_pretrained(model_name_or_path, cache_dir=settings.MODEL_CACHE_DIR).to(self.device)
+            tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, cache_dir=settings.MODEL_CACHE_DIR)
+            model = AutoModelForSeq2SeqLM.from_pretrained(model_name_or_path, cache_dir=settings.MODEL_CACHE_DIR).to(self.device)
 
             pipe = None
 
