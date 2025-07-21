@@ -2,7 +2,7 @@ from pydantic import BaseModel
 
 class WMTRequestCreate(BaseModel):
     language_pair: str
-    sample_size: int = 10
+    sample_size: int = 100
 
 class WMTBenchmarkResult(BaseModel):
     source_text: str

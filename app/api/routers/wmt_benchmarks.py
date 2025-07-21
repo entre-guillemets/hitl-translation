@@ -18,7 +18,7 @@ def set_multi_engine_service(service):
     multi_engine_service = service
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/wmt-benchmarks", tags=["WMT Benchmarks"])
+router = APIRouter(prefix="/api/wmt", tags=["WMT Benchmarks"])
 
 # Sample WMT data 
 WMT_SAMPLE_DATA = {
@@ -208,7 +208,7 @@ def calculate_simple_bleu(hypothesis: str, reference: str) -> float:
 @router.post("/create-request")
 async def create_wmt_benchmark_request( #
     language_pair: str = Query(...),
-    sample_size: int = Query(10)
+    sample_size: int = Query(100)
 ):
     """Create a WMT benchmark translation request"""
     try:
