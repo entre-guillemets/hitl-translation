@@ -1,5 +1,3 @@
-# main.py
-
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -7,6 +5,8 @@ import logging
 import traceback
 import os
 
+from app.services.model_manager import model_manager
+from comet import load_from_checkpoint
 from app.core.config import settings
 from app.db.base import initialize_database, cleanup_database, prisma
 
@@ -25,7 +25,6 @@ from app.services.multi_engine_service import CleanMultiEngineService
 from app.services.translation_service import translation_service
 from app.services.metricx_service import MetricXService
 from app.services.health_service import HealthService
-
 
 # Configure logging
 logging.basicConfig(
@@ -59,7 +58,7 @@ app.add_middleware(
     expose_headers=["*"]
 )
 
-# Include routers 
+# Include routers
 app.include_router(health.router)
 app.include_router(translation_requests.router)
 app.include_router(data_management.router)
@@ -77,27 +76,48 @@ async def startup():
 @app.on_event("startup")
 async def startup_event():
     global metricx_service, comet_model, fuzzy_matcher, multi_engine_service, health_service
-    
-    # Load COMET model with multiprocessing fix
+
+    # Load COMET model using ModelManager
     try:
-        logger.info("Loading COMET model (cached)...")
-        from comet import download_model, load_from_checkpoint
+        logger.info("Loading COMET model...")
         
-        model_path = download_model("Unbabel/wmt22-comet-da")
-        comet_model = load_from_checkpoint(model_path)
+        # Add detailed logging
+        import time
+        start_time = time.time()
         
-        logger.info(f"✓ COMET model loaded successfully: {type(comet_model)}")
-        
-        # Make COMET available to quality assessment router and debugging router
+        logger.info("Step 1: Getting model path from ModelManager...")
+        comet_model_path = model_manager.get_model_path("comet")
+        path_time = time.time()
+        logger.info(f"Step 1 completed in {path_time - start_time:.2f} seconds")
+        logger.info(f"COMET model path: {comet_model_path}")
+
+        if comet_model_path:
+            logger.info("Step 2: Loading model from checkpoint...")
+            load_start = time.time()
+            comet_model = load_from_checkpoint(comet_model_path)
+            load_time = time.time()
+            logger.info(f"Step 2 completed in {load_time - load_start:.2f} seconds")
+            
+            logger.info(f"✓ COMET model loaded successfully: {type(comet_model)}")
+            logger.info(f"Total COMET loading time: {load_time - start_time:.2f} seconds")
+        else:
+            logger.warning("COMET model path not found")
+            comet_model = None
+            
+    except Exception as e:
+        logger.error(f"❌ Failed to load COMET model: {e}")
+        comet_model = None
+
+    if comet_model:
         from app.api.routers.quality_assessment import set_comet_model
         set_comet_model(comet_model)
         
         from app.api.routers.debugging import set_comet_model as set_debug_comet_model
         set_debug_comet_model(comet_model)
         
-    except Exception as e:
-        logger.error(f"❌ Failed to load COMET model: {e}")
-        comet_model = None
+        logger.info("✓ COMET model passed to quality assessment and debugging routers")
+    else:
+        logger.warning("❌ COMET model not available - quality assessment will be disabled")
 
     # MetricX will be None, but we still pass it to HealthService
     try:
@@ -116,28 +136,28 @@ async def startup_event():
     multi_engine_service = CleanMultiEngineService(translation_service_instance=translation_service)
     from app.api.routers.translation_requests import set_multi_engine_service
     set_multi_engine_service(multi_engine_service)
-    
+
     from app.api.routers.wmt_benchmarks import set_multi_engine_service as set_wmt_multi_engine_service
     set_wmt_multi_engine_service(multi_engine_service)
-    
+
     from app.api.routers.debugging import set_multi_engine_service as set_debug_multi_engine_service
     set_debug_multi_engine_service(multi_engine_service)
 
     # Pass MetricX service to relevant routers
     from app.api.routers.quality_assessment import set_metricx_service
     set_metricx_service(metricx_service)
-    
+
     from app.api.routers.debugging import set_metricx_service as set_debug_metricx_service
     set_debug_metricx_service(metricx_service)
 
     # NEW: Initialize and set HealthService
     health_service = HealthService()
     health_service.set_services(metricx_service, multi_engine_service) # Pass other services to HealthService
-    
+
     # Pass HealthService to relevant routers
     from app.api.routers.health import set_health_service as set_health_router_service
     set_health_router_service(health_service) # Pass to health router so it can use the shared service
-    
+
     from app.api.routers.analytics import set_health_service as set_analytics_health_service
     set_analytics_health_service(health_service) # Pass to analytics router
 

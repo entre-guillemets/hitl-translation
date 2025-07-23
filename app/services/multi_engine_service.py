@@ -29,9 +29,9 @@ class CleanMultiEngineService:
             },
             'elan_quality': {
                 'name': 'ELAN Specialist',
-                'supported_pairs': ['jp-en'],  # FIXED: Only Japanese-English
+                'supported_pairs': ['jp-en'],  
                 'model_mapping': {
-                    'jp-en': 'ELAN_JA_EN'  # FIXED: Only correct mapping
+                    'jp-en': 'ELAN_JA_EN'  
                 },
                 'pivot_strategy': {
                     'pivot_lang': 'en',

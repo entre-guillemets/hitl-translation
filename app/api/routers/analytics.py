@@ -5,12 +5,12 @@ import logging
 from datetime import datetime, timedelta
 import statistics
 import difflib
-from collections import defaultdict
+from collections import defaultdict, Counter
 from typing import Optional, List, Dict, Any
-from collections import Counter
+import sacrebleu
 
+from app.schemas.quality import QualityRating 
 from app.db.base import prisma
-from app.schemas.quality import QualityRating
 from prisma.enums import AnnotationCategory, AnnotationSeverity, QualityLabel, MTModel
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,44 @@ def set_health_service(service):
     global health_service
     health_service = service
 
-# Helper functions
+def calculate_chrf(reference: str, hypothesis: str) -> float:
+    """Calculate ChrF score between a reference and a hypothesis."""    
+    if not reference or not hypothesis:
+        return 0.0
+    return sacrebleu.corpus_chrf([hypothesis], [[reference]]).score
+
+def calculate_total_mqm_score(annotations_data: List[Dict[str, Any]]) -> float:
+    """
+    Calculates a total MQM-like score based on weighted error counts.
+    Lower score is better (fewer/less severe errors).
+    """
+    severity_weights = {
+        "LOW": 1,
+        "MEDIUM": 5,   # Increased weight for more impact
+        "HIGH": 10,
+        "CRITICAL": 25 # Critical errors have significant impact
+    }
+    total_weighted_errors = 0
+    total_strings_evaluated = 0
+
+    evaluated_string_ids = set()
+
+    for annotation in annotations_data:
+        severity = annotation.get("severity") 
+        
+        if hasattr(severity, 'value'):
+            severity = severity.value
+        
+        weight = severity_weights.get(severity, 0)
+        total_weighted_errors += weight
+        
+        if annotation.get("translationString") and annotation["translationString"].get("id"):
+            evaluated_string_ids.add(annotation["translationString"]["id"])
+    
+    if len(evaluated_string_ids) > 0:
+        return total_weighted_errors / len(evaluated_string_ids)
+    return total_weighted_errors
+
 def calculate_correlation(x_vals, y_vals):
     if len(x_vals) < 2 or len(y_vals) < 2:
         return 0.0
@@ -40,15 +77,22 @@ def calculate_correlation(x_vals, y_vals):
 def get_engine_type_from_model(model_name: str) -> str:
     """Map model name (which is a string representation of MTModel enum) to engine type."""
     engine_mapping = {
-        MTModel.MARIAN_MT_EN_FR.value: "opus_fast",
-        MTModel.MARIAN_MT_FR_EN.value: "opus_fast",
-        MTModel.MARIAN_MT_EN_JP.value: "opus_fast",
-        MTModel.ELAN_MT_JP_EN.value: "elan_specialist",
-        MTModel.T5_BASE.value: "t5_versatile",
-        MTModel.NLLB_200.value: "nllb_multilingual",
-        MTModel.PIVOT_JP_EN_FR.value: "pivot_elan_helsinki",
-        "OPUS_JA_EN": "opus_fast",
-        "T5_MULTILINGUAL": "t5_versatile",
+        MTModel.MARIAN_MT_EN_FR.value:      "opus_fast",
+        MTModel.MARIAN_MT_FR_EN.value:      "opus_fast",
+        MTModel.MARIAN_MT_EN_JP.value:      "opus_fast",
+        MTModel.ELAN_MT_JP_EN.value:        "elan_specialist",
+        MTModel.T5_MULTILINGUAL.value:      "t5_versatile",
+        MTModel.CUSTOM_MODEL.value:         "custom",
+        MTModel.MULTI_ENGINE.value:         "multi_engine",
+        MTModel.PIVOT_JP_EN_FR.value:       "pivot_elan_helsinki",
+        MTModel.MT5_BASE.value:             "t5_versatile",         # <--- FIXED
+        MTModel.PLAMO_2_TRANSLATE.value:    "plamo",
+        MTModel.OPUS_MT_JA_EN.value:        "opus_fast",
+        MTModel.OPUS_MT_EN_JAP.value:       "opus_fast",
+        MTModel.OPUS_MT_TC_BIG_EN_FR.value: "opus_fast",
+        MTModel.NLLB_MULTILINGUAL.value:    "nllb_multilingual",    # <--- FIXED
+        MTModel.PIVOT_ELAN_HELSINKI.value:  "pivot_elan_helsinki",
+        MTModel.MT5_MULTILINGUAL.value:     "t5_versatile",
     }
     return engine_mapping.get(model_name, "unknown")
 
@@ -69,8 +113,8 @@ def calculate_improvement_score(original: str, edited: str, source: str) -> floa
 
 def classify_edit_type(edit_distance: float, text_length: int) -> str:
     """Classify edit type based on distance and text length"""
-    if text_length == 0: # Avoid division by zero
-        return "minor" # Or "no_change" or similar, depending on desired categorization for empty text
+    if text_length == 0:
+        return "minor"
     
     normalized_edit_distance = edit_distance 
     
@@ -123,13 +167,52 @@ def calculate_translator_summary(comparisons: list) -> list:
     
     return summary
 
-async def get_human_preferences_data(date_filter, lang_filter):
+def compute_model_comparison(quality_metrics):
+    model_comparisons = {}
+    for metric in quality_metrics:
+        model_name, _ = extract_model_and_language_info(metric)
+        if model_name in ["Untraceable/Other", "Human-Post-Edit", "COMET-Prediction", "MetricX-Evaluation"]:
+            continue
+
+        if model_name not in model_comparisons:
+            model_comparisons[model_name] = {
+                "model": model_name,
+                "bleu_scores": [],
+                "comet_scores": [],
+                "ter_scores": [],
+                "chrf_scores": [],
+                "count": 0
+            }
+        if metric.bleuScore is not None:
+            model_comparisons[model_name]["bleu_scores"].append(metric.bleuScore)
+        if metric.cometScore is not None:
+            model_comparisons[model_name]["comet_scores"].append(metric.cometScore)
+        if metric.terScore is not None:
+            model_comparisons[model_name]["ter_scores"].append(metric.terScore)
+        if metric.chrfScore is not None:
+            model_comparisons[model_name]["chrf_scores"].append(metric.chrfScore)
+        model_comparisons[model_name]["count"] += 1
+
+    result = []
+    for model, stats in model_comparisons.items():
+        if stats["count"] > 0:
+            result.append({
+                "model": model,
+                "avgBleu": sum(stats["bleu_scores"]) / len(stats["bleu_scores"]) if stats["bleu_scores"] else 0,
+                "avgComet": sum(stats["comet_scores"]) / len(stats["comet_scores"]) if stats["comet_scores"] else 0,
+                "avgTer": sum(stats["ter_scores"]) / len(stats["ter_scores"]) if stats["ter_scores"] else 0,
+                "avgChrf": sum(stats["chrf_scores"]) / len(stats["chrf_scores"]) if stats["chrf_scores"] else 0,
+                "totalTranslations": stats["count"],
+            })
+    return result
+
+async def get_human_preferences_data(lang_filter: dict):
     """Get human preference data"""
     try:
         if not prisma.is_connected():
             await prisma.connect()
         
-        all_prefs = await prisma.enginepreference.find_many(where={**date_filter, **lang_filter}) 
+        all_prefs = await prisma.enginepreference.find_many(where={**lang_filter}) 
         
         engine_stats = {}
         for pref in all_prefs:
@@ -166,7 +249,7 @@ async def get_human_preferences_data(date_filter, lang_filter):
             })
         
         all_strings = await prisma.translationstring.find_many(
-            where={**date_filter, **lang_filter, "reviewerExpertise": {"not": None}}
+            where={**lang_filter, "reviewerExpertise": {"not": None}}
         )
         
         reviewer_stats = {}
@@ -229,14 +312,14 @@ async def get_human_preferences_data(date_filter, lang_filter):
         logger.error(f"Error fetching human preferences data: {e}")
         return {"enginePreferences": [], "reviewerBehavior": [], "preferenceReasons": []}
 
-async def get_annotations_data(date_filter, lang_filter):
-    """Get annotation data"""
+async def get_annotations_data(lang_filter: dict):
+    """Get annotation data, now including MQM-like total score and breakdown."""
     try:
         if not prisma.is_connected():
             await prisma.connect()
         
         all_annotations = await prisma.annotation.find_many(
-            where={**date_filter},
+            where={},
             include={
                 "translationString": {
                     "include": {
@@ -247,7 +330,6 @@ async def get_annotations_data(date_filter, lang_filter):
             }
         )
         
-        # Further filter by language pair if specified, manually
         if lang_filter and "targetLanguage" in lang_filter:
             target_lang_filter = lang_filter["targetLanguage"]["contains"].lower()
             all_annotations = [
@@ -256,12 +338,15 @@ async def get_annotations_data(date_filter, lang_filter):
             ]
 
         logger.info(f"Found {len(all_annotations)} annotations for dashboard")
+              
+        severity_weights = {"LOW": 1, "MEDIUM": 5, "HIGH": 10, "CRITICAL": 25}
         
         error_stats = {}
         severity_counts = {"LOW": 0, "MEDIUM": 0, "HIGH": 0, "CRITICAL": 0}
         
+        annotations_for_mqm_calc = []
+
         for annotation in all_annotations:
-            # Safely get category and severity values (from Enum or string)
             annotation_category_value = annotation.category.value if hasattr(annotation.category, 'value') else str(annotation.category)
             annotation_severity_value = annotation.severity.value if hasattr(annotation.severity, 'value') else str(annotation.severity)
 
@@ -271,30 +356,30 @@ async def get_annotations_data(date_filter, lang_filter):
             model_name = "unknown"
             if annotation.translationString and annotation.translationString.translationRequest:
                 if annotation.translationString.translationRequest.mtModel:
-                    # Safely get model name from enum or string
                     model_name = annotation.translationString.translationRequest.mtModel.value if hasattr(annotation.translationString.translationRequest.mtModel, 'value') else str(annotation.translationString.translationRequest.mtModel)
             
             if annotation.translationString and annotation.translationString.modelOutputs:
                 if len(annotation.translationString.modelOutputs) > 0:
                     model_name = annotation.translationString.modelOutputs[0].modelName
             
-            error_type = getattr(annotation, 'errorType', None) or 'general'
+            error_type = annotation_category_value 
             key = f"{model_name}_{annotation_category_value}_{error_type}_{annotation_severity_value}"
             
             if key not in error_stats:
                 error_stats[key] = {
                     "model": model_name,
-                    "category": annotation_category_value,
-                    "errorType": error_type,
-                    "severity": annotation_severity_value,
+                    "category": annotation_category_value, 
+                    "errorType": error_type, 
+                    "severity": annotation_severity_value, 
                     "count": 0
                 }
             error_stats[key]["count"] += 1
+
+            annotations_for_mqm_calc.append({"severity": annotation_severity_value, "translationString": {"id": annotation.translationString.id if annotation.translationString else None}})
         
         logger.info(f"Severity counts: {severity_counts}")
         logger.info(f"Error stats keys: {len(error_stats)}")
         
-        severity_weights = {"LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
         error_heatmap = []
         for stats in error_stats.values():
             pain_index = stats["count"] * severity_weights.get(stats["severity"], 1)
@@ -312,7 +397,6 @@ async def get_annotations_data(date_filter, lang_filter):
                     "model": "all" 
                 })
         
-        # Prepare data for stacked bar chart by errorType and model
         stacked_pain_data = defaultdict(lambda: defaultdict(int))
         for item in error_heatmap:
             stacked_pain_data[item['model']][item['errorType']] += item['painIndex']
@@ -323,36 +407,39 @@ async def get_annotations_data(date_filter, lang_filter):
             entry.update(error_types_data)
             formatted_stacked_pain_data.append(entry)
 
+        total_mqm_score = calculate_total_mqm_score(annotations_for_mqm_calc)
+
         logger.info(f"Returning {len(severity_breakdown)} severity items and {len(error_heatmap)} heatmap items")
         
         return {
             "errorHeatmap": error_heatmap,
             "severityBreakdown": severity_breakdown,
-            "spanAnalysis": [], 
-            "stackedPainIndexByErrorType": formatted_stacked_pain_data 
+            "spanAnalysis": [], # Placeholder
+            "stackedPainIndexByErrorType": formatted_stacked_pain_data,
+            "totalMQMScore": total_mqm_score 
         }
         
     except Exception as e:
         logger.error(f"Error in get_annotations_data: {e}")
         import traceback
         traceback.print_exc()
-        return {"errorHeatmap": [], "severityBreakdown": [], "spanAnalysis": [], "stackedPainIndexByErrorType": []}
+        return {"errorHeatmap": [], "severityBreakdown": [], "spanAnalysis": [], "stackedPainIndexByErrorType": [], "totalMQMScore": 0.0}
 
-async def get_multi_engine_data(date_filter, lang_filter):
+async def get_multi_engine_data(lang_filter: dict):
     """Get multi-engine and pivot translation data"""
     try:
         if not prisma.is_connected():
             await prisma.connect()
 
         all_engine_preferences = await prisma.enginepreference.find_many(
-            where={**date_filter, **lang_filter}
+            where={**lang_filter}
         )
         
         selection_trends_dict = {}
         for pref in all_engine_preferences:
             selection_method = pref.selectionMethod or "unknown"
             model_combination = pref.modelCombination or "single"
-            key = (selection_method, model_combination) # Use a tuple as key for grouping
+            key = (selection_method, model_combination)
             
             if key not in selection_trends_dict:
                 selection_trends_dict[key] = {
@@ -372,10 +459,8 @@ async def get_multi_engine_data(date_filter, lang_filter):
                 "modelCombination": data["modelCombination"]
             })
         
-        # Pivot quality analysis
         pivot_strings = await prisma.translationstring.find_many(
             where={
-                **date_filter,
                 **lang_filter,
                 "translationType": "PIVOT",
                 "intermediateTranslation": {"not": None}
@@ -390,14 +475,13 @@ async def get_multi_engine_data(date_filter, lang_filter):
                     if metric.metricXScore is not None:
                         pivot_quality.append({
                             "modelCombination": string.selectedModelCombination or "unknown",
-                            "directQuality": 0, # Placeholder, needs actual direct quality
+                            "directQuality": 0,
                             "pivotQuality": metric.metricXScore,
-                            "intermediateQuality": 0 # Placeholder, needs actual intermediate quality
+                            "intermediateQuality": 0
                         })
         
-        # Inter-rater agreement (simplified) 
         all_annotations_for_inter_rater = await prisma.annotation.find_many(
-            where={**date_filter, "reviewer": {"not": None}}
+            where={"reviewer": {"not": None}}
         )
         
         inter_rater_dict = {}
@@ -411,7 +495,7 @@ async def get_multi_engine_data(date_filter, lang_filter):
         for reviewer, data in inter_rater_dict.items():
             inter_rater.append({
                 "annotatorPair": f"{reviewer}-system",
-                "agreement": 0.8, # Placeholder
+                "agreement": 0.8,
                 "category": "overall"
             })
         
@@ -424,21 +508,20 @@ async def get_multi_engine_data(date_filter, lang_filter):
         logger.error(f"Error fetching multi-engine data: {e}")
         return {"selectionTrends": [], "pivotQuality": [], "interRaterAgreement": []}
 
-async def get_quality_scores_data(date_filter, lang_filter):
-    """Get quality scores data with actual correlations"""
+async def get_quality_scores_data(lang_filter: dict):
+    """Get quality scores data with actual correlations, now including ChrF."""
     try:
         if not prisma.is_connected():
             await prisma.connect()
 
         quality_metrics = await prisma.qualitymetrics.find_many(
             where={
-                **date_filter,
                 **lang_filter,
-                "hasReference": True, # Filter for post-edited data
+                "hasReference": True,
                 "bleuScore": {"not": None},
                 "cometScore": {"not": None},
-                "terScore": {"not": None}
-                # "metricXScore": {"not": None} # Exclude MetricX from direct correlation as per request
+                "terScore": {"not": None},
+                # REMOVED strict "chrfScore": {"not": None} filter from here
             }
         )
 
@@ -452,37 +535,34 @@ async def get_quality_scores_data(date_filter, lang_filter):
         bleu_scores = [m.bleuScore for m in quality_metrics if m.bleuScore is not None]
         comet_scores = [m.cometScore for m in quality_metrics if m.cometScore is not None]
         ter_scores = [m.terScore for m in quality_metrics if m.terScore is not None]
-        # metricx_scores = [m.metricXScore for m in quality_metrics if m.metricXScore is not None] # Exclude MetricX
+        chrf_scores = [m.chrfScore for m in quality_metrics if m.chrfScore is not None] # Only collect if not None
 
         correlations = []
         
-        # Metric pairs for correlation matrix (excluding MetricX as per request)
-        metric_pairs = [
-            ("BLEU", "COMET", bleu_scores, comet_scores),
-            ("BLEU", "TER", bleu_scores, ter_scores),
-            ("COMET", "TER", comet_scores, ter_scores),
-            # ("BLEU", "MetricX", bleu_scores, metricx_scores), # Exclude
-            # ("COMET", "MetricX", comet_scores, metricx_scores), # Exclude
-            # ("TER", "MetricX", ter_scores, metricx_scores) # Exclude
-        ]
+        metric_pairs = []
+        # Only add correlations if both scores lists have enough data (>= 2 points)
+        if len(bleu_scores) >= 2 and len(comet_scores) >= 2:
+            metric_pairs.append(("BLEU", "COMET", bleu_scores, comet_scores))
+        if len(bleu_scores) >= 2 and len(ter_scores) >= 2:
+            metric_pairs.append(("BLEU", "TER", bleu_scores, ter_scores))
+        if len(comet_scores) >= 2 and len(ter_scores) >= 2:
+            metric_pairs.append(("COMET", "TER", comet_scores, ter_scores))
+        if len(bleu_scores) >= 2 and len(chrf_scores) >= 2:
+            metric_pairs.append(("BLEU", "ChrF", bleu_scores, chrf_scores))
+        if len(comet_scores) >= 2 and len(chrf_scores) >= 2:
+            metric_pairs.append(("COMET", "ChrF", comet_scores, chrf_scores))
+        if len(ter_scores) >= 2 and len(chrf_scores) >= 2:
+            metric_pairs.append(("TER", "ChrF", ter_scores, chrf_scores))
 
         for metric1, metric2, scores1, scores2 in metric_pairs:
-            # Ensure enough data for correlation calculation (at least 2 data points)
-            # and that there are actual scores to compute
-            if scores1 and scores2 and len(scores1) > 1 and len(scores2) > 1:
-                correlation = calculate_correlation(scores1, scores2)
-                correlations.append({
-                    "metric1": metric1,
-                    "metric2": metric2,
-                    "correlation": correlation,
-                    "pValue": 0.05 # Placeholder p-value, actual p-value calculation is more complex
-                })
-            else:
-                logger.warning(f"Insufficient data for correlation between {metric1} and {metric2}. Scores1: {len(scores1)}, Scores2: {len(scores2)}")
+            correlation = calculate_correlation(scores1, scores2)
+            correlations.append({
+                "metric1": metric1,
+                "metric2": metric2,
+                "correlation": correlation,
+                "pValue": 0.05
+            })
 
-
-        # For scoreDistribution, keep the existing metrics (BLEU, COMET, TER)
-        # Assuming score ranges are fixed or can be dynamically calculated if needed
         score_distribution = []
         if bleu_scores:
             score_distribution.append({"metric": "BLEU", "scores": bleu_scores, "scoreRange": "0-100"})
@@ -490,16 +570,12 @@ async def get_quality_scores_data(date_filter, lang_filter):
             score_distribution.append({"metric": "COMET", "scores": comet_scores, "scoreRange": "0-1"})
         if ter_scores:
             score_distribution.append({"metric": "TER", "scores": ter_scores, "scoreRange": "0-100"})
+        if chrf_scores: 
+            score_distribution.append({"metric": "ChrF", "scores": chrf_scores, "scoreRange": "0-100"})
 
-
-        # Evaluation modes can be simplified as per quality_scores_data function
-        # Reference-based evaluation modes often imply human-edited references
         evaluation_modes = [
             {"mode": "Reference-based", "count": len(bleu_scores), "avgScore": statistics.mean(bleu_scores) if bleu_scores else 0, "confidence": 0.95},
-            # Removed MetricX related entry from here as well, since it's reference-free
-            # If you have other reference-free metrics, they can be added here
         ]
-
 
         return {
             "evaluationModes": evaluation_modes,
@@ -517,15 +593,14 @@ async def get_quality_scores_data(date_filter, lang_filter):
             "scoreDistribution": []
         }
 
-async def get_operational_data(date_filter, lang_filter):
+async def get_operational_data(lang_filter: dict):
     """Get operational data including processing times, system health, and model utilization."""
     try:
         if not prisma.is_connected():
             await prisma.connect()
 
-        # 1. Processing Times Data
         all_outputs = await prisma.modeloutput.find_many(
-            where={**date_filter},
+            where={}, # No date_filter here
             include={
                 "translationString": {
                     "include": {
@@ -537,7 +612,6 @@ async def get_operational_data(date_filter, lang_filter):
         
         processing_stats = {}
         for output in all_outputs:
-            # Apply language filter to translation strings related to model output if present
             if lang_filter and "targetLanguage" in lang_filter:
                 t_string = output.translationString
                 if not t_string or not t_string.translationRequest:
@@ -564,26 +638,23 @@ async def get_operational_data(date_filter, lang_filter):
             processing_times.append({
                 "model": stats["model"],
                 "engineType": stats["engineType"],
-                "wordCountBucket": "medium", # Placeholder, ideally derived from text length
+                "wordCountBucket": "medium",
                 "avgProcessingTime": avg_time,
                 "count": stats["count"]
             })
 
-        # 2. System Health Data (Leveraging HealthService)
         system_health_data = []
-        if health_service: # Check if the health_service is set/available
+        if health_service:
             detailed_status = await health_service.get_detailed_status()
             
-            # Overall Backend Status
             system_health_data.append({
                 "model": "Overall Backend Status",
                 "isActive": detailed_status.get("status") == "healthy",
-                "lastUsed": datetime.now().isoformat(), # Can be enhanced by tracking server startup or last API call
-                "totalTranslations": sum(p['count'] for p in processing_times), # Sum all processed translations
+                "lastUsed": datetime.now().isoformat(),
+                "totalTranslations": sum(p['count'] for p in processing_times),
                 "avgProcessingTime": sum(p['avgProcessingTime'] * p['count'] for p in processing_times) / sum(p['count'] for p in processing_times) if sum(p['count'] for p in processing_times) > 0 else 0
             })
 
-            # Database Connection Status
             system_health_data.append({
                 "model": "Database Connection",
                 "isActive": detailed_status.get("database") == "connected",
@@ -592,45 +663,41 @@ async def get_operational_data(date_filter, lang_filter):
                 "avgProcessingTime": 0 
             })
 
-            # MetricX Service Status
             if detailed_status.get("metricx_available") is not None:
                 system_health_data.append({
                     "model": "MetricX Service",
                     "isActive": detailed_status["metricx_available"],
-                    "lastUsed": datetime.now().isoformat(), # Placeholder
-                    "totalTranslations": 0, # Not easily available from health service
-                    "avgProcessingTime": 0 # Not easily available from health service
+                    "lastUsed": datetime.now().isoformat(),
+                    "totalTranslations": 0, 
+                    "avgProcessingTime": 0 
                 })
             
-            # Translation Core Service Status
             if detailed_status.get("translation_service_available") is not None:
                 system_health_data.append({
                     "model": "Translation Core Service",
                     "isActive": detailed_status["translation_service_available"],
-                    "lastUsed": datetime.now().isoformat(), # Placeholder
-                    "totalTranslations": 0, # Not easily available from health service
-                    "avgProcessingTime": 0 # Not easily available from health service
+                    "lastUsed": datetime.now().isoformat(),
+                    "totalTranslations": 0, 
+                    "avgProcessingTime": 0 
                 })
 
-            # Multi-Engine Service and specific engines
             if detailed_status.get("local_engines_available") is not None:
                 system_health_data.append({
                     "model": "Multi-Engine Orchestrator",
                     "isActive": detailed_status["local_engines_available"],
-                    "lastUsed": datetime.now().isoformat(), # Placeholder
-                    "totalTranslations": 0, # Not easily available from health service
-                    "avgProcessingTime": 0 # Not easily available from health service
+                    "lastUsed": datetime.now().isoformat(),
+                    "totalTranslations": 0, 
+                    "avgProcessingTime": 0 
                 })
 
             if detailed_status.get("available_engines"):
                 for engine_name in detailed_status["available_engines"]:
-                    # Try to find actual usage stats for each specific engine
                     total_t = 0
                     avg_p_time = 0
-                    last_used_time = datetime.now().isoformat() # Default
+                    last_used_time = datetime.now().isoformat()
 
                     for key, stats in processing_stats.items():
-                        if stats["model"] == engine_name: # Assuming engine_name from health matches modelName in ModelOutput
+                        if stats["model"] == engine_name:
                             total_t = stats["count"]
                             avg_p_time = stats["avgProcessingTime"]
 
@@ -652,15 +719,14 @@ async def get_operational_data(date_filter, lang_filter):
         else:
             logger.warning("HealthService not injected into analytics router. System Health data will be incomplete.")
 
-        # 3. Model Utilization Data (Placeholder for now)        
         model_utilization_data = []
         for stats in processing_stats.values():
-            utilization_rate = (stats["count"] / max(1, sum(p['count'] for p in processing_times))) * 100 # Simple ratio
+            utilization_rate = (stats["count"] / max(1, sum(p['count'] for p in processing_times))) * 100
             model_utilization_data.append({
                 "model": stats["model"],
                 "utilizationRate": utilization_rate,
-                "idleDays": 0, # Placeholder
-                "needsUpdate": False # Placeholder
+                "idleDays": 0,
+                "needsUpdate": False
             })
             
         return {
@@ -675,7 +741,7 @@ async def get_operational_data(date_filter, lang_filter):
         traceback.print_exc()
         return {"processingTimes": [], "systemHealth": [], "modelUtilization": []}
 
-async def get_tm_glossary_data(date_filter, lang_filter):
+async def get_tm_glossary_data(lang_filter: dict):
     """Get translation memory and glossary data"""
     try:
         if not prisma.is_connected():
@@ -683,7 +749,6 @@ async def get_tm_glossary_data(date_filter, lang_filter):
 
         tm_strings = await prisma.translationstring.find_many(
             where={
-                **date_filter,
                 **lang_filter,
                 "tmMatchPercentage": {"not": None}
             },
@@ -760,17 +825,16 @@ async def get_tm_glossary_data(date_filter, lang_filter):
         traceback.print_exc()
         return {"tmImpact": [], "glossaryUsage": [], "termOverrides": []}
 
-async def get_model_performance_data(date_filter, lang_filter, group_by="model"):
-    """Get model performance data with flexible grouping and filtering"""
+async def get_model_performance_data(lang_filter: dict, group_by="model"):
+    """Get model performance data with flexible grouping and filtering, now including ChrF."""
     try:
         if not prisma.is_connected():
             await prisma.connect()
 
         quality_metrics = await prisma.qualitymetrics.find_many(
             where={
-                **date_filter,
                 "cometScore": {"not": None},
-                "hasReference": True # Only include metrics with human post-edits
+                "hasReference": True,
             },
             include={
                 "translationRequest": {
@@ -781,7 +845,7 @@ async def get_model_performance_data(date_filter, lang_filter, group_by="model")
                 "translationString": {
                     "include": {
                         "translationRequest": True,
-                        "modelOutputs": True # Include modelOutputs for source of truth on model
+                        "modelOutputs": True
                     }
                 }
             }
@@ -794,10 +858,12 @@ async def get_model_performance_data(date_filter, lang_filter, group_by="model")
         else:
             grouped_data = group_by_model(quality_metrics, lang_filter)
 
+        model_comparison = compute_model_comparison(quality_metrics)
+
         return {
             "leaderboard": grouped_data,
-            "performanceOverTime": [], # Keeping this empty as it's not explicitly requested to be filled now
-            "modelComparison": [] # Keeping this empty as it's not explicitly requested to be filled now
+            "performanceOverTime": [],
+            "modelComparison": model_comparison
         }
 
     except Exception as e:
@@ -813,51 +879,55 @@ def calculate_average(scores: list) -> float:
 def extract_model_and_language_info(metric):
     """
     Extracts model name and language pair from a quality metric entry.
-    Prioritizes specific model names, then falls back to translation request model,
-    then to calculation engine types, and finally to 'Untraceable/Other'.
+    Prioritizes the selected engine actually used for post-editing, then 
+    falls back to modelOutputs, then translation request model, then calculation engine,
+    then finally 'Untraceable/Other' as an absolute fallback.
     """
     model_name_extracted = None
     language_pair = "unknown-unknown"
 
-    # 1. Try to get model from direct ModelOutput (most specific)
-    if metric.translationString and metric.translationString.modelOutputs:
-        if len(metric.translationString.modelOutputs) > 0 and metric.translationString.modelOutputs[0].modelName:
-            model_name_extracted = metric.translationString.modelOutputs[0].modelName
-            logger.debug(f"Extracted model from ModelOutput: {model_name_extracted}")
+    # 1. Strongest: translationString.selectedEngine
+    if getattr(metric, "translationString", None) and getattr(metric.translationString, "selectedEngine", None):
+        model_name_extracted = metric.translationString.selectedEngine
+    
+    # 2. Fallback: modelOutputs[0].modelName
+    elif getattr(metric, "translationString", None) and getattr(metric.translationString, "modelOutputs", None):
+        mos = metric.translationString.modelOutputs
+        if isinstance(mos, list) and len(mos) > 0 and getattr(mos[0], "modelName", None):
+            model_name_extracted = mos[0].modelName
 
-    # 2. Fallback to MTModel from TranslationRequest (if no specific ModelOutput or modelName is None)
-    if model_name_extracted is None and metric.translationString and metric.translationString.translationRequest:
-        if metric.translationString.translationRequest.mtModel:
+    # 3. Fallback: translationRequest.mtModel (enum or string)
+    elif getattr(metric, "translationString", None) and getattr(metric.translationString, "translationRequest", None):
+        if getattr(metric.translationString.translationRequest, "mtModel", None):
             mt_model = metric.translationString.translationRequest.mtModel
             model_name_extracted = mt_model.value if hasattr(mt_model, 'value') else str(mt_model)
-            logger.debug(f"Extracted model from TranslationRequest.mtModel: {model_name_extracted}")
 
-    # 3. Fallback to calculationEngine for broad categories if still no specific model
-    #    Exclude 'MetricX-Evaluation' as it's not a source MT model.
-    if model_name_extracted is None and metric.calculationEngine:
-        if "comet-prediction" in metric.calculationEngine.lower():
+    # 4. Fallback: calculationEngine hints
+    elif getattr(metric, "calculationEngine", None):
+        calc_engine = metric.calculationEngine.lower()
+        if "comet-prediction" in calc_engine:
             model_name_extracted = "COMET-Prediction"
-            logger.debug(f"Extracted model from calculationEngine (COMET): {model_name_extracted}")
-        elif "post-editing-metrics" in metric.calculationEngine.lower():
+        elif "post-editing-metrics" in calc_engine:
             model_name_extracted = "Human-Post-Edit"
-            logger.debug(f"Extracted model from calculationEngine (Post-Edit): {model_name_extracted}")
-        # Removed MetricX-Evaluation from here as it's not an MT model
-        # elif "metricx-evaluation" in metric.calculationEngine.lower():
-        #     model_name_extracted = "MetricX-Evaluation"
-        #     logger.debug(f"Extracted model from calculationEngine (MetricX): {model_name_extracted}")
+        else:
+            model_name_extracted = None
 
-    # 4. Final fallback for truly untraceable models
-    if model_name_extracted is None:
+    # 5. As a last fallback
+    if not model_name_extracted:
         model_name_extracted = "Untraceable/Other"
-        logger.warning(f"Could not trace model for metric {metric.id}, assigned '{model_name_extracted}'. Calculation Engine: {metric.calculationEngine}, Translation String ID: {metric.translationStringId}")
+        logger.warning(
+            f"Could not trace model for metric {getattr(metric, 'id', 'unknown')}, assigned '{model_name_extracted}'. "
+            f"Calculation Engine: {getattr(metric, 'calculationEngine', None)}, "
+            f"Translation String ID: {getattr(metric, 'translationStringId', None)}"
+        )
 
-
-    # Extract language pair
-    if metric.translationString and metric.translationString.translationRequest:
-        source_lang = metric.translationString.translationRequest.sourceLanguage
-        target_lang = metric.translationString.targetLanguage
+    # Extract language pair info (for dashboards)
+    if getattr(metric, "translationString", None) and getattr(metric.translationString, "translationRequest", None):
+        source_lang = getattr(metric.translationString.translationRequest, "sourceLanguage", "unknown")
+        target_lang = getattr(metric.translationString, "targetLanguage", "unknown")
         language_pair = f"{source_lang}-{target_lang}"
-    elif metric.translationRequestId:       
+    elif getattr(metric, "translationRequestId", None):
+        # Can be enhanced if translationRequest lookup added
         pass
 
     return model_name_extracted, language_pair
@@ -877,20 +947,19 @@ def matches_language_filter(language_pair: str, lang_filter: dict) -> bool:
     return False
 
 def group_by_model(quality_metrics, lang_filter):
-    """Group metrics by model and calculate averages"""
+    """Group metrics by model and calculate averages, now including ChrF."""
     model_stats = {}
     
     for metric in quality_metrics:
         model_name, language_pair = extract_model_and_language_info(metric)
+        print(f"Extracted model_name: {model_name}")
         
-        # Filter out non-MT models or untraceable entries for the leaderboard
         if model_name in ["Untraceable/Other", "Human-Post-Edit", "COMET-Prediction", "MetricX-Evaluation"]:
             continue 
 
         if lang_filter and not matches_language_filter(language_pair, lang_filter):
             continue
         
-        # Determine engineType based on model_name using the helper
         engine_type = get_engine_type_from_model(model_name)
 
         if model_name not in model_stats:
@@ -898,16 +967,18 @@ def group_by_model(quality_metrics, lang_filter):
                 "bleu_scores": [],
                 "comet_scores": [],
                 "ter_scores": [],
-                "metricx_scores": [], # Include if needed, but not used in final display as per request
+                "metricx_scores": [],
+                "chrf_scores": [], 
                 "total_translations": 0,
                 "language_pairs": set(),
-                "engineType": engine_type # Add engineType here
+                "engineType": engine_type
             }
 
         if metric.bleuScore is not None: model_stats[model_name]["bleu_scores"].append(metric.bleuScore)
         if metric.cometScore is not None: model_stats[model_name]["comet_scores"].append(metric.cometScore)
         if metric.terScore is not None: model_stats[model_name]["ter_scores"].append(metric.terScore)
         if metric.metricXScore is not None: model_stats[model_name]["metricx_scores"].append(metric.metricXScore)
+        if metric.chrfScore is not None: model_stats[model_name]["chrf_scores"].append(metric.chrfScore) 
         
         model_stats[model_name]["total_translations"] += 1
         model_stats[model_name]["language_pairs"].add(language_pair)
@@ -918,30 +989,31 @@ def group_by_model(quality_metrics, lang_filter):
             leaderboard.append({
                 "name": model,
                 "type": "model",
-                "model": model, # Ensure 'model' field is present for consistency with frontend interface
-                "engineType": stats["engineType"], # Ensure engineType is passed
-                "avgBleu": calculate_average(stats["bleu_scores"]) * 100, # Convert to percentage
-                "avgComet": calculate_average(stats["comet_scores"]) * 100, # Convert to percentage
-                "avgTer": calculate_average(stats["ter_scores"]) * 100, # Convert to percentage
-                "avgMetricX": calculate_average(stats["metricx_scores"]), # Keep as is, if not used in chart it's fine
+                "model": model,
+                "engineType": stats["engineType"],
+                "avgBleu": calculate_average(stats["bleu_scores"]) * 100,
+                "avgComet": calculate_average(stats["comet_scores"]) * 100,
+                "avgTer": calculate_average(stats["ter_scores"]) if stats["ter_scores"] else 0,
+                "avgChrf": calculate_average(stats["chrf_scores"]) if stats["chrf_scores"] else 0, 
+                "avgMetricX": calculate_average(stats["metricx_scores"]),
                 "totalTranslations": stats["total_translations"],
                 "languagePairs": list(stats["language_pairs"]),
-                "confidenceInterval": { # Placeholder for confidence interval
+                "confidenceInterval": {
                     "bleuLow": 0, "bleuHigh": 100,
-                    "cometLow": 0, "cometHigh": 100
+                    "cometLow": 0, "cometHigh": 100,
+                    "chrfLow": 0, "chrfHigh": 100 
                 }
             })
     
     return sorted(leaderboard, key=lambda x: x["avgComet"], reverse=True)
 
 def group_by_language_pair(quality_metrics, lang_filter):
-    """Group metrics by language pair and calculate averages"""
+    """Group metrics by language pair and calculate averages, now including ChrF."""
     pair_stats = {}
     
     for metric in quality_metrics:
         model_name, language_pair = extract_model_and_language_info(metric)
         
-        # Filter out non-MT models or untraceable entries
         if model_name in ["Untraceable/Other", "Human-Post-Edit", "COMET-Prediction", "MetricX-Evaluation"]:
             continue 
 
@@ -954,14 +1026,16 @@ def group_by_language_pair(quality_metrics, lang_filter):
                 "comet_scores": [],
                 "ter_scores": [],
                 "metricx_scores": [],
+                "chrf_scores": [], 
                 "total_translations": 0,
-                "models": set() # Use a set to store unique model names for this language pair
+                "models": set()
             }
 
         if metric.bleuScore is not None: pair_stats[language_pair]["bleu_scores"].append(metric.bleuScore)
         if metric.cometScore is not None: pair_stats[language_pair]["comet_scores"].append(metric.cometScore)
         if metric.terScore is not None: pair_stats[language_pair]["ter_scores"].append(metric.terScore)
         if metric.metricXScore is not None: pair_stats[language_pair]["metricx_scores"].append(metric.metricXScore)
+        if metric.chrfScore is not None: pair_stats[language_pair]["chrf_scores"].append(metric.chrfScore) 
         
         pair_stats[language_pair]["total_translations"] += 1
         pair_stats[language_pair]["models"].add(model_name) 
@@ -972,18 +1046,20 @@ def group_by_language_pair(quality_metrics, lang_filter):
             leaderboard.append({
                 "name": pair,
                 "type": "language_pair",
-                "model": "N/A", # Placeholder to satisfy frontend interface if 'model' is always expected
-                "engineType": "N/A", # Placeholder to satisfy frontend interface if 'engineType' is always expected
+                "model": "N/A",
+                "engineType": "N/A",
                 "avgBleu": calculate_average(stats["bleu_scores"]) * 100,
                 "avgComet": calculate_average(stats["comet_scores"]) * 100,
-                "avgTer": calculate_average(stats["ter_scores"]) * 100,
+                "avgTer": calculate_average(stats["ter_scores"]) if stats["ter_scores"] else 0,
+                "avgChrf": calculate_average(stats["chrf_scores"]) if stats["chrf_scores"] else 0,
                 "avgMetricX": calculate_average(stats["metricx_scores"]),
                 "totalTranslations": stats["total_translations"],
-                "languagePairs": [pair], # This group is by language pair, so it's just this one
-                "models": list(stats["models"]), # Include models for this language pair
-                "confidenceInterval": { # Placeholder for confidence interval
+                "languagePairs": [pair],
+                "models": list(stats["models"]),
+                "confidenceInterval": {
                     "bleuLow": 0, "bleuHigh": 100,
-                    "cometLow": 0, "cometHigh": 100
+                    "cometLow": 0, "cometHigh": 100,
+                    "chrfLow": 0, "chrfHigh": 100 
                 }
             })
     
@@ -1020,7 +1096,7 @@ async def get_engine_preference_analytics():
         engine_preferences = []
         for key, data in preferences_grouped.items():
             avg_rating = sum(data["ratings"]) / len(data["ratings"]) if data["ratings"] else 0
-            avg_satisfaction = sum(data["overallSatisfactions"]) / len(data["overallSatisfactions"]) if data["overallSatisfactions"] else 0
+            avg_satisfaction = sum(data["overallSatisfactions"]) / len(data["overallSatisfactions"]) if data["satisfactions"] else 0
             
             engine_preferences.append({
                 "engine": data["selectedEngine"],
@@ -1062,56 +1138,44 @@ async def get_engine_preference_analytics():
 @router.get("/dashboard/post-edit-metrics")
 async def get_post_edit_metrics(
     language_pair: Optional[str] = Query("all"),
-    date_from: Optional[str] = Query(None),
-    date_to: Optional[str] = Query(None)
 ):
-    """Get post-editing metrics for dashboard"""
+    """Get post-editing metrics for dashboard, now including ChrF."""
     try:
         if not prisma.is_connected():
             await prisma.connect()
 
-        _date_from = datetime.fromisoformat(date_from) if date_from else None
-        _date_to = datetime.fromisoformat(date_to) if date_to else None
-
-        date_filter_obj = {}
-        if _date_from:
-            date_filter_obj["createdAt"] = {"gte": _date_from}
-        if _date_to:
-            date_filter_obj.setdefault("createdAt", {})["lte"] = _date_to
-
-
         metrics = await prisma.qualitymetrics.find_many(
             where={
-                **date_filter_obj,
                 "hasReference": True,
-                "bleuScore": {"not": None},
+                "bleuScore": {"not": None}, # Ensure these core metrics are present for charting
                 "cometScore": {"not": None},
-                "terScore": {"not": None}
+                "terScore": {"not": None},
+                # REMOVED strict "chrfScore": {"not": None} filter from here
+                # Data will be fetched even if chrfScore is None.
+                # ChrF average will be 0 if no non-None ChrF scores are found for a group.
             },
             include={
-                "translationRequest": {
+                "translationString": {
                     "include": {
-                        "translationStrings": {
-                            "where": {
-                                "hasReference": True # Ensure only strings with reference are included
-                            }
-                        }
+                        "translationRequest": True,
+                        "modelOutputs": True
                     }
                 }
             }
         )
+        logger.info(f"Total QualityMetrics found by query (after core filters): {len(metrics)}")
 
         language_pair_metrics = {}
-        correlation_data_raw = [] 
+        # correlation_data_raw will ONLY contain entries where all 4 metrics (BLEU, COMET, TER, ChrF) are present and not None
+        correlation_data_raw = []
         
         for metric in metrics:
-            if metric.translationRequest and metric.translationRequest.translationStrings:
-                source_lang = metric.translationRequest.sourceLanguage
+            if metric.translationString and metric.translationString.translationRequest:
+                source_lang = metric.translationString.translationRequest.sourceLanguage
                 target_lang = "unknown"
                 if metric.translationString and metric.translationString.targetLanguage:
                     target_lang = metric.translationString.targetLanguage
                 elif metric.translationRequest and metric.translationRequest.targetLanguages:
-                    # Fallback if quality metric isn't directly linked to a specific translation string's language
                     target_lang = metric.translationRequest.targetLanguages[0] if metric.translationRequest.targetLanguages else "unknown"
 
 
@@ -1126,70 +1190,97 @@ async def get_post_edit_metrics(
                         "bleuScores": [],
                         "cometScores": [],
                         "terScores": [],
-                        "count": 0
+                        "chrfScores": [], 
+                        "count": 0 # This count will reflect metrics used in chart
                     }
                 
+                # Append scores to lists only if they are not None.
+                # This ensures averages are calculated correctly even if some metrics are missing.
                 if metric.bleuScore is not None: language_pair_metrics[pair]["bleuScores"].append(metric.bleuScore)
                 if metric.cometScore is not None: language_pair_metrics[pair]["cometScores"].append(metric.cometScore)
                 if metric.terScore is not None: language_pair_metrics[pair]["terScores"].append(metric.terScore)
-                language_pair_metrics[pair]["count"] += 1
+                if metric.chrfScore is not None: language_pair_metrics[pair]["chrfScores"].append(metric.chrfScore)
                 
-                # Collect data for correlation calculation
-                if metric.bleuScore is not None and metric.cometScore is not None and metric.terScore is not None:
+                # Increment count for each metric record processed for this language pair
+                language_pair_metrics[pair]["count"] += 1 
+                
+                # Collect data for correlation calculation - ONLY if all 4 scores are explicitly present and not None
+                if (metric.bleuScore is not None and metric.cometScore is not None and 
+                    metric.terScore is not None and metric.chrfScore is not None):
                      correlation_data_raw.append({
                         "bleu": metric.bleuScore,
                         "comet": metric.cometScore,
-                        "ter": metric.terScore
+                        "ter": metric.terScore,
+                        "chrf": metric.chrfScore 
                     })
 
         bar_chart_data = []
+        total_post_edits_for_display = 0 # Variable to aggregate counts for the overall title
         for pair, data in language_pair_metrics.items():
-            if data["count"] > 0:
+            if data["count"] > 0: # Only add to chart data if there's at least one valid metric record for the pair
                 bar_chart_data.append({
                     "languagePair": pair,
                     "avgBleu": sum(data["bleuScores"]) / len(data["bleuScores"]) * 100 if data["bleuScores"] else 0,
                     "avgComet": sum(data["cometScores"]) / len(data["cometScores"]) * 100 if data["cometScores"] else 0,
-                    "avgTer": sum(data["terScores"]) / len(data["terScores"]) if data["terScores"] else 0, # TER is usually interpreted as lower is better, often not percentage
+                    "avgTer": sum(data["terScores"]) / len(data["terScores"]) if data["terScores"] else 0,
+                    "avgChrf": sum(data["chrfScores"]) / len(data["chrfScores"]) if data["chrfScores"] else 0, 
                     "count": data["count"]
                 })
+                total_post_edits_for_display += data["count"] # Sum up valid counts for the display total
 
-        # Calculate actual correlations for the matrix, excluding MetricX
         bleu_vals = [d["bleu"] for d in correlation_data_raw]
         comet_vals = [d["comet"] for d in correlation_data_raw]
         ter_vals = [d["ter"] for d in correlation_data_raw]
+        chrf_vals = [d["chrf"] for d in correlation_data_raw] 
 
         calculated_correlation_matrix = []
         
-        # BLEU-COMET
-        if len(bleu_vals) > 1 and len(comet_vals) > 1:
+        if len(bleu_vals) >= 2 and len(comet_vals) >= 2:
             calculated_correlation_matrix.append({
                 "metric1": "BLEU", "metric2": "COMET", 
                 "correlation": calculate_correlation(bleu_vals, comet_vals), 
-                "pValue": 0.05 # Placeholder
+                "pValue": 0.05
             })
         
-        # BLEU-TER
-        if len(bleu_vals) > 1 and len(ter_vals) > 1:
+        if len(bleu_vals) >= 2 and len(ter_vals) >= 2:
             calculated_correlation_matrix.append({
                 "metric1": "BLEU", "metric2": "TER", 
                 "correlation": calculate_correlation(bleu_vals, ter_vals), 
-                "pValue": 0.05 # Placeholder
+                "pValue": 0.05
             })
 
-        # COMET-TER
-        if len(comet_vals) > 1 and len(ter_vals) > 1:
+        if len(comet_vals) >= 2 and len(ter_vals) >= 2:
             calculated_correlation_matrix.append({
                 "metric1": "COMET", "metric2": "TER", 
                 "correlation": calculate_correlation(comet_vals, ter_vals), 
-                "pValue": 0.05 # Placeholder
+                "pValue": 0.05
+            })
+       
+        if len(bleu_vals) >= 2 and len(chrf_vals) >= 2:
+            calculated_correlation_matrix.append({
+                "metric1": "BLEU", "metric2": "ChrF", 
+                "correlation": calculate_correlation(bleu_vals, chrf_vals), 
+                "pValue": 0.05
+            })
+        if len(comet_vals) >= 2 and len(chrf_vals) >= 2:
+            calculated_correlation_matrix.append({
+                "metric1": "COMET", "metric2": "ChrF", 
+                "correlation": calculate_correlation(comet_vals, chrf_vals), 
+                "pValue": 0.05
+            })
+        if len(ter_vals) >= 2 and len(chrf_vals) >= 2:
+            calculated_correlation_matrix.append({
+                "metric1": "TER", "metric2": "ChrF", 
+                "correlation": calculate_correlation(ter_vals, chrf_vals), 
+                "pValue": 0.05
             })
 
-        logger.info(f"Returning {len(bar_chart_data)} language pairs for dashboard")
+        logger.info(f"Returning {len(bar_chart_data)} language pairs for post-edit metrics.")
 
         return {
             "languagePairMetrics": bar_chart_data,
             "correlationMatrix": calculated_correlation_matrix,
-            "totalPostEdits": len(correlation_data_raw) # Sum of all individual string metrics
+            "totalPostEdits": total_post_edits_for_display # Now more accurately reflects count in chart
         }
 
     except Exception as e:
@@ -1205,10 +1296,8 @@ async def get_post_edit_metrics(
 @router.get("/dashboard/analytics")
 async def get_dashboard_analytics(
     language_pair: Optional[str] = Query(None),
-    date_from: Optional[str] = Query(None),
-    date_to: Optional[str] = Query(None),
     group_by: Optional[str] = Query("model", description="Group by: model or language_pair"),
-    engine_filter: Optional[str] = Query(None), # New filter for preferences
+    engine_filter: Optional[str] = Query(None),
 ):
     """Get comprehensive analytics data for the dashboard"""
     try:
@@ -1217,23 +1306,11 @@ async def get_dashboard_analytics(
 
         lang_filter_obj = {}
         if language_pair and language_pair.lower() != "all":
-            # Assuming language_pair comes as 'EN-FR' and we only need target for filtering
             parts = language_pair.upper().split('-')
             if len(parts) == 2:
                 lang_filter_obj["targetLanguage"] = {"contains": parts[1]}
-
-        # Prepare date filter object
-        _date_from = datetime.fromisoformat(date_from) if date_from else None
-        _date_to = datetime.fromisoformat(date_to) if date_to else None
-
-        date_filter_obj = {}
-        if _date_from:
-            date_filter_obj["createdAt"] = {"gte": _date_from}
-        if _date_to:
-            date_filter_obj.setdefault("createdAt", {})["lte"] = _date_to
             
-        # Prepare engine filter for human preferences
-        engine_pref_filter_obj = {**date_filter_obj}
+        engine_pref_filter_obj = {}
         if language_pair and language_pair.lower() != "all":
              parts = language_pair.upper().split('-')
              if len(parts) == 2:
@@ -1242,17 +1319,13 @@ async def get_dashboard_analytics(
         if engine_filter and engine_filter.lower() != "all":
             engine_pref_filter_obj["selectedEngine"] = {"contains": engine_filter}
 
-        model_performance = await get_model_performance_data(
-                    date_filter_obj, 
-                    lang_filter_obj, 
-                    group_by=group_by
-                )        
-        quality_scores = await get_quality_scores_data(date_filter_obj, lang_filter_obj)
-        human_preferences = await get_human_preferences_data(engine_pref_filter_obj, lang_filter_obj) # Use engine_pref_filter_obj
-        annotations_data = await get_annotations_data(date_filter_obj, lang_filter_obj)
-        operational_data = await get_operational_data(date_filter_obj, lang_filter_obj)
-        tm_glossary_data = await get_tm_glossary_data(date_filter_obj, lang_filter_obj)
-        multi_engine_data = await get_multi_engine_data(date_filter_obj, lang_filter_obj)
+        model_performance = await get_model_performance_data(lang_filter_obj, group_by=group_by)        
+        quality_scores = await get_quality_scores_data(lang_filter_obj)
+        human_preferences = await get_human_preferences_data(engine_pref_filter_obj)
+        annotations_data = await get_annotations_data(lang_filter_obj)
+        operational_data = await get_operational_data(lang_filter_obj)
+        tm_glossary_data = await get_tm_glossary_data(lang_filter_obj)
+        multi_engine_data = await get_multi_engine_data(lang_filter_obj)
 
         return {
             "modelPerformance": model_performance,
@@ -1271,7 +1344,7 @@ async def get_dashboard_analytics(
         return {
             "modelPerformance": {"leaderboard": [], "performanceOverTime": [], "modelComparison": []},
             "humanPreferences": {"enginePreferences": [], "reviewerBehavior": [], "preferenceReasons": []},
-            "annotations": {"errorHeatmap": [], "severityBreakdown": [], "spanAnalysis": [], "stackedPainIndexByErrorType": []}, # Added new field
+            "annotations": {"errorHeatmap": [], "severityBreakdown": [], "spanAnalysis": [], "stackedPainIndexByErrorType": [], "totalMQMScore": 0.0},
             "multiEngine": {"selectionTrends": [], "pivotQuality": [], "interRaterAgreement": []},
             "qualityScores": {"evaluationModes": [], "correlationMatrix": [], "scoreDistribution": []},
             "operational": {"processingTimes": [], "systemHealth": [], "modelUtilization": []},
@@ -1436,7 +1509,6 @@ async def get_translator_impact_data(language_pair: Optional[str] = Query("all")
 
         lang_filter_obj = {}
         if language_pair and language_pair.lower() != "all":
-            # Assuming language_pair comes as 'EN-FR' and we only need target for filtering
             parts = language_pair.upper().split('-')
             if len(parts) == 2:
                 lang_filter_obj["targetLanguage"] = {"contains": parts[1]}
@@ -1490,7 +1562,7 @@ async def get_translator_impact_data(language_pair: Optional[str] = Query("all")
                     "id": translation.id,
                     "sourceText": translation.sourceText,
                     "originalMT": translation.originalTranslation,
-                    "humanEdited": translation.translatedText,
+                    "humanEdited": translation.translatedText, # Corrected field name here
                     "languagePair": f"{translation.translationRequest.sourceLanguage}-{translation.targetLanguage}",
                     "jobId": translation.translationRequest.id,
                     "jobName": translation.translationRequest.fileName,
