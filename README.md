@@ -52,25 +52,47 @@ git clone git@github.com:entre-guillemets/hitl-translation.git
 cd hitl-translation
 ```
 
-### 2. Download and Place Models
+### 2. Download and Prepare Models
 
-**This is a critical step.** This project loads translation models from a local `models/` directory which is not checked into version control. You must manually download the required models.
+**This is a critical step.** This project loads translation models from a local `models/` directory which is not checked into version control due to their large size. You must download and place the required models before running the application.
 
-1.  Create a `models` directory in the root of the project.
-2.  Download the following models and place them inside the `models/` directory. Ensure the folder names inside `models/` **exactly match** the names listed below.
+We provide a convenient script to automate this process.
 
-| Model Name in Code          | Hugging Face Repository                                                              | Target Folder Name                |
-| :-------------------------- | :----------------------------------------------------------------------------------- | :-------------------------------- |
-| `HELSINKI_EN_JP`/`OPUS_EN_JP` | [Helsinki-NLP/opus-mt-en-jap](https://huggingface.co/Helsinki-NLP/opus-mt-en-jap)         | `Helsinki-NLP_opus-mt-en-jap`     |
-| `OPUS_JA_EN`                | [Helsinki-NLP/opus-mt-ja-en](https://huggingface.co/Helsinki-NLP/opus-mt-ja-en)           | `opus-mt-ja-en`                   |
-| `ELAN_JA_EN`                | [elan-mt-bt-ja-en](https://huggingface.co/Mitsua/elan-mt-bt-ja-en/tree/main) | `Mitsua_elan-mt-bt-ja-en`       |
-| `HELSINKI_EN_FR`            | [Helsinki-NLP/opus-mt-en-fr](https://huggingface.co/Helsinki-NLP/opus-mt-en-fr)           | `Helsinki-NLP_opus-mt-en-fr`      |
-| `HELSINKI_FR_EN`            | [Helsinki-NLP/opus-mt-fr-en](https://huggingface.co/Helsinki-NLP/opus-mt-fr-en)           | `Helsinki-NLP_opus-mt-fr-en`      |
-| `OPUS_TC_BIG_EN_FR`         | [Helsinki-NLP/opus-mt-tc-big-en-fr](https://huggingface.co/Helsinki-NLP/opus-mt-tc-big-en-fr) | `opus-mt-tc-big-en-fr`          |
-| `T5_BASE`/`T5_MULTILINGUAL` | [google-t5/t5-base](https://huggingface.co/google-t5/t5-base)                         | `google-t5_t5-base`               |
-| `NLLB_200`                  | [facebook/nllb-200-distilled-600M](https://huggingface.co/facebook/nllb-200-distilled-600M) | `nllb-200-distilled-600M`         |
+1.  **Automated Download (Recommended)**
+    Use the provided `model_manager.py` script to download all necessary models directly into your project's `models/` directory. This script handles the correct naming and placement for you.
 
-*Note: You can use the "Download" button on the Hugging Face Hub page to download a zip of the repository, then unzip and rename the folder as specified above.*
+    ```bash
+    # Ensure you are in the project root directory
+    python model_manager.py --download-all
+    ```
+    *   **Note:** This process will download several gigabytes of data and may take a considerable amount of time (20-60 minutes or more) depending on your internet connection.
+    *   You can check the status of your models at any time:
+        ```bash
+        python model_manager.py --status
+        ```
+    *   If you only need a specific model, you can download it individually (e.g., for `T5_BASE`):
+        ```bash
+        python model_manager.py --download mt5_multilingual
+        ```
+        (Refer to the `model_manager.py` source or run `python model_manager.py --list` for all model keys.)
+
+2.  **Manual Placement (Alternative)**
+    If you prefer to manually manage your models, or already have them downloaded, you can place them directly into a `models/` directory in the root of your project. Ensure the folder names inside `models/` **exactly match** the names listed below.
+
+    | Model Name in Code          | Hugging Face Repository                                                              | Target Folder Name                |
+    | :-------------------------- | :----------------------------------------------------------------------------------- | :-------------------------------- |
+    | `HELSINKI_EN_JP`/`OPUS_EN_JP` | [Helsinki-NLP/opus-mt-en-jap](https://huggingface.co/Helsinki-NLP/opus-mt-en-jap)         | `Helsinki-NLP_opus-mt-en-jap`     |
+    | `OPUS_JA_EN`                | [Helsinki-NLP/opus-mt-ja-en](https://huggingface.co/Helsinki-NLP/opus-mt-ja-en)           | `opus-mt-ja-en`                   |
+    | `ELAN_JA_EN`                | [Mitsua/elan-mt-bt-ja-en](https://huggingface.co/Mitsua/elan-mt-bt-ja-en/tree/main) | `Mitsua_elan-mt-bt-ja-en`       |
+    | `HELSINKI_EN_FR`            | [Helsinki-NLP/opus-mt-en-fr](https://huggingface.co/Helsinki-NLP/opus-mt-en-fr)           | `Helsinki-NLP_opus-mt-en-fr`      |
+    | `HELSINKI_FR_EN`            | [Helsinki-NLP/opus-mt-fr-en](https://huggingface.co/Helsinki-NLP/opus-mt-fr-en)           | `Helsinki-NLP_opus-mt-fr-en`      |
+    | `OPUS_TC_BIG_EN_FR`         | [Helsinki-NLP/opus-mt-tc-big-en-fr](https://huggingface.co/Helsinki-NLP/opus-mt-tc-big-en-fr) | `opus-mt-tc-big-en-fr`          |
+    | `T5_BASE`/`T5_MULTILINGUAL` | [google-t5/t5-base](https://huggingface.co/google-t5/t5-base)                         | `google-t5_t5-base`               |
+    | `NLLB_200`                  | [facebook/nllb-200-distilled-600M](https://huggingface.co/facebook/nllb-200-distilled-600M) | `nllb-200-distilled-600M`         |
+    | `COMET`                     | [Unbabel/wmt22-comet-da](https://huggingface.co/Unbabel/wmt22-comet-da)                 | *(Managed by Hugging Face cache)* |
+    | `MetricX`                   | [google/metricx-24-hybrid-large-v2p6](https://huggingface.co/google/metricx-24-hybrid-large-v2p6) | *(Managed by Hugging Face cache)* |
+
+    *Note: For Hugging Face models, you can use the "Download" button on the Hugging Face Hub page to download a zip of the repository, then unzip and rename the folder as specified above. COMET and MetricX models are typically managed by the Hugging Face/COMET library's internal caching mechanisms when loaded programmatically.*
 
 ### 3. Backend Setup
 
