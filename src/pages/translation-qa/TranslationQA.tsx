@@ -157,9 +157,6 @@ const ModelOutputCard: React.FC<{
     const annotationList = annotations.trim() ?
       [{ category: 'general', comment: annotations, severity: 'minor' }] : [];
 
-    // FIX: Add '/api/analytics' prefix because the rlhf/quality-rating endpoint is in analytics.py
-    // As per your backend analytics.py, this endpoint is: @router.post("/rlhf/quality-rating")
-    // and the router prefix is /api/analytics, making the full path /api/analytics/rlhf/quality-rating
     await fetch(`${API_BASE_URL}/api/analytics/rlhf/quality-rating`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
