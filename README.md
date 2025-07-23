@@ -2,7 +2,7 @@
 
 This project provides a comprehensive platform for evaluating, comparing, and analyzing the quality of various machine translation (MT) engines. It features a robust FastAPI backend for translation and quality metric calculation, and a Next.js/React frontend with a detailed analytics dashboard.
 
-![Quality Dashboard Screenshot]([https://github.com/user-attachments/assets/9345c671-8f8d-4a35-bf3d-4fdf3a1551bb](https://github.com/user-attachments/assets/c6b88707-f57e-441f-a6d0-7efdb87c86b4))
+![Quality Dashboard Screenshot](https://github.com/user-attachments/assets/9345c671-8f8d-4a35-bf3d-4fdf3a1551bb](https://github.com/user-attachments/assets/c6b88707-f57e-441f-a6d0-7efdb87c86b4)
 
 ## Core Features
 
