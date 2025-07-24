@@ -702,11 +702,8 @@ var SelectItemAlignedPosition = React.forwardRef((props, forwardedRef) => {
             {
               ...popperProps,
               ref: composedRefs,
-              style: {
-                // When we get the height of the content, it includes borders. If we were to set
-                // the height without having `boxSizing: 'border-box'` it would be too big.
+              style: {                
                 boxSizing: "border-box",
-                // We need to ensure the content doesn't get taller than the wrapper
                 maxHeight: "100%",
                 ...popperProps.style
               }
@@ -736,10 +733,8 @@ var SelectPopperPosition = React.forwardRef((props, forwardedRef) => {
       align,
       collisionPadding,
       style: {
-        // Ensure border-box for floating-ui calculations
         boxSizing: "border-box",
         ...popperProps.style,
-        // re-namespace exposed content custom properties
         ...{
           "--radix-select-content-transform-origin": "var(--radix-popper-transform-origin)",
           "--radix-select-content-available-width": "var(--radix-popper-available-width)",
@@ -778,16 +773,9 @@ var SelectViewport = React.forwardRef(
           role: "presentation",
           ...viewportProps,
           ref: composedRefs,
-          style: {
-            // we use position: 'relative' here on the `viewport` so that when we call
-            // `selectedItem.offsetTop` in calculations, the offset is relative to the viewport
-            // (independent of the scrollUpButton).
+          style: {            
             position: "relative",
-            flex: 1,
-            // Viewport should only be scrollable in the vertical direction.
-            // This won't work in vertical writing modes, so we'll need to
-            // revisit this if/when that is supported
-            // https://developer.chrome.com/blog/vertical-form-controls
+            flex: 1,            
             overflow: "hidden auto",
             ...viewportProps.style
           },
