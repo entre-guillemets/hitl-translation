@@ -26,8 +26,7 @@ model TranslationRequest {
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
   
-  // CRITICAL CHANGE: Changed from QualityMetrics? to QualityMetrics[]
-  qualityMetrics        QualityMetrics[] // Enables one-to-many relationship
+  qualityMetrics        QualityMetrics[] 
   
   translationStrings    TranslationString[]
 
@@ -90,7 +89,6 @@ model QualityMetrics {
   referenceType        ReferenceType?
   calculationEngine    String?
   
-  // CRITICAL CHANGE: Removed @unique here. Now multiple QualityMetrics can point to the same TranslationRequest.
   translationRequestId String?             
   
   translationStringId  String?             
