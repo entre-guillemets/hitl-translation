@@ -60,23 +60,24 @@ We provide a convenient script to automate this process.
 
 1.  **Automated Download (Recommended)**
     Use the provided `model_manager.py` script to download all necessary models directly into your project's `models/` directory. This script handles the correct naming and placement for you.
+    # Note: The model_manager.py script is located in app/services/
 
     ```bash
     # Ensure you are in the project root directory
-    python model_manager.py --download-all
+    python app/services/model_manager.py --download-all
     ```
     *   **Note:** This process will download several gigabytes of data and may take a considerable amount of time (20-60 minutes or more) depending on your internet connection.
     *   You can check the status of your models at any time:
         ```bash
-        python model_manager.py --status
+        python app/services/model_manager.py --status
         ```
     *   If you only need a specific model, you can download it individually (e.g., for `T5_BASE`):
         ```bash
-        python model_manager.py --download mt5_multilingual
+        python app/services/model_manager.py --download mt5_multilingual
         ```
-        (Refer to the `model_manager.py` source or run `python model_manager.py --list` for all model keys.)
+        (Refer to the `model_manager.py` source or run `python app/services/model_manager.py --list` for all model keys.)
 
-2.  **Manual Placement (Alternative)**
+3.  **Manual Placement (Alternative)**
     If you prefer to manually manage your models, or already have them downloaded, you can place them directly into a `models/` directory in the root of your project. Ensure the folder names inside `models/` **exactly match** the names listed below.
 
     | Model Name in Code          | Hugging Face Repository                                                              | Target Folder Name                |
