@@ -122,7 +122,6 @@ const ModelOutputCard: React.FC<{
     try {
         await navigator.clipboard.writeText(result.text);
 
-        // FIX: Add '/translation-requests' to the path for select-engine
         await fetch(`${API_BASE_URL}/api/translation-requests/translation-strings/${translationStringId}/select-engine`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -133,7 +132,6 @@ const ModelOutputCard: React.FC<{
             })
         });
 
-        // FIX: Add '/translation-requests' to the path for translation-preferences
         await fetch(`${API_BASE_URL}/api/translation-requests/translation-preferences`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -171,10 +169,9 @@ const ModelOutputCard: React.FC<{
     setAnnotations('');
   };
 
-  const handleAnnotationSubmit = async () => { // Made async
-    if (newAnnotation.category && newAnnotation.comment && translationStringId) { // Check translationStringId
+  const handleAnnotationSubmit = async () => { 
+    if (newAnnotation.category && newAnnotation.comment && translationStringId) { /
       try {
-        // FIX: Add '/translation-requests' to the path for annotations
         await fetch(`${API_BASE_URL}/api/translation-requests/translation-strings/${translationStringId}/annotations`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -702,7 +699,6 @@ export const TranslationQA: React.FC = () => {
     if (!selectedString) return;
 
     try {
-      // FIX: Add '/translation-requests' to the path
       const response = await fetch(`${API_BASE_URL}/api/translation-requests/translation-strings/${selectedString.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -753,7 +749,6 @@ export const TranslationQA: React.FC = () => {
     if (!selectedString) return;
 
     try {
-      // FIX: Add '/translation-requests' to the path
       const response = await fetch(`${API_BASE_URL}/api/translation-requests/translation-strings/${selectedString.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -823,7 +818,6 @@ export const TranslationQA: React.FC = () => {
 
   const handleQualityRating = async (rating: number, annotations: any[]) => {
     try {
-      // FIX: Add '/api/analytics' prefix to quality-rating endpoint
       const response = await fetch(`${API_BASE_URL}/api/analytics/rlhf/quality-rating`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -848,7 +842,6 @@ export const TranslationQA: React.FC = () => {
     if (!selectedString) return;
 
     try {
-      // FIX: Add '/translation-requests' to the path for annotations
       const response = await fetch(`${API_BASE_URL}/api/translation-requests/translation-strings/${selectedString.id}/annotations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -872,7 +865,7 @@ export const TranslationQA: React.FC = () => {
         return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400';
       case 'reviewed':
         return 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400';
-      case 'requires_review': // Changed from 'requires review'
+      case 'requires_review': 
         return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400';
       case 'multi_engine_review':
         return 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400';

@@ -229,7 +229,7 @@ async def create_wmt_benchmark_request( #
             'jpn-fra': MTModel.PIVOT_JP_EN_FR
         }
         
-        mt_model_enum_val = model_mapping_enum.get(language_pair, MTModel.MARIAN_MT_EN_FR) # Changed default fallback
+        mt_model_enum_val = model_mapping_enum.get(language_pair, MTModel.MARIAN_MT_EN_FR) 
         
         # Parse language pair
         source_lang, target_lang = language_pair.split('-')
@@ -295,9 +295,9 @@ async def create_wmt_benchmark_request( #
                     translated_text = translation_service.translate_by_model_type( #
                         source_text.strip(), 
                         model_key_for_wmt,
-                        source_lang=src_lang_code_for_ts, # Pass lowercase for NLLB
-                        target_lang=tgt_lang_code_for_ts, # Pass lowercase for NLLB
-                        target_lang_tag=prefix_or_lang_tag # Pass for NLLB/T5 prefixing in translation_service
+                        source_lang=src_lang_code_for_ts, 
+                        target_lang=tgt_lang_code_for_ts, 
+                        target_lang_tag=prefix_or_lang_tag 
                     )
                 
                 if target_lang_code == 'jp': #
