@@ -85,7 +85,7 @@ const config: Config = {
       },
     },
   },
-  plugins: [tailwindcssAnimate], // Now using ES6 import instead of require
+  plugins: [tailwindcssAnimate],
 }
 
 export default config

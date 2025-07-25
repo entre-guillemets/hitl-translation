@@ -16,3 +16,4 @@ uvicorn==0.35.0
 transformers==4.53.1
 prisma==0.15.0
 python-multipart==0.0.20
+psutil
