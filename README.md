@@ -60,7 +60,7 @@ We provide a convenient script to automate this process.
 
 1.  **Automated Download (Recommended)**
     Use the provided `model_manager.py` script to download all necessary models directly into your project's `models/` directory. This script handles the correct naming and placement for you.
-    # Note: The model_manager.py script is located in app/services/
+    *Note: The model_manager.py script is located in app/services/*
 
     ```bash
     # Ensure you are in the project root directory
