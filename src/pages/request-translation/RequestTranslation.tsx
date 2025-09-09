@@ -6,26 +6,24 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { MultiSelect } from '@/components/ui/multi-select';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useDropzone } from 'react-dropzone';
 
 const languageOptions = [
   { label: 'English', value: 'EN' },
-  { label: 'Japanese', value: 'JP' },
+  { label: 'Japanese', value: 'JA' },
   { label: 'French', value: 'FR' },
 ];
 
 const API_BASE_URL = 'http://localhost:8001';
 
-// Define available models for each language pair - IDs MUST match backend CleanMultiEngineService engine_configs keys
 const LANGUAGE_PAIR_MODELS = {
-  'EN-JP': [
+  'EN-JA': [
     { id: 'opus_fast', label: 'OPUS Fast', description: 'Fast Helsinki-NLP models' },
-    // If ELAN_EN_JP model is not available, remove elan_quality from here for EN-JP
-    // { id: 'elan_quality', label: 'ELAN Quality', description: 'Japanese specialist model' },
     { id: 't5_versatile', label: 'mT5 Versatile', description: 'Multilingual T5 model' },
     { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model for various languages' },
   ],
-  'JP-EN': [
+  'JA-EN': [
     { id: 'opus_fast', label: 'OPUS Fast', description: 'Fast Helsinki-NLP models' },
     { id: 'elan_quality', label: 'ELAN Quality', description: 'Japanese specialist model' },
     { id: 't5_versatile', label: 'mT5 Versatile', description: 'Multilingual T5 model' },
@@ -43,9 +41,15 @@ const LANGUAGE_PAIR_MODELS = {
     { id: 't5_versatile', label: 'mT5 Versatile', description: 'Multilingual T5 model' },
     { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model for various languages' },
   ],
-  'JP-FR': [
-    { id: 'opus_fast', label: 'OPUS Fast', description: 'JP→EN→FR pivot via OPUS' },
-    { id: 'elan_quality', label: 'ELAN Quality', description: 'JP→EN→FR pivot via ELAN' }, // This relies on pivot working
+  'JA-FR': [
+    { id: 'opus_fast', label: 'OPUS Fast', description: 'JA→EN→FR pivot via OPUS' },
+    { id: 'elan_quality', label: 'ELAN Quality', description: 'JA→EN→FR pivot via ELAN' },
+    { id: 't5_versatile', label: 'mT5 Versatile', description: 'Multilingual T5 model (direct if supported)' },
+    { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model (direct if supported)' },
+  ],  
+  'FR-JA': [
+    { id: 'opus_fast', label: 'OPUS Fast', description: 'FR→EN→JA pivot via OPUS' },
+    { id: 'elan_quality', label: 'ELAN Quality', description: 'FR→EN→JA pivot via ELAN' },
     { id: 't5_versatile', label: 'mT5 Versatile', description: 'Multilingual T5 model (direct if supported)' },
     { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model (direct if supported)' },
   ]
@@ -59,15 +63,14 @@ export const RequestTranslation: React.FC = () => {
   const [isProcessingFile, setIsProcessingFile] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [isDetectingLanguage, setIsDetectingLanguage] = useState<boolean>(false);
   
   const [useMultiEngine, setUseMultiEngine] = useState(false);
   const [selectedEngines, setSelectedEngines] = useState<string[]>([]);
 
-  // Get available models based on current language pair selection
   const availableModels = useMemo(() => {
     if (!sourceLanguage || targetLanguages.length === 0) return [];
     
-    // Get models for all selected language pairs
     const allModels: Array<{id: string, label: string, icon?: string, description: string, pairs: string[]}> = [];
     
     targetLanguages.forEach(target => {
@@ -75,13 +78,10 @@ export const RequestTranslation: React.FC = () => {
       const pairModels = LANGUAGE_PAIR_MODELS[pair as keyof typeof LANGUAGE_PAIR_MODELS] || [];
       
       pairModels.forEach(model => {
-        // Check if this model is already added
         const existingModel = allModels.find(m => m.id === model.id);
         if (existingModel) {
-          // Add this pair to the existing model
           existingModel.pairs.push(pair);
         } else {
-          // Add new model
           allModels.push({
             ...model,
             pairs: [pair]
@@ -93,17 +93,15 @@ export const RequestTranslation: React.FC = () => {
     return allModels;
   }, [sourceLanguage, targetLanguages]);
 
-  // Auto-select default models when language pair changes
-  React.useEffect(() => {
+  useEffect(() => {
     if (availableModels.length > 0 && selectedEngines.length === 0) {
-      // Auto-select all available models
       const defaultSelection = availableModels.map(m => m.id);
       setSelectedEngines(defaultSelection);
     }
   }, [availableModels]);
 
   const countWords = (text: string, sourceLanguage?: string): number => {
-    const isJapanese = sourceLanguage === 'JP' || /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(text);
+    const isJapanese = sourceLanguage === 'JA' || /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(text);
     
     if (isJapanese) {
       const cleanText = text.replace(/[\s.,!?。！？、]/g, '');
@@ -117,36 +115,25 @@ export const RequestTranslation: React.FC = () => {
   const extractTextFromFile = async (file: File): Promise<string> => {
     const fileType = file.type;
     
-    if (fileType === 'text/plain') {
+    if (fileType.includes('text/plain')) {
       const text = await file.text();
       return text.normalize('NFC');
-    } else if (fileType === 'application/pdf') {
-      return 'PDF text extraction would require additional library (pdf-parse or similar)';
-    } else if (fileType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-      return 'DOCX text extraction would require additional library (mammoth or similar)';
     } else {
-      try {
-        const text = await file.text();
-        return text.normalize('NFC');
-      } catch (error) {
-        throw new Error('Unsupported file type for text extraction');
-      }
+      return 'Content from non-text file types will be extracted on the backend.';
     }
   };
 
   const getModelAndLanguagePair = (source: string, target: string) => {
     const pair = `${source}-${target}`;
     
-    // Updated to match the backend model naming convention for single-engine requests
     const modelMapping: Record<string, string> = {
       'EN-FR': 'HELSINKI_EN_FR',
       'FR-EN': 'HELSINKI_FR_EN',
-      'EN-JP': 'HELSINKI_EN_JP', // Default single model for EN-JP
-      'JP-EN': 'OPUS_JA_EN',
-      'JP-FR': 'PIVOT_ELAN_HELSINKI', // Defaulting to pivot for single engine JP-FR
+      'EN-JA': 'HELSINKI_EN_JA',
+      'JA-EN': 'OPUS_JA_EN',
+      'JA-FR': 'PIVOT_ELAN_HELSINKI',
     };
     
-    // Fallback to the first available model for the pair, if multi-engine is not used.
     const defaultMtModel = LANGUAGE_PAIR_MODELS[pair as keyof typeof LANGUAGE_PAIR_MODELS]?.[0]?.id || 'HELSINKI_EN_FR';
 
     return {
@@ -159,27 +146,62 @@ export const RequestTranslation: React.FC = () => {
     const supportedPairs = Object.keys(LANGUAGE_PAIR_MODELS);
     return targets.every(target => supportedPairs.includes(`${source}-${target}`));
   };
+  
+  const handleFileUpload = async (event: { files: File[] }) => {
+    const uploadedFile = event.files?.[0];
+    if (!uploadedFile) return;
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const uploadedFile = event.target.files?.[0];
-    if (uploadedFile) {
-      setFile(uploadedFile);
-      setIsProcessingFile(true);
-      setWordCount(0);
-      setSubmitStatus('idle');
+    setFile(uploadedFile);
+    setWordCount(0);
+    setSubmitStatus('idle');
+    setSourceLanguage('');
+    setIsDetectingLanguage(true);
 
-      try {
-        const textContent = await extractTextFromFile(uploadedFile);
-        const count = countWords(textContent, sourceLanguage);
-        setWordCount(count);
-      } catch (error) {
+    const formData = new FormData();
+    formData.append('file', uploadedFile);
+
+    try {
+        const langResponse = await fetch(`${API_BASE_URL}/api/translation-requests/detect-language`, {
+            method: 'POST',
+            body: formData,
+        });
+
+        if (!langResponse.ok) throw new Error('Failed to detect language.');
+
+        const langResult = await langResponse.json();
+        const detectedLanguage = langResult.language;
+        
+        const supportedLang = languageOptions.find(l => l.value === detectedLanguage);
+
+        if (supportedLang) {
+            setSourceLanguage(supportedLang.value);
+            const textContent = await extractTextFromFile(uploadedFile);
+            setWordCount(countWords(textContent, supportedLang.value));
+        } else {
+            setSourceLanguage('');
+            alert(`Detected language "${detectedLanguage}" is not supported. Please select the correct language manually.`);
+        }
+
+    } catch (error) {
         console.error('Error processing file:', error);
-        setWordCount(0);
-      } finally {
-        setIsProcessingFile(false);
-      }
+        alert(error instanceof Error ? error.message : "An unknown error occurred.");
+        setSourceLanguage('');
+    } finally {
+        setIsDetectingLanguage(false);
     }
-  };
+};
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop: (acceptedFiles) => handleFileUpload({ files: acceptedFiles }),
+    accept: {
+      'text/plain': ['.txt'],
+      'application/pdf': ['.pdf'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx', '.doc'],
+      'image/*': ['.jpg', '.jpeg', '.png', '.gif'],
+      'audio/*': ['.mp3', '.wav', '.flac']
+    },
+    multiple: false
+  });
 
   const handleTargetLanguageChange = (newTargets: string[]) => {
     if (sourceLanguage) {
@@ -190,14 +212,14 @@ export const RequestTranslation: React.FC = () => {
     } else {
       setTargetLanguages(newTargets);
     }
-    // Reset selected engines when target languages change
     setSelectedEngines([]);
   };
 
-  const handleSourceLanguageChange = (newSource: string) => {
+  const handleSourceLanguageChange = async (newSource: string) => {
     setSourceLanguage(newSource);
     if (file) {
-      handleFileUpload({ target: { files: [file] } } as any);
+      const textContent = await extractTextFromFile(file);
+      setWordCount(countWords(textContent, newSource));
     }
     if (targetLanguages.length > 0) {
       const validTargets = targetLanguages.filter(target => 
@@ -205,7 +227,6 @@ export const RequestTranslation: React.FC = () => {
       );
       setTargetLanguages(validTargets);
     }
-    // Reset selected engines when source language changes
     setSelectedEngines([]);
   };
 
@@ -224,53 +245,26 @@ export const RequestTranslation: React.FC = () => {
     setSubmitStatus('idle');
     
     try {
-      const textContent = await extractTextFromFile(file);
-      
-      let sentences;
-      if (sourceLanguage === 'JP') {
-        sentences = textContent.split(/[。！？]+/).filter(s => s.trim().length > 0);
-      } else {
-        sentences = textContent.split(/[.!?]+/).filter(s => s.trim().length > 0);
-      }
-      
-      const endpoint = useMultiEngine         
-        ? `${API_BASE_URL}/api/translation-requests/multi-engine`
-        : `${API_BASE_URL}/api/translation-requests`;
-      
-      let requestData;
-              
+      let endpoint = '';
+      const formData = new FormData();
+      formData.append('file', file);
+
       if (useMultiEngine) {
-        // Send selectedEngines directly, as their IDs now match backend engine_configs keys
-        requestData = {
-          sourceLanguage: sourceLanguage,
-          targetLanguages: targetLanguages,
-          languagePair: `${sourceLanguage}-${targetLanguages.join(',')}`,
-          wordCount,
-          fileName: file.name,
-          sourceTexts: sentences,
-          engines: selectedEngines
-        };
+        endpoint = `${API_BASE_URL}/api/translation-requests/file-multi-engine`;
+        formData.append('sourceLanguage', sourceLanguage);
+        targetLanguages.forEach(lang => formData.append('targetLanguages', lang));
+        selectedEngines.forEach(engine => formData.append('engines', engine));
       } else {
-        const { languagePair, mtModel } = getModelAndLanguagePair(sourceLanguage, targetLanguages[0]);
-        requestData = {
-          sourceLanguage: sourceLanguage,
-          targetLanguages: targetLanguages,
-          languagePair,
-          mtModel,
-          wordCount,
-          fileName: file.name,
-          sourceTexts: sentences
-        };
+        endpoint = `${API_BASE_URL}/api/translation-requests/file-single-engine`;
+        formData.append('sourceLanguage', sourceLanguage);
+        targetLanguages.forEach(lang => formData.append('targetLanguages', lang));
       }
-      
-      console.log('Submitting request data:', requestData);
+
+      console.log('Submitting file to:', endpoint);
       
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestData),
+        body: formData,
       });
       
       if (!response.ok) {
@@ -359,7 +353,7 @@ export const RequestTranslation: React.FC = () => {
                 onSelectionChange={handleTargetLanguageChange}
                 placeholder="Select target languages"
               />
-              {sourceLanguage && targetLanguages.length === 0 && (
+              {sourceLanguage && targetLanguages.length > 0 && (
                 <p className="text-xs text-gray-500 mt-1">
                   Available pairs: {getAvailableTargetLanguages().map(l => l.label).join(', ')}
                 </p>
@@ -367,7 +361,6 @@ export const RequestTranslation: React.FC = () => {
             </div>
           </div>
 
-          {/* Show available models when language pair is selected */}
           {sourceLanguage && targetLanguages.length > 0 && (
             <div className="space-y-4 p-4 border rounded-lg bg-blue-50 dark:bg-blue-900/20">
               <div className="flex items-center space-x-2">
@@ -431,12 +424,22 @@ export const RequestTranslation: React.FC = () => {
           
           <div>
             <label className="block text-sm font-medium mb-2">Upload File</label>
-            <input
-              type="file"
-              onChange={handleFileUpload}
-              accept=".txt,.pdf,.docx,.doc"
-              className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-            />
+            <div 
+              {...getRootProps()} 
+              className={`p-6 border-2 border-dashed rounded-lg text-center cursor-pointer transition-colors
+                         ${isDragActive ? 'bg-blue-50 border-blue-500' : 'bg-gray-50 border-gray-300'}`}
+            >
+              <input {...getInputProps()} />
+              {isDetectingLanguage ? (
+                <p className="text-blue-600">Analyzing file and detecting language...</p>
+              ) : isDragActive ? (
+                <p>Drop the file here...</p>
+              ) : file ? (
+                <p>File "{file.name}" selected. Click or drag to change.</p>
+              ) : (
+                <p>Drag 'n' drop a file here, or click to select a file</p>
+              )}
+            </div>
             {file && (
               <div className="mt-2 text-sm text-gray-600">
                 <p><strong>Selected:</strong> {file.name}</p>
@@ -446,6 +449,9 @@ export const RequestTranslation: React.FC = () => {
                 )}
               </div>
             )}
+            <p className="mt-2 text-xs text-muted-foreground">
+              Supported file types: .txt, .pdf, .docx, .mp3, .wav, .flac, .jpg, .png, .gif
+            </p>
           </div>
 
           <div className="space-y-4">
@@ -468,15 +474,15 @@ export const RequestTranslation: React.FC = () => {
                       <span className="text-blue-600 ml-1">Calculating...</span>
                     ) : (
                       <span className="ml-1 font-semibold text-green-600">
-                        {wordCount.toLocaleString()} {sourceLanguage === 'JP' ? 'characters' : 'words'}
+                        {wordCount.toLocaleString()} {sourceLanguage === 'JA' ? 'characters' : 'words'}
                       </span>
                     )}
                   </p>
                 )}
                 {file && wordCount > 0 && targetLanguages.length > 0 && (
-                  <p><strong>Total {sourceLanguage === 'JP' ? 'Characters' : 'Words'} to Translate:</strong> 
+                  <p><strong>Total {sourceLanguage === 'JA' ? 'Characters' : 'Words'} to Translate:</strong> 
                     <span className="ml-1 font-semibold text-blue-600">
-                      {(wordCount * targetLanguages.length * (useMultiEngine ? selectedEngines.length : 1)).toLocaleString()} {sourceLanguage === 'JP' ? 'characters' : 'words'}
+                      {(wordCount * targetLanguages.length * (useMultiEngine ? selectedEngines.length : 1)).toLocaleString()} {sourceLanguage === 'JA' ? 'characters' : 'words'}
                     </span>
                   </p>
                 )}
@@ -512,10 +518,12 @@ export const RequestTranslation: React.FC = () => {
               !file || 
               isProcessingFile || 
               isSubmitting ||
+              isDetectingLanguage ||
               (useMultiEngine && selectedEngines.length === 0)
             }
           >
             {isSubmitting ? 'Submitting...' : 
+             isDetectingLanguage ? 'Detecting Language...' :
              useMultiEngine ? `Submit Multi-Model Translation (${selectedEngines.length} models)` :
              'Submit Translation Request'}
           </Button>
@@ -530,11 +538,11 @@ export const RequestTranslation: React.FC = () => {
             <CardContent>
               <div className="grid grid-cols-2 gap-2">
                 {[
-                  { pair: "jpn-eng", label: "JP→EN" },
-                  { pair: "eng-jpn", label: "EN→JP" },
+                  { pair: "jpn-eng", label: "JA→EN" },
+                  { pair: "eng-jpn", label: "EN→JA" },
                   { pair: "eng-fra", label: "EN→FR" },
                   { pair: "fra-eng", label: "FR→EN" },
-                  { pair: "jpn-fra", label: "JP→FR (Pivot)" }
+                  { pair: "jpn-fra", label: "JA→FR (Pivot)" }
                 ].map(({ pair, label }) => (
                   <Button 
                     key={pair}

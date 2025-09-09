@@ -17,13 +17,13 @@ class TranslationService:
         logger.info(f"TranslationService initialized. Using device: {self.device}")
 
         self.model_paths = {
-            'HELSINKI_EN_FR': ('./models/Helsinki-NLP_opus-mt-en-fr', None), 
-            'HELSINKI_FR_EN': ('./models/Helsinki-NLP_opus-mt-fr-en', None), 
-            'HELSINKI_EN_JP': ('./models/Helsinki-NLP_opus-mt-en-jap', None), 
-            'OPUS_JA_EN': ('./models/opus-mt-ja-en', None), 
-            'ELAN_JA_EN': ('./models/Mitsua_elan-mt-bt-ja-en', None), 
+            'HELSINKI_EN_FR': ('./models/Helsinki-NLP_opus-mt-en-fr', None),
+            'HELSINKI_FR_EN': ('./models/Helsinki-NLP_opus-mt-fr-en', None),
+            'HELSINKI_EN_JA': ('./models/Helsinki-NLP_opus-mt-en-ja', None),
+            'OPUS_JA_EN': ('./models/opus-mt-ja-en', None),
+            'ELAN_JA_EN': ('./models/Mitsua_elan-mt-bt-ja-en', None),
             'T5_MULTILINGUAL': ('./models/google-mt5_mt5-base', None),
-            'NLLB_200': ('./models/nllb-200-distilled-600M', 'jpn_Jpan'), 
+            'NLLB_200': ('./models/nllb-200-distilled-600M', 'jpn_Jpan'),
         }
 
         self.language_pair_models = {
@@ -33,27 +33,32 @@ class TranslationService:
                 ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate English to French: ')
             ],
             'FR-EN': [
-                ('HELSINKI_FR_EN', self.model_paths['HELSINKI_FR_EN'][0], None),
+                ('HELSHELNKI_FR_EN', self.model_paths['HELSINKI_FR_EN'][0], None),
                 ('NLLB_200', self.model_paths['NLLB_200'][0], 'eng_Latn'),
                 ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate French to English: ')
             ],
-            'EN-JP': [
-                ('HELSINKI_EN_JP', self.model_paths['HELSINKI_EN_JP'][0], None),
+            'EN-JA': [
+                ('HELSINKI_EN_JA', self.model_paths['HELSINKI_EN_JA'][0], None),
                 ('NLLB_200', self.model_paths['NLLB_200'][0], 'jpn_Jpan'),
                 ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate English to Japanese: ')
             ],
-            'JP-EN': [
+            'JA-EN': [ 
                 ('OPUS_JA_EN', self.model_paths['OPUS_JA_EN'][0], None),
                 ('ELAN_JA_EN', self.model_paths['ELAN_JA_EN'][0], None),
                 ('NLLB_200', self.model_paths['NLLB_200'][0], 'eng_Latn'),
                 ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate Japanese to English: ')
             ],
-            'JP-FR': [
-                ('PIVOT_JP_EN_FR', None, None),
+            'JA-FR': [ 
+                ('PIVOT_ELAN_HELSINKI', None, None), 
                 ('NLLB_200', self.model_paths['NLLB_200'][0], 'fra_Latn'),
                 ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate Japanese to French: ')
             ],
-        }
+            'FR-JA': [ 
+                ('PIVOT_ELAN_HELSINKI', None, None),
+                ('NLLB_200', self.model_paths['NLLB_200'][0], 'jpn_Jpan'),
+                ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate French to Japanese: ')
+    ],
+}
 
     def _load_model(self, model_key: str):
         """Internal method to load a model and its tokenizer/pipeline."""
@@ -65,7 +70,7 @@ class TranslationService:
             for pair_models in self.language_pair_models.values():
                 for info in pair_models:
                     if info[0] == model_key:
-                        model_path_info = (info[1], info[2]) # Get path and potential tag
+                        model_path_info = (info[1], info[2]) 
                         break
                 if model_path_info:
                     break
@@ -79,7 +84,31 @@ class TranslationService:
 
         model_name_or_path = model_path_info[0]
 
+        # Define the correct Hugging Face Hub IDs
+        hub_id_mapping = {
+            'HELSINKI_EN_FR': 'Helsinki-NLP/opus-mt-en-fr',
+            'HELSINKI_FR_EN': 'Helsinki-NLP/opus-mt-fr-en',
+            'HELSINKI_EN_JA': 'Helsinki-NLP/opus-mt-en-jap',  # Note: 'jap' not 'ja'
+            'OPUS_JA_EN': 'Helsinki-NLP/opus-mt-ja-en',
+            'ELAN_JA_EN': 'Mitsua/elan-mt-bt-ja-en',
+            'T5_MULTILINGUAL': 'google/mt5-base',
+            'NLLB_200': 'facebook/nllb-200-distilled-600M',
+        }
+
+        # Check if it's a local path
+        if model_name_or_path.startswith('./') or model_name_or_path.startswith('/'):
+            import os
+            if not os.path.exists(model_name_or_path):
+                logger.warning(f"Local model path does not exist: {model_name_or_path}")
+                # Use the correct Hub ID from our mapping
+                if model_key in hub_id_mapping:
+                    model_name_or_path = hub_id_mapping[model_key]
+                    logger.info(f"Using Hugging Face Hub ID: {model_name_or_path}")
+                else:
+                    raise ValueError(f"No Hub ID mapping found for model key: {model_key}")
+
         logger.info(f"Attempting to load model '{model_name_or_path}' for key '{model_key}' using cache_dir='{settings.MODEL_CACHE_DIR}'...")
+        
         try:
             tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, cache_dir=settings.MODEL_CACHE_DIR)
             model = AutoModelForSeq2SeqLM.from_pretrained(model_name_or_path, cache_dir=settings.MODEL_CACHE_DIR).to(self.device)
@@ -118,7 +147,7 @@ class TranslationService:
             if model_key.startswith('T5'):
                 if target_lang_tag is None:
                     lang_map = {
-                        "en": "English", "fr": "French", "jp": "Japanese",
+                        "en": "English", "fr": "French", "ja": "Japanese",
                         "ja": "Japanese", "fra": "French", "eng": "English"
                     }
                     src_lang_full = lang_map.get(source_lang.lower(), source_lang)
@@ -151,7 +180,7 @@ class TranslationService:
                 # NLLB models require specific target_lang tag to be passed to generate
                 if target_lang_tag is None:
                     nllb_lang_tags = {
-                        "en": "eng_Latn", "fr": "fra_Latn", "jp": "jpn_Jpan",
+                        "en": "eng_Latn", "fr": "fra_Latn", "ja": "jpn_Jpan",
                         "ja": "jpn_Jpan", "fra": "fra_Latn", "eng": "eng_Latn"
                     }
                     target_lang_tag = nllb_lang_tags.get(target_lang.lower(), None)

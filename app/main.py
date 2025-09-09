@@ -25,6 +25,7 @@ from app.services.multi_engine_service import CleanMultiEngineService
 from app.services.translation_service import translation_service
 from app.services.metricx_service import MetricXService
 from app.services.health_service import HealthService
+from app.services.multimodal_service import multimodal_service as multimodal_service_instance
 
 # Configure logging
 logging.basicConfig(
@@ -40,6 +41,7 @@ metricx_service = None
 fuzzy_matcher = None
 multi_engine_service = None
 health_service = None
+multimodal_service = None
 
 # Create FastAPI app
 app = FastAPI(
@@ -75,7 +77,7 @@ async def startup():
 
 @app.on_event("startup")
 async def startup_event():
-    global metricx_service, comet_model, fuzzy_matcher, multi_engine_service, health_service
+    global metricx_service, comet_model, fuzzy_matcher, multi_engine_service, health_service, multimodal_service
 
     # Load COMET model using ModelManager
     try:
@@ -150,16 +152,24 @@ async def startup_event():
     from app.api.routers.debugging import set_metricx_service as set_debug_metricx_service
     set_debug_metricx_service(metricx_service)
 
-    # NEW: Initialize and set HealthService
+    # Initialize and set HealthService
     health_service = HealthService()
-    health_service.set_services(metricx_service, multi_engine_service) # Pass other services to HealthService
+    health_service.set_services(metricx_service, multi_engine_service)
 
     # Pass HealthService to relevant routers
     from app.api.routers.health import set_health_service as set_health_router_service
-    set_health_router_service(health_service) # Pass to health router so it can use the shared service
+    set_health_router_service(health_service)
 
     from app.api.routers.analytics import set_health_service as set_analytics_health_service
-    set_analytics_health_service(health_service) # Pass to analytics router
+    set_analytics_health_service(health_service)
+
+    # --- New Multimodal Service Initialization ---
+    logger.info("Initializing Multimodal Service...")
+    multimodal_service = multimodal_service_instance
+    from app.api.routers.translation_requests import set_multimodal_service
+    set_multimodal_service(multimodal_service)
+    logger.info("✓ Multimodal Service initialized and set for translation_requests router.")
+    # --- End New Multimodal Service Initialization ---
 
     logger.info("Model and service loading complete")
 
