@@ -1,5 +1,4 @@
-torch==2.7.1
-numpy==1.26.4
+# Core NLP / Translation / MT Eval
 unbabel-comet==2.2.5
 fastapi==0.116.0
 huggingface_hub==0.33.2
@@ -9,11 +8,26 @@ pandas==2.3.1
 psutil==7.0.0
 pydantic==2.11.7
 python-dotenv==1.1.1
-Requests==2.32.4
+requests==2.32.4
 sacrebleu[ja]==2.5.1
 tqdm==4.67.1
 uvicorn==0.35.0
 transformers==4.53.1
 prisma==0.15.0
 python-multipart==0.0.20
-psutil
+
+# Multimodal Support
+easyocr==1.7.1
+openai-whisper==20231117
+torch>=2.0.0
+Pillow==10.3.0
+pytesseract
+
+# Japanese OCR and NLP
+manga-ocr
+fugashi
+unidic-lite
+
+# File handling
+pdfplumber
+langdetect==1.0.9

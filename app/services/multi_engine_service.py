@@ -13,54 +13,54 @@ class CleanMultiEngineService:
         self.engine_configs = {
             'opus_fast': {
                 'name': 'Helsinki OPUS',
-                'supported_pairs': ['en-fr', 'fr-en', 'en-jp', 'jp-en', 'jp-fr'],
+                'supported_pairs': ['en-fr', 'fr-en', 'en-ja', 'ja-en', 'ja-fr'], # <--- Corrected to 'en-ja', 'ja-en', 'ja-fr'
                 'model_mapping': {
                     'en-fr': 'HELSINKI_EN_FR',    
                     'fr-en': 'HELSINKI_FR_EN',    
-                    'en-jp': 'HELSINKI_EN_JP',    
-                    'jp-en': 'OPUS_JA_EN'          
+                    'en-ja': 'HELSINKI_EN_JA',    # <--- Corrected to 'en-ja'
+                    'ja-en': 'OPUS_JA_EN'          # <--- Corrected to 'ja-en'
                 },
                 'pivot_strategy': {
                     'pivot_lang': 'en',
                     'via_models': ['OPUS_JA_EN', 'HELSINKI_EN_FR'],
-                    'applies_to': ['jp-fr']
+                    'applies_to': ['ja-fr'] # <--- Corrected to 'ja-fr'
                 },
                 'confidence': 0.80
             },
             'elan_quality': {
                 'name': 'ELAN Specialist',
-                'supported_pairs': ['jp-en'],  
+                'supported_pairs': ['ja-en'], # <--- Corrected to 'ja-en' 
                 'model_mapping': {
-                    'jp-en': 'ELAN_JA_EN'  
+                    'ja-en': 'ELAN_JA_EN'  # <--- Corrected to 'ja-en'
                 },
                 'pivot_strategy': {
                     'pivot_lang': 'en',
                     'via_models': ['ELAN_JA_EN', 'HELSINKI_EN_FR'],
-                    'applies_to': ['jp-fr']  # Keep JP-FR via pivot
+                    'applies_to': ['ja-fr']  # <--- Corrected to 'ja-fr'
                 },
                 'confidence': 0.90
             },
             't5_versatile': {
                 'name': 'mT5 Versatile',
-                'supported_pairs': ['en-jp', 'jp-en', 'en-fr', 'fr-en', 'jp-fr'], 
+                'supported_pairs': ['en-ja', 'ja-en', 'en-fr', 'fr-en', 'ja-fr'], # <--- Corrected to 'en-ja', 'ja-en', 'ja-fr'
                 'model_mapping': {
-                    'en-jp': 'T5_MULTILINGUAL',
-                    'jp-en': 'T5_MULTILINGUAL',
+                    'en-ja': 'T5_MULTILINGUAL',
+                    'ja-en': 'T5_MULTILINGUAL',
                     'en-fr': 'T5_MULTILINGUAL',
                     'fr-en': 'T5_MULTILINGUAL',
-                    'jp-fr': 'T5_MULTILINGUAL',
+                    'ja-fr': 'T5_MULTILINGUAL',
                 },
                 'confidence': 0.85,
             },
             'nllb_multilingual': {
                 'name': 'NLLB Multilingual',
-                'supported_pairs': ['en-jp', 'jp-en', 'en-fr', 'fr-en', 'jp-fr'], 
+                'supported_pairs': ['en-ja', 'ja-en', 'en-fr', 'fr-en', 'ja-fr'], # <--- Corrected to 'en-ja', 'ja-en', 'ja-fr'
                 'model_mapping': {
-                    'en-jp': 'NLLB_200',
-                    'jp-en': 'NLLB_200',
+                    'en-ja': 'NLLB_200',
+                    'ja-en': 'NLLB_200',
                     'en-fr': 'NLLB_200',
                     'fr-en': 'NLLB_200',
-                    'jp-fr': 'NLLB_200',
+                    'ja-fr': 'NLLB_200',
                 },
                 'confidence': 0.92,
             }
