@@ -6,7 +6,6 @@ import traceback
 import os
 
 from app.services.model_manager import model_manager
-from comet import load_from_checkpoint
 from app.core.config import settings
 from app.db.base import initialize_database, cleanup_database, prisma
 
@@ -83,7 +82,6 @@ async def startup_event():
     try:
         logger.info("Loading COMET model...")
         
-        # Add detailed logging
         import time
         start_time = time.time()
         
@@ -93,21 +91,42 @@ async def startup_event():
         logger.info(f"Step 1 completed in {path_time - start_time:.2f} seconds")
         logger.info(f"COMET model path: {comet_model_path}")
 
-        if comet_model_path:
-            logger.info("Step 2: Loading model from checkpoint...")
-            load_start = time.time()
-            comet_model = load_from_checkpoint(comet_model_path)
+        logger.info("Step 2: Loading COMET model...")
+        load_start = time.time()
+        
+        try:
+            from comet import load_from_checkpoint, download_model
+
+            logger.info("Downloading/loading COMET model from Unbabel...")
+            model_path = download_model("Unbabel/wmt20-comet-da")
+            comet_model = load_from_checkpoint(model_path)
+            comet_model.eval()
+            logger.info("✓ COMET model loaded from Unbabel download")
             load_time = time.time()
-            logger.info(f"Step 2 completed in {load_time - load_start:.2f} seconds")
-            
+        except Exception as e:
+            logger.warning(f"Failed to download Unbabel model: {e}")
+            # Fallback to local path if available
+            if comet_model_path:
+                logger.info("Attempting to load from local checkpoint...")
+                comet_model = load_from_checkpoint(comet_model_path)
+                logger.info("✓ COMET model loaded from local checkpoint")
+                load_time = time.time()
+            else:
+                logger.error("❌ No COMET model available (neither download nor local path worked)")
+                comet_model = None
+                load_time = time.time()
+                        
+        logger.info(f"Step 2 completed in {load_time - load_start:.2f} seconds")
+        
+        if comet_model:
             logger.info(f"✓ COMET model loaded successfully: {type(comet_model)}")
-            logger.info(f"Total COMET loading time: {load_time - start_time:.2f} seconds")
+            logger.info("✓ COMET model will be used (skipping validation test)")                
         else:
-            logger.warning("COMET model path not found")
-            comet_model = None
+            logger.warning("❌ COMET model is None")
             
     except Exception as e:
         logger.error(f"❌ Failed to load COMET model: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         comet_model = None
 
     if comet_model:

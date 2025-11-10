@@ -1,7 +1,9 @@
 # Core NLP / Translation / MT Eval
-unbabel-comet==2.2.5
+unbabel-comet==2.2.7 
 fastapi==0.116.0
-huggingface_hub==0.33.2
+huggingface_hub==0.34.4
+pytorch-lightning==2.5.5
+torchmetrics==0.10.3 
 nltk==3.9.1
 numba==0.61.0
 pandas==2.3.1
@@ -12,14 +14,14 @@ requests==2.32.4
 sacrebleu[ja]==2.5.1
 tqdm==4.67.1
 uvicorn==0.35.0
-transformers==4.53.1
+transformers==4.56.1
 prisma==0.15.0
 python-multipart==0.0.20
 
 # Multimodal Support
 easyocr==1.7.1
 openai-whisper==20231117
-torch>=2.0.0
+torch>=2.6.0
 Pillow==10.3.0
 pytesseract
 

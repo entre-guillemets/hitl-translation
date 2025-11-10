@@ -25,14 +25,20 @@ model TranslationRequest {
   totalProcessingTimeMs Int?
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
-  
   qualityMetrics        QualityMetrics[] 
   
+  // ===============================================
+  // 🟢 FIX: RELATIONAL LINK TO SEGMENTATION SESSION
+  // ===============================================
+  segmentationSessionId String?             @unique // Ensure only one request per session
+  segmentationSession   SegmentationSession? @relation(fields: [segmentationSessionId], references: [id])
+  originalSegments      Json?   
   translationStrings    TranslationString[]
 
+  @@index([status]) // 💡 Performance index on frequently filtered column
   @@map("translation_requests")
 }
-
+// ----------------------------------------------------------------------
 model TranslationString {
   id                       String             @id @default(cuid())
   sourceText               String
@@ -71,9 +77,10 @@ model TranslationString {
   qualityMetrics           QualityMetrics[] 
   translationRequest       TranslationRequest @relation(fields: [translationRequestId], references: [id], onDelete: Cascade)
 
+  @@index([status]) // 💡 Performance index on frequently filtered column
   @@map("translation_strings")
 }
-
+// ----------------------------------------------------------------------
 model QualityMetrics {
   id                   String              @id @default(cuid())
   metricXScore         Float?
@@ -98,9 +105,12 @@ model QualityMetrics {
   translationRequest   TranslationRequest? @relation(fields: [translationRequestId], references: [id])
   translationString    TranslationString?  @relation(fields: [translationStringId], references: [id])
 
+  // 💡 Performance indices on foreign keys
+  @@index([translationRequestId])
+  @@index([translationStringId])
   @@map("quality_metrics")
 }
-
+// ----------------------------------------------------------------------
 model Annotation {
   id                  String             @id @default(cuid())
   category            AnnotationCategory
@@ -122,7 +132,7 @@ model Annotation {
 
   @@map("annotations")
 }
-
+// ----------------------------------------------------------------------
 model TranslationMemory {
   id                String        @id @default(cuid())
   sourceText        String
@@ -143,7 +153,7 @@ model TranslationMemory {
   @@index([sourceText])
   @@map("translation_memory")
 }
-
+// ----------------------------------------------------------------------
 model GlossaryTerm {
   id             String    @id @default(cuid())
   term           String
@@ -163,7 +173,7 @@ model GlossaryTerm {
   @@index([term])
   @@map("glossary_terms")
 }
-
+// ----------------------------------------------------------------------
 model DoNotTranslateItem {
   id           String                 @id @default(cuid())
   text         String
@@ -179,7 +189,7 @@ model DoNotTranslateItem {
   @@index([text])
   @@map("do_not_translate_items")
 }
-
+// ----------------------------------------------------------------------
 model OffensiveWord {
   id             String            @id @default(cuid())
   word           String
@@ -196,7 +206,46 @@ model OffensiveWord {
   @@index([word])
   @@map("offensive_words")
 }
+// ----------------------------------------------------------------------
+model SegmentationSession {
+  id                String   @id @default(cuid())
+  segmentationId    String   @unique
+  originalFileName  String
+  mediaType         MediaType
+  segments          Json     // Array of segment objects with text, bbox, timestamps
+  mediaData         String?  // Base64 encoded media for UI display
+  detectedLanguage  String
+  wordCount         Int
+  sourceLanguage    String?  // User-selected after detection
+  targetLanguages   String[] // Selected target languages
+  useMultiEngine    Boolean  @default(false)
+  selectedEngines   String[] // Selected engines for multi-engine mode
+  status            SegmentationStatus @default(PROCESSING)
+  createdAt         DateTime @default(now())
+  expiresAt         DateTime // Auto-cleanup old sessions (e.g., +1 hour)
+  updatedAt         DateTime @updatedAt
 
+  // 🟢 FIX: REVERSE RELATION FROM TRANSLATION REQUEST
+  translationRequest TranslationRequest? 
+
+  @@map("segmentation_sessions")
+}
+// ----------------------------------------------------------------------
+enum MediaType {
+  IMAGE
+  AUDIO  
+  PDF
+  TEXT
+}
+
+enum SegmentationStatus {
+  PROCESSING
+  READY_FOR_EDIT
+  USER_EDITING
+  COMPLETED
+  EXPIRED
+}
+// ----------------------------------------------------------------------
 model EnginePreference {
   id                  String            @id @default(cuid())
   selectedEngine      String
@@ -224,7 +273,7 @@ model EnginePreference {
   @@index([sourceLanguage, targetLanguage])
   @@map("engine_preferences")
 }
-
+// ----------------------------------------------------------------------
 model ModelOutput {
   id                  String            @id @default(cuid())
   translationStringId String
@@ -241,7 +290,7 @@ model ModelOutput {
 
   @@map("model_outputs")
 }
-
+// ----------------------------------------------------------------------
 model HumanFeedback {
   id                   String       @id @default(cuid())
   feedbackType         FeedbackType
@@ -261,7 +310,7 @@ model HumanFeedback {
   @@index([feedbackType])
   @@map("human_feedback")
 }
-
+// ----------------------------------------------------------------------
 model LocalModel {
   id                String    @id @default(cuid())
   modelName         String    @unique
@@ -280,7 +329,7 @@ model LocalModel {
 
   @@map("local_models")
 }
-
+// ----------------------------------------------------------------------
 model SystemConfig {
   id          String   @id @default(cuid())
   key         String   @unique
@@ -290,7 +339,7 @@ model SystemConfig {
 
   @@map("system_config")
 }
-
+// ----------------------------------------------------------------------
 enum RequestType {
   SINGLE_ENGINE
   MULTI_ENGINE

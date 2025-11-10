@@ -4,7 +4,7 @@ from datetime import datetime
 import logging
 import json
 import asyncio
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from prisma import Json 
 
 from app.schemas.translation import (
@@ -411,7 +411,7 @@ async def create_triple_output_translation_request(request_data: TranslationRequ
 
 @router.put("/translation-strings/{string_id}")
 async def update_translation_string(string_id: str, update_data: TranslationStringUpdate):
-    """Update a translation string and commit to TM if approved"""
+    """Update a translation string and automatically calculate quality metrics"""
     try:
         if not prisma.is_connected():
             await prisma.connect()
@@ -430,7 +430,7 @@ async def update_translation_string(string_id: str, update_data: TranslationStri
 
         final_text = update_data.translatedText if update_data.translatedText is not None else existing_string.translatedText
 
-        if existing_string.targetLanguage.upper() == 'JP':
+        if existing_string.targetLanguage.upper() in ['JP', 'JA']:
             final_text = detokenize_japanese(final_text)
 
         update_payload = {
@@ -451,6 +451,7 @@ async def update_translation_string(string_id: str, update_data: TranslationStri
             include={"annotations": True}
         )
 
+        # Commit to TM if approved
         if update_data.status == 'APPROVED':
             try:
                 from prisma.enums import MemoryQuality
@@ -470,16 +471,27 @@ async def update_translation_string(string_id: str, update_data: TranslationStri
             except Exception as tm_error:
                 logger.error(f"⚠ Failed to create TM entry: {tm_error}")
 
-        if update_data.status == 'APPROVED' and update_payload.get("hasReference"):
+        # AUTOMATIC QUALITY METRICS CALCULATION
+        # Calculate metrics if approved/reviewed AND post-edited
+        if update_data.status in ['APPROVED', 'REVIEWED'] and update_payload.get("hasReference"):
             try:
-                from app.api.routers.quality_assessment import calculate_quality_metrics
-                from app.schemas.quality import QualityMetricsCalculate
-                asyncio.create_task(calculate_quality_metrics(QualityMetricsCalculate(requestId=existing_string.translationRequestId)))
-                logger.info(f"✅ Triggered auto-calculation of quality metrics for request: {existing_string.translationRequestId}")
-            except Exception as metrics_error:
-                logger.error(f"⚠ Failed to auto-calculate quality metrics: {metrics_error}")
+                # Import the helper function
+                from app.api.routers.quality_assessment import calculate_metrics_for_string
 
-        return {"success": True, "message": "Translation string updated successfully", "updatedString": updated_string}
+                # Calculate metrics in background (non-blocking)
+                asyncio.create_task(calculate_metrics_for_string(string_id))
+                logger.info(f"✅ Scheduled automatic metrics calculation for string: {string_id}")
+
+            except Exception as metrics_error:
+                # Don't fail the save if metrics calculation fails
+                logger.warning(f"⚠ Failed to schedule metrics calculation: {metrics_error}")
+
+        return {
+            "success": True,
+            "message": "Translation string updated successfully",
+            "updatedString": updated_string,
+            "metricsScheduled": update_data.status in ['APPROVED', 'REVIEWED'] and update_payload.get("hasReference", False)
+        }
 
     except Exception as e:
         logger.error(f"Error updating translation string {string_id}: {e}")
@@ -823,4 +835,170 @@ async def create_multi_engine_from_file(
 
     except Exception as e:
         logger.error(f"Failed to create multi-engine request from file: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create request: {str(e)}")
+
+@router.post("/file-preprocessing")
+async def preprocess_file_for_segmentation(
+    file: UploadFile = File(...),
+):
+    """
+    Preprocess file and return segmentation data for the UI editor.
+    This is the first step before translation - allows user to edit segments.
+    """
+    try:
+        if not multimodal_service_instance:
+            raise HTTPException(status_code=500, detail="Multimodal service not initialized.")
+
+        # Read the file content once
+        file_content = await file.read()
+        file_name = file.filename
+        
+        # Extract with segmentation data
+        segmentation_data = await multimodal_service_instance.extract_text_from_file_with_segmentation(
+            file_content, file_name
+        )
+        
+        if not segmentation_data["segments"]:
+            raise HTTPException(status_code=400, detail="Could not extract any text segments from file.")
+        
+        # Calculate word count
+        total_words = sum(
+            len(segment["text"].split()) for segment in segmentation_data["segments"]
+        )
+        
+        return {
+            "success": True,
+            "segmentationId": f"seg_{hash(file_name + str(len(file_content)))}",  # Simple ID generation
+            "segments": segmentation_data["segments"],
+            "mediaType": segmentation_data["media_type"],
+            "mediaData": segmentation_data["media_data"],
+            "detectedLanguage": segmentation_data["detected_language"],
+            "wordCount": total_words,
+            "fileName": file_name
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to preprocess file for segmentation: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to preprocess file: {str(e)}")
+
+@router.post("/segmentation/{segmentation_id}/save")
+async def save_segmentation_edits(
+    segmentation_id: str,
+    segmentation_data: Dict[str, Any]
+):
+    """
+    Save user's segmentation edits and proceed with translation.
+    This replaces the segments with user-edited versions.
+    """
+    try:
+        # In a real implementation, you might want to store this in a temporary cache
+        # For now, we'll process it directly
+        
+        segments = segmentation_data.get("segments", [])
+        if not segments:
+            raise HTTPException(status_code=400, detail="No segments provided")
+        
+        # Extract just the text from segments for translation
+        source_texts = [segment["text"].strip() for segment in segments if segment["text"].strip()]
+        
+        if not source_texts:
+            raise HTTPException(status_code=400, detail="No valid text segments found")
+        
+        # Create the appropriate translation request based on the type
+        request_type = segmentation_data.get("requestType", "single")
+        source_language = segmentation_data.get("sourceLanguage")
+        target_languages = segmentation_data.get("targetLanguages", [])
+        file_name = segmentation_data.get("fileName", "segmented_file")
+        word_count = sum(len(text.split()) for text in source_texts)
+        
+        if request_type == "multi":
+            engines = segmentation_data.get("engines", [])
+            request_data = create_multi_engine_request_object(
+                sourceLanguage=source_language,
+                targetLanguages=target_languages,
+                wordCount=word_count,
+                fileName=file_name,
+                sourceTexts=source_texts,
+                engines=engines
+            )
+            return await create_multi_engine_translation_request(request_data)
+        else:
+            request_data = create_translation_request_object(
+                sourceLanguage=source_language,
+                targetLanguages=target_languages,
+                wordCount=word_count,
+                fileName=file_name,
+                sourceTexts=source_texts
+            )
+            return await create_translation_request(request_data)
+        
+    except Exception as e:
+        logger.error(f"Failed to save segmentation and create translation: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to process segmentation: {str(e)}")
+
+@router.get("/segmentation/{segmentation_id}")
+async def get_segmentation_data(segmentation_id: str):
+    """
+    Retrieve cached segmentation data. In a real implementation,
+    this would fetch from a cache/database.
+    """
+    try:
+        # This is a placeholder - in reality you'd fetch from cache
+        # For now, return an empty response indicating the data needs to be regenerated
+        return {
+            "success": False,
+            "message": "Segmentation data expired. Please reprocess the file.",
+            "expired": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to retrieve segmentation data: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve segmentation: {str(e)}")
+
+# Update the existing file upload endpoints to optionally support segmentation
+@router.post("/file-single-engine-with-segmentation") 
+async def create_single_engine_with_optional_segmentation(
+    file: UploadFile = File(...),
+    sourceLanguage: str = Form(...),
+    targetLanguages: List[str] = Form(...),
+    useSegmentation: bool = Form(default=False)
+):
+    """
+    Creates single-engine request with optional segmentation step.
+    If useSegmentation=True, returns segmentation data instead of processing directly.
+    """
+    try:
+        if useSegmentation:
+            # Return segmentation data for UI editing
+            return await preprocess_file_for_segmentation(file)
+        else:
+            # Process directly as before
+            return await create_single_engine_from_file(file, sourceLanguage, targetLanguages)
+            
+    except Exception as e:
+        logger.error(f"Failed to create single-engine request: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create request: {str(e)}")
+
+@router.post("/file-multi-engine-with-segmentation")
+async def create_multi_engine_with_optional_segmentation(
+    file: UploadFile = File(...),
+    sourceLanguage: str = Form(...),
+    targetLanguages: List[str] = Form(...),
+    engines: List[str] = Form(...),
+    useSegmentation: bool = Form(default=False)
+):
+    """
+    Creates multi-engine request with optional segmentation step.
+    If useSegmentation=True, returns segmentation data instead of processing directly.
+    """
+    try:
+        if useSegmentation:
+            # Return segmentation data for UI editing
+            return await preprocess_file_for_segmentation(file)
+        else:
+            # Process directly as before
+            return await create_multi_engine_from_file(file, sourceLanguage, targetLanguages, engines)
+            
+    except Exception as e:
+        logger.error(f"Failed to create multi-engine request: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to create request: {str(e)}")

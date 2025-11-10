@@ -1147,12 +1147,8 @@ async def get_post_edit_metrics(
         metrics = await prisma.qualitymetrics.find_many(
             where={
                 "hasReference": True,
-                "bleuScore": {"not": None}, # Ensure these core metrics are present for charting
-                "cometScore": {"not": None},
-                "terScore": {"not": None},
-                # REMOVED strict "chrfScore": {"not": None} filter from here
-                # Data will be fetched even if chrfScore is None.
-                # ChrF average will be 0 if no non-None ChrF scores are found for a group.
+                "bleuScore": {"not": None},
+                "terScore": {"not": None},                
             },
             include={
                 "translationString": {
@@ -1166,7 +1162,6 @@ async def get_post_edit_metrics(
         logger.info(f"Total QualityMetrics found by query (after core filters): {len(metrics)}")
 
         language_pair_metrics = {}
-        # correlation_data_raw will ONLY contain entries where all 4 metrics (BLEU, COMET, TER, ChrF) are present and not None
         correlation_data_raw = []
         
         for metric in metrics:
