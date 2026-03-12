@@ -36,6 +36,8 @@ model TranslationRequest {
   translationStrings    TranslationString[]
 
   @@index([status]) // 💡 Performance index on frequently filtered column
+  @@index([sourceLanguage])
+  @@index([createdAt])
   @@map("translation_requests")
 }
 // ----------------------------------------------------------------------
@@ -78,6 +80,9 @@ model TranslationString {
   translationRequest       TranslationRequest @relation(fields: [translationRequestId], references: [id], onDelete: Cascade)
 
   @@index([status]) // 💡 Performance index on frequently filtered column
+  @@index([targetLanguage])
+  @@index([translationRequestId])
+  @@index([createdAt])
   @@map("translation_strings")
 }
 // ----------------------------------------------------------------------
@@ -130,6 +135,7 @@ model Annotation {
   targetSpan          Json?
   translationString   TranslationString  @relation(fields: [translationStringId], references: [id], onDelete: Cascade)
 
+  @@index([translationStringId])
   @@map("annotations")
 }
 // ----------------------------------------------------------------------

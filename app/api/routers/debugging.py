@@ -1,11 +1,10 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 import logging
 from typing import Dict, Any, List, Optional
 import torch
 import psutil
 from datetime import datetime, timedelta
 import statistics
-import sacrebleu
 import json
 import traceback
 
@@ -14,27 +13,7 @@ from app.services.translation_service import translation_service
 from app.services.multi_engine_service import CleanMultiEngineService
 from app.utils.text_processing import detokenize_japanese
 from app.api.routers.analytics import calculate_chrf
-
-comet_model = None
-metricx_service = None
-multi_engine_service = None
-
-def set_comet_model(model):
-    global comet_model
-    comet_model = model
-
-def set_metricx_service(service):
-    global metricx_service
-    metricx_service = service
-
-def set_multi_engine_service(service):
-    global multi_engine_service
-    multi_engine_service = service
-
-def calculate_chrf(reference: str, hypothesis: str) -> float:
-    if not reference or not hypothesis:
-        return 0.0
-    return sacrebleu.corpus_chrf([hypothesis], [[reference]]).score
+from app.dependencies import get_comet_model, get_metricx_service, get_multi_engine_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/debug", tags=["Debugging"])
@@ -76,11 +55,14 @@ async def get_system_info():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/models-status")
-async def get_models_status():
+async def get_models_status(
+    metricx_service=Depends(get_metricx_service),
+    multi_engine_service=Depends(get_multi_engine_service),
+):
     """Get status of all translation models"""
     try:
         available_models = translation_service.get_available_models()
-        
+
         status = {
             "translation_service": {
                 "available_models": available_models,
@@ -105,9 +87,9 @@ async def get_models_status():
                 } if multi_engine_service else {}
             }
         }
-        
+
         return status
-        
+
     except Exception as e:
         logger.error(f"Models status failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -148,12 +130,12 @@ async def test_translation(data: Dict[str, Any]):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/test-multi-engine")
-async def test_multi_engine_translation(data: Dict[str, Any]):
+async def test_multi_engine_translation(
+    data: Dict[str, Any],
+    multi_engine_service=Depends(get_multi_engine_service),
+):
     """Test multi-engine translation"""
     try:
-        if multi_engine_service is None:
-            raise HTTPException(status_code=503, detail="Multi-engine service not loaded or initialized.")
-
         text = data.get("text", "Hello, world!")
         source_lang = data.get("source_lang", "en")
         target_lang = data.get("target_lang", "fr")
@@ -499,7 +481,7 @@ async def populate_dashboard_data():
         return {"error": str(e)}
 
 @router.post("/recalculate-all-metrics")
-async def recalculate_all_metrics():
+async def recalculate_all_metrics(comet_model=Depends(get_comet_model)):
     """Recalculate quality metrics for all translation strings with post-edited content"""
     try:
         if not prisma.is_connected():

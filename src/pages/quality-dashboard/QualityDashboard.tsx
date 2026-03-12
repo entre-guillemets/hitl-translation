@@ -27,10 +27,7 @@ import {
   DialogTitle
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-
-
-// API Configuration
-const API_BASE_URL = 'http://localhost:8001';
+import { API_BASE_URL } from '@/config/api';
 
 // Language Options (for filters)
 const languageOptions = [

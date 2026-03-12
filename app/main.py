@@ -25,6 +25,7 @@ from app.services.translation_service import translation_service
 from app.services.metricx_service import MetricXService
 from app.services.health_service import HealthService
 from app.services.multimodal_service import multimodal_service as multimodal_service_instance
+from app.services.transcreation_service import TranscreationService
 
 # Configure logging
 logging.basicConfig(
@@ -34,13 +35,6 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# Global variables for models and services
-comet_model = None
-metricx_service = None
-fuzzy_matcher = None
-multi_engine_service = None
-health_service = None
-multimodal_service = None
 
 # Create FastAPI app
 app = FastAPI(
@@ -76,15 +70,14 @@ async def startup():
 
 @app.on_event("startup")
 async def startup_event():
-    global metricx_service, comet_model, fuzzy_matcher, multi_engine_service, health_service, multimodal_service
-
     # Load COMET model using ModelManager
+    comet_model = None
     try:
         logger.info("Loading COMET model...")
-        
+
         import time
         start_time = time.time()
-        
+
         logger.info("Step 1: Getting model path from ModelManager...")
         comet_model_path = model_manager.get_model_path("comet")
         path_time = time.time()
@@ -93,7 +86,7 @@ async def startup_event():
 
         logger.info("Step 2: Loading COMET model...")
         load_start = time.time()
-        
+
         try:
             from comet import load_from_checkpoint, download_model
 
@@ -115,32 +108,29 @@ async def startup_event():
                 logger.error("❌ No COMET model available (neither download nor local path worked)")
                 comet_model = None
                 load_time = time.time()
-                        
+
         logger.info(f"Step 2 completed in {load_time - load_start:.2f} seconds")
-        
+
         if comet_model:
             logger.info(f"✓ COMET model loaded successfully: {type(comet_model)}")
-            logger.info("✓ COMET model will be used (skipping validation test)")                
+            logger.info("✓ COMET model will be used (skipping validation test)")
         else:
             logger.warning("❌ COMET model is None")
-            
+
     except Exception as e:
         logger.error(f"❌ Failed to load COMET model: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
         comet_model = None
 
+    app.state.comet_model = comet_model
+
     if comet_model:
-        from app.api.routers.quality_assessment import set_comet_model
-        set_comet_model(comet_model)
-        
-        from app.api.routers.debugging import set_comet_model as set_debug_comet_model
-        set_debug_comet_model(comet_model)
-        
-        logger.info("✓ COMET model passed to quality assessment and debugging routers")
+        logger.info("✓ COMET model stored on app.state")
     else:
         logger.warning("❌ COMET model not available - quality assessment will be disabled")
 
     # MetricX will be None, but we still pass it to HealthService
+    metricx_service = None
     try:
         logger.info("MetricX loading disabled - using COMET for quality assessment")
         metricx_service = MetricXService() # Instantiate it even if it won't load models, so it can be passed.
@@ -148,46 +138,32 @@ async def startup_event():
         logger.error(f"❌ MetricX initialization failed: {e}")
         metricx_service = None # Ensure it's None if init fails
 
+    app.state.metricx_service = metricx_service
+
     # Initialize FuzzyMatchingService
     fuzzy_matcher = FuzzyMatchingService(prisma=prisma)
-    from app.api.routers.translation_requests import set_fuzzy_matcher
-    set_fuzzy_matcher(fuzzy_matcher)
+    app.state.fuzzy_matcher = fuzzy_matcher
 
-    # Initialize MultiEngineService
-    multi_engine_service = CleanMultiEngineService(translation_service_instance=translation_service)
-    from app.api.routers.translation_requests import set_multi_engine_service
-    set_multi_engine_service(multi_engine_service)
+    # Initialize TranscreationService (file-based, non-blocking if API key absent)
+    transcreation_service = TranscreationService()
+    app.state.transcreation_service = transcreation_service
 
-    from app.api.routers.wmt_benchmarks import set_multi_engine_service as set_wmt_multi_engine_service
-    set_wmt_multi_engine_service(multi_engine_service)
-
-    from app.api.routers.debugging import set_multi_engine_service as set_debug_multi_engine_service
-    set_debug_multi_engine_service(multi_engine_service)
-
-    # Pass MetricX service to relevant routers
-    from app.api.routers.quality_assessment import set_metricx_service
-    set_metricx_service(metricx_service)
-
-    from app.api.routers.debugging import set_metricx_service as set_debug_metricx_service
-    set_debug_metricx_service(metricx_service)
+    # Initialize MultiEngineService (pass transcreation so it can register the Claude engine)
+    multi_engine_service = CleanMultiEngineService(
+        translation_service_instance=translation_service,
+        transcreation_service=transcreation_service,
+    )
+    app.state.multi_engine_service = multi_engine_service
 
     # Initialize and set HealthService
     health_service = HealthService()
     health_service.set_services(metricx_service, multi_engine_service)
-
-    # Pass HealthService to relevant routers
-    from app.api.routers.health import set_health_service as set_health_router_service
-    set_health_router_service(health_service)
-
-    from app.api.routers.analytics import set_health_service as set_analytics_health_service
-    set_analytics_health_service(health_service)
+    app.state.health_service = health_service
 
     # --- New Multimodal Service Initialization ---
     logger.info("Initializing Multimodal Service...")
-    multimodal_service = multimodal_service_instance
-    from app.api.routers.translation_requests import set_multimodal_service
-    set_multimodal_service(multimodal_service)
-    logger.info("✓ Multimodal Service initialized and set for translation_requests router.")
+    app.state.multimodal_service = multimodal_service_instance
+    logger.info("✓ Multimodal Service initialized and stored on app.state.")
     # --- End New Multimodal Service Initialization ---
 
     logger.info("Model and service loading complete")

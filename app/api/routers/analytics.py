@@ -1,6 +1,6 @@
 # app/api/routers/analytics.py
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 import logging
 from datetime import datetime, timedelta
 import statistics
@@ -9,18 +9,13 @@ from collections import defaultdict, Counter
 from typing import Optional, List, Dict, Any
 import sacrebleu
 
-from app.schemas.quality import QualityRating 
+from app.schemas.quality import QualityRating
 from app.db.base import prisma
 from prisma.enums import AnnotationCategory, AnnotationSeverity, QualityLabel, MTModel
+from app.dependencies import get_health_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/analytics", tags=["Quality Assessment", "Analytics"])
-
-# Global variable and setter for health_service
-health_service = None
-def set_health_service(service):
-    global health_service
-    health_service = service
 
 def calculate_chrf(reference: str, hypothesis: str) -> float:
     """Calculate ChrF score between a reference and a hypothesis."""    
@@ -593,7 +588,7 @@ async def get_quality_scores_data(lang_filter: dict):
             "scoreDistribution": []
         }
 
-async def get_operational_data(lang_filter: dict):
+async def get_operational_data(lang_filter: dict, health_service=None):
     """Get operational data including processing times, system health, and model utilization."""
     try:
         if not prisma.is_connected():
@@ -1293,6 +1288,7 @@ async def get_dashboard_analytics(
     language_pair: Optional[str] = Query(None),
     group_by: Optional[str] = Query("model", description="Group by: model or language_pair"),
     engine_filter: Optional[str] = Query(None),
+    health_service=Depends(get_health_service),
 ):
     """Get comprehensive analytics data for the dashboard"""
     try:
@@ -1318,7 +1314,7 @@ async def get_dashboard_analytics(
         quality_scores = await get_quality_scores_data(lang_filter_obj)
         human_preferences = await get_human_preferences_data(engine_pref_filter_obj)
         annotations_data = await get_annotations_data(lang_filter_obj)
-        operational_data = await get_operational_data(lang_filter_obj)
+        operational_data = await get_operational_data(lang_filter_obj, health_service=health_service)
         tm_glossary_data = await get_tm_glossary_data(lang_filter_obj)
         multi_engine_data = await get_multi_engine_data(lang_filter_obj)
 

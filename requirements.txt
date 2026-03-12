@@ -33,3 +33,7 @@ unidic-lite
 # File handling
 pdfplumber
 langdetect==1.0.9
+
+# Transcreation via Gemini
+google-genai>=1.0.0
+pyyaml>=6.0

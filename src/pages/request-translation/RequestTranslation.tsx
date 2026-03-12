@@ -10,6 +10,7 @@ import { Separator } from '@/components/ui/separator';
 import { ArrowLeft, Merge, Pause, Play, Save, Split } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
+import { API_BASE_URL } from '@/config/api';
 
 const languageOptions = [
   { label: 'English', value: 'EN' },
@@ -17,43 +18,42 @@ const languageOptions = [
   { label: 'French', value: 'FR' },
 ];
 
-const API_BASE_URL = 'http://localhost:8001';
 
 const LANGUAGE_PAIR_MODELS = {
   'EN-JA': [
     { id: 'opus_fast', label: 'OPUS Fast', description: 'Fast Helsinki-NLP models' },
-    { id: 't5_versatile', label: 'mT5 Versatile', description: 'Multilingual T5 model' },
     { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model for various languages' },
+    { id: 'gemini_transcreation', label: 'Gemini Transcreation', description: 'Cultural adaptation via Gemini' },
   ],
   'JA-EN': [
     { id: 'opus_fast', label: 'OPUS Fast', description: 'Fast Helsinki-NLP models' },
     { id: 'elan_quality', label: 'ELAN Quality', description: 'Japanese specialist model' },
-    { id: 't5_versatile', label: 'mT5 Versatile', description: 'Multilingual T5 model' },
     { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model for various languages' },
+    { id: 'gemini_transcreation', label: 'Gemini Transcreation', description: 'Cultural adaptation via Gemini' },
   ],
   'EN-FR': [
     { id: 'opus_fast', label: 'OPUS Fast', description: 'Fast Helsinki-NLP models' },
     { id: 'elan_quality', label: 'ELAN Quality', description: 'Quality-focused model' },
-    { id: 't5_versatile', label: 'mT5 Versatile', description: 'Multilingual T5 model' },
     { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model for various languages' },
+    { id: 'gemini_transcreation', label: 'Gemini Transcreation', description: 'Cultural adaptation via Gemini' },
   ],
   'FR-EN': [
     { id: 'opus_fast', label: 'OPUS Fast', description: 'Fast Helsinki-NLP models' },
     { id: 'elan_quality', label: 'ELAN Quality', description: 'Quality-focused model' },
-    { id: 't5_versatile', label: 'mT5 Versatile', description: 'Multilingual T5 model' },
     { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model for various languages' },
+    { id: 'gemini_transcreation', label: 'Gemini Transcreation', description: 'Cultural adaptation via Gemini' },
   ],
   'JA-FR': [
     { id: 'opus_fast', label: 'OPUS Fast', description: 'JA→EN→FR pivot via OPUS' },
     { id: 'elan_quality', label: 'ELAN Quality', description: 'JA→EN→FR pivot via ELAN' },
-    { id: 't5_versatile', label: 'mT5 Versatile', description: 'Multilingual T5 model (direct if supported)' },
-    { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model (direct if supported)' },
-  ],  
+    { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model for various languages' },
+    { id: 'gemini_transcreation', label: 'Gemini Transcreation', description: 'Cultural adaptation via Gemini' },
+  ],
   'FR-JA': [
     { id: 'opus_fast', label: 'OPUS Fast', description: 'FR→EN→JA pivot via OPUS' },
     { id: 'elan_quality', label: 'ELAN Quality', description: 'FR→EN→JA pivot via ELAN' },
-    { id: 't5_versatile', label: 'mT5 Versatile', description: 'Multilingual T5 model (direct if supported)' },
-    { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model (direct if supported)' },
+    { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model for various languages' },
+    { id: 'gemini_transcreation', label: 'Gemini Transcreation', description: 'Cultural adaptation via Gemini' },
   ]
 };
 
@@ -105,7 +105,9 @@ const SegmentationEditor: React.FC<SegmentationEditorProps> = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [highlightedSegment, setHighlightedSegment] = useState<SegmentData | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  
+  const [naturalImageSize, setNaturalImageSize] = useState<{ w: number; h: number } | null>(null);
+  const imageContainerRef = useRef<HTMLDivElement>(null);
+
   const audioRef = useRef<HTMLAudioElement>(null);
 
   const availableModels = useMemo(() => {
@@ -484,49 +486,63 @@ const SegmentationEditor: React.FC<SegmentationEditorProps> = ({
           </CardHeader>
           <CardContent>
           {mediaType === 'image' ? (
-            <div className="relative bg-gray-100 rounded-lg overflow-hidden" style={{ height: '400px' }}>
-              {/* ✅ ADD THE ACTUAL IMAGE */}
+            <div ref={imageContainerRef} className="relative bg-gray-100 dark:bg-gray-800 rounded-lg overflow-hidden" style={{ height: '400px' }}>
               {segmentationData?.mediaData && (
                 <img
                   src={`data:image/png;base64,${segmentationData.mediaData}`}
                   alt="Original"
                   className="absolute inset-0 w-full h-full object-contain"
+                  onLoad={(e) => {
+                    const img = e.currentTarget;
+                    setNaturalImageSize({ w: img.naturalWidth, h: img.naturalHeight });
+                  }}
                 />
               )}
-              
-              {/* Show placeholder ONLY if no image data */}
+
               {!segmentationData?.mediaData && (
-                <div className="absolute inset-0 bg-gradient-to-br from-blue-100 to-green-100 flex items-center justify-center">
-                  <p className="text-gray-500">Original Image Preview</p>
+                <div className="absolute inset-0 bg-gradient-to-br from-blue-100 to-green-100 dark:from-blue-900/30 dark:to-green-900/30 flex items-center justify-center">
+                  <p className="text-gray-500 dark:text-gray-400">Original Image Preview</p>
                 </div>
               )}
-              
-              {/* Bounding boxes overlay on top of image */}
-              {segments.map((segment) => segment.bbox && (
-                <div
-                  key={segment.id}
-                  className={`absolute border-2 transition-all cursor-pointer ${
-                    selectedSegments.has(segment.id) 
-                      ? 'border-blue-500 bg-blue-200/30' 
-                      : highlightedSegment?.id === segment.id
-                      ? 'border-yellow-400 bg-yellow-200/30'
-                      : 'border-red-500 hover:bg-red-200/20'
-                  }`}
-                  style={{
-                    left: `${segment.bbox.x}px`,
-                    top: `${segment.bbox.y}px`,
-                    width: `${segment.bbox.w}px`,
-                    height: `${segment.bbox.h}px`
-                  }}
-                  onClick={() => handleSegmentSelect(segment.id)}
-                  onMouseEnter={() => setHighlightedSegment(segment)}
-                  onMouseLeave={() => setHighlightedSegment(null)}
-                >
-                  <span className="absolute -top-5 left-0 bg-black text-white text-xs px-1 rounded">
-                    {segment.id}
-                  </span>
-                </div>
-              ))}
+
+              {/* Bounding boxes scaled to match object-contain rendering */}
+              {naturalImageSize && segments.map((segment) => {
+                if (!segment.bbox) return null;
+                const container = imageContainerRef.current;
+                if (!container) return null;
+                const cw = container.clientWidth;
+                const ch = container.clientHeight;
+                const scale = Math.min(cw / naturalImageSize.w, ch / naturalImageSize.h);
+                const displayW = naturalImageSize.w * scale;
+                const displayH = naturalImageSize.h * scale;
+                const offsetX = (cw - displayW) / 2;
+                const offsetY = (ch - displayH) / 2;
+                return (
+                  <div
+                    key={segment.id}
+                    className={`absolute border-2 transition-all cursor-pointer ${
+                      selectedSegments.has(segment.id)
+                        ? 'border-blue-500 bg-blue-200/30'
+                        : highlightedSegment?.id === segment.id
+                        ? 'border-yellow-400 bg-yellow-200/30'
+                        : 'border-red-500 hover:bg-red-200/20'
+                    }`}
+                    style={{
+                      left: `${offsetX + segment.bbox.x * scale}px`,
+                      top: `${offsetY + segment.bbox.y * scale}px`,
+                      width: `${segment.bbox.w * scale}px`,
+                      height: `${segment.bbox.h * scale}px`,
+                    }}
+                    onClick={() => handleSegmentClick(segment.id)}
+                    onMouseEnter={() => setHighlightedSegment(segment)}
+                    onMouseLeave={() => setHighlightedSegment(null)}
+                  >
+                    <span className="absolute -top-5 left-0 bg-black text-white text-xs px-1 rounded">
+                      {segment.id}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
 
             ) : (
@@ -1211,7 +1227,7 @@ export const RequestTranslation: React.FC = () => {
             <div 
               {...getRootProps()} 
               className={`p-6 border-2 border-dashed rounded-lg text-center cursor-pointer transition-colors
-                         ${isDragActive ? 'bg-blue-50 border-blue-500' : 'bg-gray-50 border-gray-300'}`}
+                         ${isDragActive ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-500' : 'bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-600'}`}
             >
               <input {...getInputProps()} />
               {isDetectingLanguage || isProcessingFile ? (
@@ -1234,14 +1250,14 @@ export const RequestTranslation: React.FC = () => {
               ) : (
                 <div>
                   <p>Drag 'n' drop a file here, or click to select a file</p>
-                  <p className="text-xs text-gray-500 mt-2">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                     Images and audio files will automatically open the segmentation editor
                   </p>
                 </div>
               )}
             </div>
             {file && (
-              <div className="mt-2 text-sm text-gray-600">
+              <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
                 <p><strong>Selected:</strong> {file.name}</p>
                 <p><strong>Size:</strong> {formatFileSize(file.size)}</p>
                 <p><strong>Type:</strong> {file.type}</p>

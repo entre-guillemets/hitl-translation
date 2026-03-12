@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query 
+from fastapi import APIRouter, Depends, HTTPException, Query
 import logging
 import random
 from typing import List, Dict, Any 
@@ -8,14 +8,8 @@ import sacrebleu
 from app.schemas.wmt import WMTRequestCreate, WMTBenchmarkResult
 from app.db.base import prisma
 from app.services.translation_service import translation_service
-from app.utils.text_processing import get_model_for_language_pair, detokenize_japanese 
-
-# Import multi_engine_service globally and provide setter functions
-multi_engine_service = None
-
-def set_multi_engine_service(service):
-    global multi_engine_service
-    multi_engine_service = service
+from app.utils.text_processing import get_model_for_language_pair, detokenize_japanese
+from app.dependencies import get_multi_engine_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/wmt", tags=["WMT Benchmarks"])
@@ -208,7 +202,8 @@ def calculate_simple_bleu(hypothesis: str, reference: str) -> float:
 @router.post("/create-request")
 async def create_wmt_benchmark_request( #
     language_pair: str = Query(...),
-    sample_size: int = Query(100)
+    sample_size: int = Query(100),
+    multi_engine_service=Depends(get_multi_engine_service),
 ):
     """Create a WMT benchmark translation request"""
     try:
@@ -273,8 +268,6 @@ async def create_wmt_benchmark_request( #
                 translated_text = "" #
                 # Special handling for JP-FR for pivot
                 if model_key_for_wmt == 'PIVOT_ELAN_HELSINKI': #
-                    if multi_engine_service is None:
-                        raise HTTPException(status_code=500, detail="Multi-engine service not initialized for pivot translation.")
                     translated_text = await multi_engine_service._translate_with_pivot(source_text.strip(), source_lang_code, target_lang_code, multi_engine_service.engine_configs['elan_quality']['pivot_strategy']) #
                 else: #
                     # Direct translation using the specified model

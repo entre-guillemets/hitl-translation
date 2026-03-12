@@ -1,14 +1,15 @@
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from datetime import datetime
 from app.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
 
 class CleanMultiEngineService:
-    def __init__(self, translation_service_instance: TranslationService):
+    def __init__(self, translation_service_instance: TranslationService, transcreation_service=None):
         """Initialize with dependency injection for translation service"""
         self.translation_service = translation_service_instance
+        self.transcreation_service = transcreation_service
         self._is_initialized = False
         self.engine_configs = {
             'opus_fast': {
@@ -65,6 +66,23 @@ class CleanMultiEngineService:
                 'confidence': 0.92,
             }
         }
+
+        # Register Claude transcreation engine for whichever pairs have a loaded profile
+        if transcreation_service and transcreation_service.is_available():
+            supported = transcreation_service.supported_pairs()
+            if supported:
+                self.engine_configs['gemini_transcreation'] = {
+                    'name': 'Claude Transcreation',
+                    'supported_pairs': supported,
+                    'type': 'claude',
+                    'confidence': 0.95,
+                }
+                logger.info(f"gemini_transcreation engine registered for pairs: {supported}")
+            else:
+                logger.info("TranscreationService loaded but no profiles found — gemini_transcreation engine not registered.")
+        else:
+            logger.info("TranscreationService unavailable — gemini_transcreation engine not registered.")
+
         self._is_initialized = True
     
     @property 
@@ -81,8 +99,13 @@ class CleanMultiEngineService:
             config = self.engine_configs[engine_id]
             start_time = datetime.now()
 
+            # Route Claude transcreation engine separately
+            if config.get('type') == 'claude':
+                translated_text = await self.transcreation_service.transcreate(
+                    text, source_lang, target_lang
+                )
             # Check if we need pivot translation
-            if self._needs_pivot_translation(config, source_lang, target_lang):
+            elif self._needs_pivot_translation(config, source_lang, target_lang):
                 translated_text = await self._translate_with_pivot(
                     text, source_lang, target_lang, config['pivot_strategy']
                 )
@@ -195,14 +218,20 @@ class CleanMultiEngineService:
         available = []
         
         for engine_id, config in self.engine_configs.items():
+            # Claude transcreation: available if the pair has a loaded profile
+            if config.get('type') == 'claude':
+                if pair in config['supported_pairs']:
+                    available.append(engine_id)
+                continue
+
             # Check if model paths exist for direct models for this specific pair
-            model_key = config['model_mapping'].get(pair)
+            model_key = config.get('model_mapping', {}).get(pair)
             model_path_exists = False
             if model_key:
                 # Check actual model path existence from translation_service.model_paths
                 model_path_exists = model_key in self.translation_service.model_paths and \
                                     self.translation_service.model_paths[model_key][0] is not None
-            
+
             # Special handling for pivots
             is_pivot_available = self._can_handle_via_pivot(config, source_lang, target_lang)
             if is_pivot_available:
@@ -214,7 +243,7 @@ class CleanMultiEngineService:
                                     self.translation_service.model_paths[pivot_strategy['via_models'][1]][0] is not None
                  if not (model1_available and model2_available):
                      is_pivot_available = False
-            
+
             # An engine is available if it supports the pair AND its model path exists, OR it's a valid pivot
             if (pair in config['supported_pairs'] and model_path_exists) or is_pivot_available:
                 available.append(engine_id)
@@ -234,6 +263,9 @@ class CleanMultiEngineService:
         config = self.engine_configs.get(engine_id)
         if not config:
             return 'N/A'
+
+        if config.get('type') == 'claude':
+            return 'claude-sonnet-4-6'
 
         pair = f"{source_lang.lower()}-{target_lang.lower()}"
 

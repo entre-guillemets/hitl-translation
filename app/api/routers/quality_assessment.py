@@ -1,6 +1,6 @@
 # app/api/routers/quality_assessment.py
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 import logging
 from typing import List, Dict, Any
 import sacrebleu
@@ -57,6 +57,7 @@ class CustomCometDataModule:
 
 from app.db.base import prisma
 from app.services.human_feedback_service import human_feedback_service
+from app.dependencies import get_comet_model, get_metricx_service
 _original_dataloader_init = torch.utils.data.DataLoader.__init__
 
 def safe_dataloader_init(self, *args, **kwargs):
@@ -72,17 +73,6 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/quality-assessment", tags=["Quality Assessment"])
 
-comet_model = None
-metricx_service = None
-
-def set_comet_model(model):
-    global comet_model
-    comet_model = model
-
-def set_metricx_service(service):
-    global metricx_service
-    metricx_service = service
-
 def get_comet_quality_label(comet_score: float) -> str:
     """Convert COMET score to quality label"""
     from prisma.enums import QualityLabel
@@ -97,7 +87,7 @@ def get_comet_quality_label(comet_score: float) -> str:
     else:
         return str(QualityLabel.CRITICAL)
 
-async def calculate_metrics_for_string(translation_string_id: str):
+async def calculate_metrics_for_string(translation_string_id: str, comet_model=None):
     """Calculate BLEU/TER/ChrF/COMET metrics for a single translation string automatically"""
     try:
         if not prisma.is_connected():
@@ -157,7 +147,6 @@ async def calculate_metrics_for_string(translation_string_id: str):
                 try:
                     comet_model.eval()
                     
-                    # --- START FIX: Use CustomCometDataModule ---
                     src_lang = translation_string.translationRequest.sourceLanguage.lower() if translation_string.translationRequest else 'en'
                     tgt_lang = target_lang
                     
@@ -243,10 +232,12 @@ async def calculate_metrics_for_string(translation_string_id: str):
         return None
 
 @router.post("/comet-score")
-async def calculate_comet_score(request: Dict[str, Any]):
+async def calculate_comet_score(
+    request: Dict[str, Any],
+    comet_model=Depends(get_comet_model),
+):
     """Calculate COMET score for translation quality"""
     try:
-        global comet_model
         if comet_model is None:
             raise HTTPException(status_code=503, detail="COMET model not available")
 
@@ -302,10 +293,12 @@ async def calculate_comet_score(request: Dict[str, Any]):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/batch-comet-score")
-async def calculate_batch_comet_scores(request: Dict[str, Any]):
+async def calculate_batch_comet_scores(
+    request: Dict[str, Any],
+    comet_model=Depends(get_comet_model),
+):
     """Calculate COMET scores for multiple translations"""
     try:
-        global comet_model
         if comet_model is None:
             raise HTTPException(status_code=503, detail="COMET model not available")
 
@@ -365,10 +358,12 @@ async def calculate_batch_comet_scores(request: Dict[str, Any]):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/predict-quality")
-async def predict_translation_quality(request_id: str = Query(..., description="Translation request ID")):
+async def predict_translation_quality(
+    request_id: str = Query(..., description="Translation request ID"),
+    comet_model=Depends(get_comet_model),
+):
     """Predict quality using COMET for a translation request"""
     try:
-        global comet_model
         if comet_model is None:
             raise HTTPException(status_code=503, detail="COMET model not available")
 
@@ -470,10 +465,12 @@ async def predict_translation_quality(request_id: str = Query(..., description="
 # Continuation of quality_assessment.py - remaining functions
 
 @router.post("/predict-quality-batch")
-async def predict_quality_batch(request_ids: List[str]):
+async def predict_quality_batch(
+    request_ids: List[str],
+    comet_model=Depends(get_comet_model),
+):
     """Predict quality for multiple translation requests"""
     try:
-        global comet_model
         if comet_model is None:
             raise HTTPException(status_code=503, detail="COMET model not available")
 
@@ -604,10 +601,9 @@ async def predict_quality_batch(request_ids: List[str]):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/process-all-pending")
-async def process_all_pending_quality_assessments():
+async def process_all_pending_quality_assessments(comet_model=Depends(get_comet_model)):
     """Process quality assessment for all translation requests without quality metrics"""
     try:
-        global comet_model
         if comet_model is None:
             raise HTTPException(status_code=503, detail="COMET model not available")
 
@@ -823,10 +819,12 @@ def process_date_trends(metrics):
     return trends
 
 @router.post("/calculate-metrics")
-async def calculate_quality_metrics(request_data: QualityMetricsCalculate):
+async def calculate_quality_metrics(
+    request_data: QualityMetricsCalculate,
+    comet_model=Depends(get_comet_model),
+):
     """Calculate quality metrics using COMET, BLEU, and TER"""
     try:
-        global comet_model
         if not prisma.is_connected():
             await prisma.connect()
 

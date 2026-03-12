@@ -54,8 +54,6 @@ def split_text_into_sentences(text: str, source_lang: str) -> list[str]:
             return [s.strip() for s in sentences if s.strip()]
 
 
-import re
-
 def detokenize_japanese(text: str) -> str:
     """
     Removes unwanted spaces from Japanese text that are artifacts of tokenization.

@@ -39,7 +39,6 @@ ALTER TYPE "ErrorType" ADD VALUE 'SPELLING';
 -- multiple migrations, each migration adding only one value to
 -- the enum.
 
-
 ALTER TYPE "MTModel" ADD VALUE 'MT5_BASE';
 ALTER TYPE "MTModel" ADD VALUE 'PLAMO_2_TRANSLATE';
 ALTER TYPE "MTModel" ADD VALUE 'OPUS_MT_JA_EN';
@@ -83,7 +82,7 @@ ALTER TABLE "quality_metrics" ADD COLUMN     "chrfScore" DOUBLE PRECISION;
 -- AlterTable
 ALTER TABLE "translation_requests" ADD COLUMN     "originalSegments" JSONB,
 ADD COLUMN     "segmentationSessionId" TEXT,
-ALTER COLUMN "mtModel" SET DEFAULT 'MT5_BASE';
+ALTER COLUMN "mtModel" SET DEFAULT 'T5_MULTILINGUAL';
 
 -- AlterTable
 ALTER TABLE "translation_strings" DROP COLUMN "enginePreferences",

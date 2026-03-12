@@ -5,6 +5,7 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 import os
 
 from app.core.config import settings
+from app.utils.text_processing import detokenize_japanese
 
 logger = logging.getLogger(__name__)
 
@@ -30,35 +31,29 @@ class TranslationService:
             'EN-FR': [
                 ('HELSINKI_EN_FR', self.model_paths['HELSINKI_EN_FR'][0], None),
                 ('NLLB_200', self.model_paths['NLLB_200'][0], 'fra_Latn'),
-                ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate English to French: ')
             ],
             'FR-EN': [
-                ('HELSHELNKI_FR_EN', self.model_paths['HELSINKI_FR_EN'][0], None),
+                ('HELSINKI_FR_EN', self.model_paths['HELSINKI_FR_EN'][0], None),
                 ('NLLB_200', self.model_paths['NLLB_200'][0], 'eng_Latn'),
-                ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate French to English: ')
             ],
             'EN-JA': [
                 ('HELSINKI_EN_JA', self.model_paths['HELSINKI_EN_JA'][0], None),
                 ('NLLB_200', self.model_paths['NLLB_200'][0], 'jpn_Jpan'),
-                ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate English to Japanese: ')
             ],
-            'JA-EN': [ 
+            'JA-EN': [
                 ('OPUS_JA_EN', self.model_paths['OPUS_JA_EN'][0], None),
                 ('ELAN_JA_EN', self.model_paths['ELAN_JA_EN'][0], None),
                 ('NLLB_200', self.model_paths['NLLB_200'][0], 'eng_Latn'),
-                ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate Japanese to English: ')
             ],
-            'JA-FR': [ 
-                ('PIVOT_ELAN_HELSINKI', None, None), 
+            'JA-FR': [
+                ('PIVOT_ELAN_HELSINKI', None, None),
                 ('NLLB_200', self.model_paths['NLLB_200'][0], 'fra_Latn'),
-                ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate Japanese to French: ')
             ],
-            'FR-JA': [ 
+            'FR-JA': [
                 ('PIVOT_ELAN_HELSINKI', None, None),
                 ('NLLB_200', self.model_paths['NLLB_200'][0], 'jpn_Jpan'),
-                ('T5_MULTILINGUAL', self.model_paths['T5_MULTILINGUAL'][0], 'translate French to Japanese: ')
-    ],
-}
+            ],
+        }
 
     def _load_model(self, model_key: str):
         """Internal method to load a model and its tokenizer/pipeline."""
@@ -138,11 +133,11 @@ class TranslationService:
         """Translate text using a specific model identified by its key."""
         try:
             if model_key.startswith('PIVOT'):
-                return f"Translation failed: Pivot model '{model_key}' should be routed via multi-engine service."
+                raise ValueError(f"Pivot model '{model_key}' should be routed via multi-engine service.")
 
             model, tokenizer, pipe = self._load_model(model_key)
             if not model:
-                return "Translation failed: Model not loaded or directly translatable."
+                raise RuntimeError(f"Model '{model_key}' not loaded or directly translatable.")
 
             if model_key.startswith('T5'):
                 if target_lang_tag is None:
@@ -214,10 +209,15 @@ class TranslationService:
                     raise RuntimeError(f"Pipeline not initialized for model key: {model_key}. This should not happen for non-T5 models.")
                 translated = pipe(text, max_length=512)[0]['translation_text']
 
+            # BPE tokenizers produce spurious spaces between CJK subwords; strip them.
+            effective_target = target_lang or (target_lang_tag or "")
+            if any(ja in effective_target.lower() for ja in ("ja", "jp", "jpn")):
+                translated = detokenize_japanese(translated)
+
             return translated
         except Exception as e:
             logger.error(f"Translation failed for model {model_key}: {e}")
-            return f"Translation failed: {str(e)}"
+            raise
 
     def translate_with_fallback(self, text: str, source_lang: str, target_lang: str) -> str:
         """Attempt translation with primary model, fallback to other configured models in order."""
@@ -229,15 +229,12 @@ class TranslationService:
                 target_lang_tag_for_current = model_config[2] if len(model_config) > 2 else None
 
                 logger.info(f"Attempting translation with {current_model_key} for {source_lang}-{target_lang}...")
-                translated_text = self.translate_by_model_type(text, current_model_key, source_lang, target_lang, target_lang_tag_for_current)
+                try:
+                    return self.translate_by_model_type(text, current_model_key, source_lang, target_lang, target_lang_tag_for_current)
+                except Exception as e:
+                    logger.warning(f"Translation with {current_model_key} failed: {e}")
 
-                if not translated_text.startswith("Translation failed"):
-                    return translated_text
-                else:
-                    logger.warning(f"Translation with {current_model_key} failed: {translated_text}")
-
-        logger.error(f"All configured models failed for {source_lang}-{target_lang}. No translation available.")
-        return f"Translation failed: No models could translate from {source_lang} to {target_lang}."
+        raise RuntimeError(f"No models could translate from {source_lang} to {target_lang}.")
 
     def get_available_models(self) -> List[str]:
         """Returns a list of all configured model keys."""

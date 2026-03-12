@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, Form
 from typing import Optional, List, Dict
 from datetime import datetime
 import logging
@@ -19,10 +19,7 @@ from app.services.translation_service import translation_service
 from app.utils.text_processing import detokenize_japanese, get_model_for_language_pair, split_text_into_sentences
 from app.services.multimodal_service import multimodal_service as multimodal_service_instance
 from starlette.concurrency import run_in_threadpool
-
-fuzzy_matcher = None
-multi_engine_service = None
-multimodal_service = None
+from app.dependencies import get_fuzzy_matcher, get_multi_engine_service, get_multimodal_service
 
 def map_language_to_prisma_enum(language_code: str) -> str:
     """Convert frontend language codes to Prisma SourceLanguage enum values"""
@@ -43,24 +40,16 @@ def normalize_language_for_engines(language_code: str) -> str:
     }
     return language_mapping.get(language_code.upper(), language_code.lower())
 
-def set_fuzzy_matcher(service):
-    global fuzzy_matcher
-    fuzzy_matcher = service
-
-def set_multi_engine_service(service):
-    global multi_engine_service
-    multi_engine_service = service
-
-def set_multimodal_service(service):
-    global multimodal_service
-    multimodal_service = service
-
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/translation-requests", tags=["Translation Requests"])
 
 @router.get("/")
-async def get_translation_requests(include: Optional[str] = Query(None)):
-    """Get all translation requests with optional includes"""
+async def get_translation_requests(
+    include: Optional[str] = Query(None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+):
+    """Get translation requests with optional includes and pagination"""
     try:
         if not prisma.is_connected():
             await prisma.connect()
@@ -97,10 +86,12 @@ async def get_translation_requests(include: Optional[str] = Query(None)):
                     }
                 },
                 "qualityMetrics": True
-            }
+            },
+            order={"createdAt": "desc"},
+            take=limit,
+            skip=offset,
         )
 
-        requests.sort(key=lambda x: x.createdAt, reverse=True)
         return requests
 
     except Exception as e:
@@ -108,7 +99,11 @@ async def get_translation_requests(include: Optional[str] = Query(None)):
         return []
 
 @router.post("/")
-async def create_translation_request(request_data: TranslationRequestCreate):
+async def create_translation_request(
+    request_data: TranslationRequestCreate,
+    fuzzy_matcher=Depends(get_fuzzy_matcher),
+    multi_engine_service=Depends(get_multi_engine_service),
+):
     """Create a new translation request"""
     try:
         if not prisma.is_connected():
@@ -177,9 +172,6 @@ async def create_translation_request(request_data: TranslationRequestCreate):
                 try:
                     logger.info(f"Translating text {i+1}/{len(request_data.sourceTexts)} to {target_lang} using {model_to_use_for_single_engine}")
 
-                    if fuzzy_matcher is None:
-                        raise HTTPException(status_code=500, detail="Fuzzy matching service not initialized.")
-
                     fuzzy_matches = await fuzzy_matcher.find_fuzzy_matches(
                         source_text, target_lang, request_data.sourceLanguage
                     )
@@ -200,8 +192,6 @@ async def create_translation_request(request_data: TranslationRequestCreate):
                         prefix_or_lang_tag_for_single = model_info_from_ts_single[2]
 
                     if model_to_use_for_single_engine == 'PIVOT_ELAN_HELSINKI':
-                        if multi_engine_service is None:
-                            raise HTTPException(status_code=500, detail="Multi-engine service not initialized for pivot translation.")
                         translated_text = await multi_engine_service._translate_with_pivot(
                             source_text.strip(), source_lang_code, target_lang_code,
                             multi_engine_service.engine_configs['elan_quality']['pivot_strategy']
@@ -277,7 +267,11 @@ async def create_translation_request(request_data: TranslationRequestCreate):
         raise HTTPException(status_code=500, detail=f"Failed to create translation request: {str(e)}")
 
 @router.post("/multi-engine")
-async def create_multi_engine_translation_request(request_data: MultiEngineTranslationRequestCreate):
+async def create_multi_engine_translation_request(
+    request_data: MultiEngineTranslationRequestCreate,
+    fuzzy_matcher=Depends(get_fuzzy_matcher),
+    multi_engine_service=Depends(get_multi_engine_service),
+):
     """Create translation request with multiple local engines"""
     try:
         if not prisma.is_connected():
@@ -309,8 +303,6 @@ async def create_multi_engine_translation_request(request_data: MultiEngineTrans
             for i, source_text in enumerate(request_data.sourceTexts):
                 logger.info(f"Getting multi-engine translations for text {i+1}/{len(request_data.sourceTexts)} to {target_lang}")
 
-                if fuzzy_matcher is None:
-                    raise HTTPException(status_code=500, detail="Fuzzy matching service not initialized.")
                 fuzzy_matches = await fuzzy_matcher.find_fuzzy_matches(
                     source_text, target_lang, request_data.sourceLanguage
                 )
@@ -319,8 +311,6 @@ async def create_multi_engine_translation_request(request_data: MultiEngineTrans
                 if fuzzy_matches and len(fuzzy_matches) > 0 and fuzzy_matches[0]["similarity"] > 0.9:
                     suggested_translation = fuzzy_matches[0]["target_text"]
 
-                if multi_engine_service is None:
-                    raise HTTPException(status_code=500, detail="Multi-engine service not initialized.")
                 engine_results = await multi_engine_service.translate_multi_engine(
                     source_text, 
                     normalize_language_for_engines(request_data.sourceLanguage), 
@@ -366,12 +356,13 @@ async def create_multi_engine_translation_request(request_data: MultiEngineTrans
         raise HTTPException(status_code=500, detail=f"Failed to create multi-engine request: {str(e)}")
 
 @router.post("/triple-output")
-async def create_triple_output_translation_request(request_data: TranslationRequestCreate):
+async def create_triple_output_translation_request(
+    request_data: TranslationRequestCreate,
+    fuzzy_matcher=Depends(get_fuzzy_matcher),
+    multi_engine_service=Depends(get_multi_engine_service),
+):
     """Create translation request with exactly 3 outputs per language pair"""
     try:
-        if multi_engine_service is None:
-            raise HTTPException(status_code=500, detail="Multi-engine service not initialized.")
-
         engines_per_pair_preference = {
             'en-ja': ['opus_fast', 't5_versatile', 'nllb_multilingual', 'elan_quality'],
             'ja-en': ['opus_fast', 'elan_quality', 't5_versatile', 'nllb_multilingual'],
@@ -404,13 +395,17 @@ async def create_triple_output_translation_request(request_data: TranslationRequ
             engines=selected_engines_for_triple
         )
 
-        return await create_multi_engine_translation_request(multi_request)
+        return await create_multi_engine_translation_request(
+            multi_request,
+            fuzzy_matcher=fuzzy_matcher,
+            multi_engine_service=multi_engine_service,
+        )
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create triple-output request: {str(e)}")
 
 @router.put("/translation-strings/{string_id}")
-async def update_translation_string(string_id: str, update_data: TranslationStringUpdate):
+async def update_translation_string(string_id: str, update_data: TranslationStringUpdate, request: Request):
     """Update a translation string and automatically calculate quality metrics"""
     try:
         if not prisma.is_connected():
@@ -479,7 +474,10 @@ async def update_translation_string(string_id: str, update_data: TranslationStri
                 from app.api.routers.quality_assessment import calculate_metrics_for_string
 
                 # Calculate metrics in background (non-blocking)
-                asyncio.create_task(calculate_metrics_for_string(string_id))
+                asyncio.create_task(calculate_metrics_for_string(
+                    string_id,
+                    comet_model=getattr(request.app.state, "comet_model", None),
+                ))
                 logger.info(f"✅ Scheduled automatic metrics calculation for string: {string_id}")
 
             except Exception as metrics_error:
@@ -553,12 +551,11 @@ async def get_fuzzy_matches(
     source_text: str,
     source_language: str,
     target_language: str,
-    threshold: float = 0.6
+    threshold: float = 0.6,
+    fuzzy_matcher=Depends(get_fuzzy_matcher),
 ):
     """Get fuzzy matches for a source text"""
     try:
-        if fuzzy_matcher is None:
-            raise HTTPException(status_code=500, detail="Fuzzy matching service not initialized.")
         fuzzy_matcher.threshold = threshold
         matches = await fuzzy_matcher.find_fuzzy_matches(source_text, target_language, source_language)
 
@@ -691,17 +688,17 @@ async def get_translation_request(request_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/detect-language")
-async def detect_language_endpoint(file: UploadFile = File(...)):
+async def detect_language_endpoint(
+    file: UploadFile = File(...),
+    multimodal_service=Depends(get_multimodal_service),
+):
     """Detects the language of a file (text, audio, etc.)."""
     try:
-        if not multimodal_service_instance:
-            raise HTTPException(status_code=500, detail="Multimodal service not initialized.")
-
         # Read the file content into memory ONCE
         file_content = await file.read()
-        
+
         # Pass the content (bytes) and filename to the service
-        detected_language = await multimodal_service_instance.detect_language(
+        detected_language = await multimodal_service.detect_language(
             file_content,
             file.filename
         )
@@ -742,12 +739,12 @@ async def create_single_engine_from_file(
     file: UploadFile = File(...),
     sourceLanguage: str = Form(...),
     targetLanguages: List[str] = Form(...),
+    multimodal_service=Depends(get_multimodal_service),
+    fuzzy_matcher=Depends(get_fuzzy_matcher),
+    multi_engine_service=Depends(get_multi_engine_service),
 ):
     """Creates a new single-engine translation request from an uploaded file."""
     try:
-        if not multimodal_service:
-            raise HTTPException(status_code=500, detail="Multimodal service not initialized.")
-
         # Read the file content once
         file_content = await file.read()
         file_name = file.filename
@@ -769,7 +766,11 @@ async def create_single_engine_from_file(
             mtModel='NLLB_200'
         )
 
-        return await create_translation_request(request_data)
+        return await create_translation_request(
+            request_data,
+            fuzzy_matcher=fuzzy_matcher,
+            multi_engine_service=multi_engine_service,
+        )
 
     except Exception as e:
         logger.error(f"Failed to create single-engine request from file: {e}")
@@ -802,18 +803,16 @@ async def create_multi_engine_from_file(
     sourceLanguage: str = Form(...),
     targetLanguages: List[str] = Form(...),
     engines: List[str] = Form(...),
+    multimodal_service=Depends(get_multimodal_service),
+    fuzzy_matcher=Depends(get_fuzzy_matcher),
+    multi_engine_service=Depends(get_multi_engine_service),
 ):
     """Creates a new multi-engine translation request from an uploaded file."""
     try:
-        if not multimodal_service:
-             raise HTTPException(status_code=500, detail="Multimodal service not initialized.")
-        if not multi_engine_service:
-             raise HTTPException(status_code=500, detail="Multi-engine service not initialized.")
-
         # Read the file content once
         file_content = await file.read()
         file_name = file.filename
-        
+
         extracted_text = await multimodal_service.extract_text_from_file(file_content, file_name)
 
         if not extracted_text:
@@ -831,7 +830,11 @@ async def create_multi_engine_from_file(
             engines=engines
         )
 
-        return await create_multi_engine_translation_request(request_data)
+        return await create_multi_engine_translation_request(
+            request_data,
+            fuzzy_matcher=fuzzy_matcher,
+            multi_engine_service=multi_engine_service,
+        )
 
     except Exception as e:
         logger.error(f"Failed to create multi-engine request from file: {e}")
@@ -840,21 +843,19 @@ async def create_multi_engine_from_file(
 @router.post("/file-preprocessing")
 async def preprocess_file_for_segmentation(
     file: UploadFile = File(...),
+    multimodal_service=Depends(get_multimodal_service),
 ):
     """
     Preprocess file and return segmentation data for the UI editor.
     This is the first step before translation - allows user to edit segments.
     """
     try:
-        if not multimodal_service_instance:
-            raise HTTPException(status_code=500, detail="Multimodal service not initialized.")
-
         # Read the file content once
         file_content = await file.read()
         file_name = file.filename
-        
+
         # Extract with segmentation data
-        segmentation_data = await multimodal_service_instance.extract_text_from_file_with_segmentation(
+        segmentation_data = await multimodal_service.extract_text_from_file_with_segmentation(
             file_content, file_name
         )
         
@@ -884,7 +885,9 @@ async def preprocess_file_for_segmentation(
 @router.post("/segmentation/{segmentation_id}/save")
 async def save_segmentation_edits(
     segmentation_id: str,
-    segmentation_data: Dict[str, Any]
+    segmentation_data: Dict[str, Any],
+    fuzzy_matcher=Depends(get_fuzzy_matcher),
+    multi_engine_service=Depends(get_multi_engine_service),
 ):
     """
     Save user's segmentation edits and proceed with translation.
@@ -921,7 +924,11 @@ async def save_segmentation_edits(
                 sourceTexts=source_texts,
                 engines=engines
             )
-            return await create_multi_engine_translation_request(request_data)
+            return await create_multi_engine_translation_request(
+                request_data,
+                fuzzy_matcher=fuzzy_matcher,
+                multi_engine_service=multi_engine_service,
+            )
         else:
             request_data = create_translation_request_object(
                 sourceLanguage=source_language,
@@ -930,8 +937,12 @@ async def save_segmentation_edits(
                 fileName=file_name,
                 sourceTexts=source_texts
             )
-            return await create_translation_request(request_data)
-        
+            return await create_translation_request(
+                request_data,
+                fuzzy_matcher=fuzzy_matcher,
+                multi_engine_service=multi_engine_service,
+            )
+
     except Exception as e:
         logger.error(f"Failed to save segmentation and create translation: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process segmentation: {str(e)}")
@@ -956,12 +967,15 @@ async def get_segmentation_data(segmentation_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to retrieve segmentation: {str(e)}")
 
 # Update the existing file upload endpoints to optionally support segmentation
-@router.post("/file-single-engine-with-segmentation") 
+@router.post("/file-single-engine-with-segmentation")
 async def create_single_engine_with_optional_segmentation(
     file: UploadFile = File(...),
     sourceLanguage: str = Form(...),
     targetLanguages: List[str] = Form(...),
-    useSegmentation: bool = Form(default=False)
+    useSegmentation: bool = Form(default=False),
+    multimodal_service=Depends(get_multimodal_service),
+    fuzzy_matcher=Depends(get_fuzzy_matcher),
+    multi_engine_service=Depends(get_multi_engine_service),
 ):
     """
     Creates single-engine request with optional segmentation step.
@@ -970,11 +984,16 @@ async def create_single_engine_with_optional_segmentation(
     try:
         if useSegmentation:
             # Return segmentation data for UI editing
-            return await preprocess_file_for_segmentation(file)
+            return await preprocess_file_for_segmentation(file, multimodal_service=multimodal_service)
         else:
             # Process directly as before
-            return await create_single_engine_from_file(file, sourceLanguage, targetLanguages)
-            
+            return await create_single_engine_from_file(
+                file, sourceLanguage, targetLanguages,
+                multimodal_service=multimodal_service,
+                fuzzy_matcher=fuzzy_matcher,
+                multi_engine_service=multi_engine_service,
+            )
+
     except Exception as e:
         logger.error(f"Failed to create single-engine request: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to create request: {str(e)}")
@@ -985,7 +1004,10 @@ async def create_multi_engine_with_optional_segmentation(
     sourceLanguage: str = Form(...),
     targetLanguages: List[str] = Form(...),
     engines: List[str] = Form(...),
-    useSegmentation: bool = Form(default=False)
+    useSegmentation: bool = Form(default=False),
+    multimodal_service=Depends(get_multimodal_service),
+    fuzzy_matcher=Depends(get_fuzzy_matcher),
+    multi_engine_service=Depends(get_multi_engine_service),
 ):
     """
     Creates multi-engine request with optional segmentation step.
@@ -994,11 +1016,16 @@ async def create_multi_engine_with_optional_segmentation(
     try:
         if useSegmentation:
             # Return segmentation data for UI editing
-            return await preprocess_file_for_segmentation(file)
+            return await preprocess_file_for_segmentation(file, multimodal_service=multimodal_service)
         else:
             # Process directly as before
-            return await create_multi_engine_from_file(file, sourceLanguage, targetLanguages, engines)
-            
+            return await create_multi_engine_from_file(
+                file, sourceLanguage, targetLanguages, engines,
+                multimodal_service=multimodal_service,
+                fuzzy_matcher=fuzzy_matcher,
+                multi_engine_service=multi_engine_service,
+            )
+
     except Exception as e:
         logger.error(f"Failed to create multi-engine request: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to create request: {str(e)}")

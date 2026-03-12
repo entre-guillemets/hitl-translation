@@ -1,26 +1,17 @@
 # app/api/routers/health.py
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from datetime import datetime
 import psutil
 import torch
 from app.db.base import prisma
-
-health_service = None
-
-def set_health_service(service):
-    """Setter to inject the HealthService instance."""
-    global health_service
-    health_service = service
+from app.dependencies import get_health_service
 
 router = APIRouter(prefix="/api/health", tags=["Health"])
 
 @router.get("/")
-async def health_check():
+async def health_check(health_service=Depends(get_health_service)):
     """Basic health check using the HealthService."""
-    if health_service is None:
-        raise HTTPException(status_code=503, detail="Health service not initialized.")
-    
     detailed_status = await health_service.get_detailed_status()
     return {
         "status": detailed_status.get("status", "unknown"),
@@ -29,11 +20,8 @@ async def health_check():
     }
 
 @router.get("/detailed")
-async def detailed_health_check():
+async def detailed_health_check(health_service=Depends(get_health_service)):
     """Detailed health check with system info, now powered by HealthService."""
-    if health_service is None:
-        raise HTTPException(status_code=503, detail="Health service not initialized.")
-    
     try:
         return await health_service.get_detailed_status()
     except Exception as e:
