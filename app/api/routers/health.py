@@ -1,6 +1,6 @@
 # app/api/routers/health.py
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from datetime import datetime
 import psutil
 import torch
@@ -18,6 +18,28 @@ async def health_check(health_service=Depends(get_health_service)):
         "timestamp": detailed_status.get("timestamp", datetime.now().isoformat()),
         "service": "Translation Management API"
     }
+
+@router.get("/engines", tags=["Health"])
+async def list_engines(request: Request):
+    """Return all configured translation engines with their display names.
+
+    Used by the frontend to populate the model filter dropdown even before
+    any translations have been scored (i.e., before the leaderboard has data).
+    """
+    service = getattr(request.app.state, "multi_engine_service", None)
+    if not service:
+        return {"engines": []}
+    engines = [
+        {
+            "id": engine_id,
+            "name": config.get("name", engine_id),
+            "supportedPairs": config.get("supported_pairs", []),
+            "type": config.get("type", "unknown"),
+        }
+        for engine_id, config in service.engine_configs.items()
+    ]
+    return {"engines": engines}
+
 
 @router.get("/detailed")
 async def detailed_health_check(health_service=Depends(get_health_service)):

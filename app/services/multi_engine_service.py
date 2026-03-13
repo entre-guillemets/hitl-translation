@@ -72,9 +72,9 @@ class CleanMultiEngineService:
             supported = transcreation_service.supported_pairs()
             if supported:
                 self.engine_configs['gemini_transcreation'] = {
-                    'name': 'Claude Transcreation',
+                    'name': 'Gemini Transcreation',
                     'supported_pairs': supported,
-                    'type': 'claude',
+                    'type': 'gemini',
                     'confidence': 0.95,
                 }
                 logger.info(f"gemini_transcreation engine registered for pairs: {supported}")
@@ -264,8 +264,8 @@ class CleanMultiEngineService:
         if not config:
             return 'N/A'
 
-        if config.get('type') == 'claude':
-            return 'claude-sonnet-4-6'
+        if config.get('type') == 'gemini':
+            return 'gemini-2.5-flash'
 
         pair = f"{source_lang.lower()}-{target_lang.lower()}"
 

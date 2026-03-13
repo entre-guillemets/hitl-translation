@@ -859,6 +859,9 @@ const QualityDashboard: React.FC = () => {
   const [snapshots, setSnapshots] = useState<EvalSnapshot[]>([]);
   const [regressionReport, setRegressionReport] = useState<RegressionReportEntry[]>([]);
 
+  // Configured engines — seeds the model filter independently of whether metrics exist yet
+  const [configuredEngines, setConfiguredEngines] = useState<{ id: string; name: string }[]>([]);
+
   // Pagination states for Translator Impact Analysis
   const [currentPageTranslator, setCurrentPageTranslator] = useState(1);
   const [itemsPerPageTranslator, setItemsPerPageTranslator] = useState(25);
@@ -888,14 +891,19 @@ const QualityDashboard: React.FC = () => {
   }, [dashboardData, postEditData, translatorImpactData, snapshots]);
 
   const availableModels = useMemo(() => {
-    const models = new Set<string>();
+    // Map of value → label; configured engines seed it with proper display names
+    const models = new Map<string, string>();
+    configuredEngines.forEach(e => models.set(e.id, e.name));
+    // Entries from leaderboard/snapshots may use either the engine ID or a display name
     dashboardData?.modelPerformance.leaderboard.forEach(e => {
       const name = e.name || e.model;
-      if (name) models.add(name);
+      if (name && !models.has(name)) models.set(name, name);
     });
-    snapshots.forEach(s => { if (s.engineName) models.add(s.engineName); });
-    return Array.from(models).sort().map(m => ({ label: m, value: m }));
-  }, [dashboardData, snapshots]);
+    snapshots.forEach(s => { if (s.engineName && !models.has(s.engineName)) models.set(s.engineName, s.engineName); });
+    return Array.from(models.entries())
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([id, label]) => ({ label, value: id }));
+  }, [dashboardData, snapshots, configuredEngines]);
 
   // ── Global client-side filtered views ────────────────────────────────────
   const matchLP = (lp: string | undefined) =>
@@ -1124,6 +1132,14 @@ const QualityDashboard: React.FC = () => {
       setLlmJudgeRunning(false);
     }
   };
+
+  // Fetch configured engines once on mount — populates model dropdown before any metrics exist
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/health/engines`)
+      .then(r => r.ok ? r.json() : { engines: [] })
+      .then(data => setConfiguredEngines(data.engines ?? []))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetchDashboardData();
