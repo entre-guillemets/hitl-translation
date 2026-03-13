@@ -467,11 +467,11 @@ async def get_multi_engine_data(lang_filter: dict):
         for string in pivot_strings:
             if string.qualityMetrics:
                 for metric in string.qualityMetrics:
-                    if metric.metricXScore is not None:
+                    if metric.cometScore is not None:
                         pivot_quality.append({
                             "modelCombination": string.selectedModelCombination or "unknown",
                             "directQuality": 0,
-                            "pivotQuality": metric.metricXScore,
+                            "pivotQuality": metric.cometScore,
                             "intermediateQuality": 0
                         })
         
@@ -658,10 +658,10 @@ async def get_operational_data(lang_filter: dict, health_service=None):
                 "avgProcessingTime": 0 
             })
 
-            if detailed_status.get("metricx_available") is not None:
+            if detailed_status.get("cometkiwi_available") is not None:
                 system_health_data.append({
-                    "model": "MetricX Service",
-                    "isActive": detailed_status["metricx_available"],
+                    "model": "COMETKiwi Service",
+                    "isActive": detailed_status["cometkiwi_available"],
                     "lastUsed": datetime.now().isoformat(),
                     "totalTranslations": 0, 
                     "avgProcessingTime": 0 
@@ -773,10 +773,7 @@ async def get_tm_glossary_data(lang_filter: dict):
 
             if string.qualityMetrics:
                 for metric in string.qualityMetrics:
-                    quality_score = (
-                        metric.metricXScore if metric.metricXScore is not None
-                        else metric.cometScore
-                    )
+                    quality_score = metric.cometScore
                     if quality_score is not None:
                         tm_impact[match_bucket]["avgQualityScore"] += quality_score
 
@@ -962,8 +959,8 @@ def group_by_model(quality_metrics, lang_filter):
                 "bleu_scores": [],
                 "comet_scores": [],
                 "ter_scores": [],
-                "metricx_scores": [],
-                "chrf_scores": [], 
+                "cometkiwi_scores": [],
+                "chrf_scores": [],
                 "total_translations": 0,
                 "language_pairs": set(),
                 "engineType": engine_type
@@ -972,9 +969,9 @@ def group_by_model(quality_metrics, lang_filter):
         if metric.bleuScore is not None: model_stats[model_name]["bleu_scores"].append(metric.bleuScore)
         if metric.cometScore is not None: model_stats[model_name]["comet_scores"].append(metric.cometScore)
         if metric.terScore is not None: model_stats[model_name]["ter_scores"].append(metric.terScore)
-        if metric.metricXScore is not None: model_stats[model_name]["metricx_scores"].append(metric.metricXScore)
-        if metric.chrfScore is not None: model_stats[model_name]["chrf_scores"].append(metric.chrfScore) 
-        
+        if metric.cometScore is not None: model_stats[model_name]["cometkiwi_scores"].append(metric.cometScore)
+        if metric.chrfScore is not None: model_stats[model_name]["chrf_scores"].append(metric.chrfScore)
+
         model_stats[model_name]["total_translations"] += 1
         model_stats[model_name]["language_pairs"].add(language_pair)
 
@@ -989,8 +986,8 @@ def group_by_model(quality_metrics, lang_filter):
                 "avgBleu": calculate_average(stats["bleu_scores"]) * 100,
                 "avgComet": calculate_average(stats["comet_scores"]) * 100,
                 "avgTer": calculate_average(stats["ter_scores"]) if stats["ter_scores"] else 0,
-                "avgChrf": calculate_average(stats["chrf_scores"]) if stats["chrf_scores"] else 0, 
-                "avgMetricX": calculate_average(stats["metricx_scores"]),
+                "avgChrf": calculate_average(stats["chrf_scores"]) if stats["chrf_scores"] else 0,
+                "avgCometKiwi": calculate_average(stats["cometkiwi_scores"]),
                 "totalTranslations": stats["total_translations"],
                 "languagePairs": list(stats["language_pairs"]),
                 "confidenceInterval": {
@@ -1020,8 +1017,8 @@ def group_by_language_pair(quality_metrics, lang_filter):
                 "bleu_scores": [],
                 "comet_scores": [],
                 "ter_scores": [],
-                "metricx_scores": [],
-                "chrf_scores": [], 
+                "cometkiwi_scores": [],
+                "chrf_scores": [],
                 "total_translations": 0,
                 "models": set()
             }
@@ -1029,11 +1026,11 @@ def group_by_language_pair(quality_metrics, lang_filter):
         if metric.bleuScore is not None: pair_stats[language_pair]["bleu_scores"].append(metric.bleuScore)
         if metric.cometScore is not None: pair_stats[language_pair]["comet_scores"].append(metric.cometScore)
         if metric.terScore is not None: pair_stats[language_pair]["ter_scores"].append(metric.terScore)
-        if metric.metricXScore is not None: pair_stats[language_pair]["metricx_scores"].append(metric.metricXScore)
-        if metric.chrfScore is not None: pair_stats[language_pair]["chrf_scores"].append(metric.chrfScore) 
-        
+        if metric.cometScore is not None: pair_stats[language_pair]["cometkiwi_scores"].append(metric.cometScore)
+        if metric.chrfScore is not None: pair_stats[language_pair]["chrf_scores"].append(metric.chrfScore)
+
         pair_stats[language_pair]["total_translations"] += 1
-        pair_stats[language_pair]["models"].add(model_name) 
+        pair_stats[language_pair]["models"].add(model_name)
 
     leaderboard = []
     for pair, stats in pair_stats.items():
@@ -1047,7 +1044,7 @@ def group_by_language_pair(quality_metrics, lang_filter):
                 "avgComet": calculate_average(stats["comet_scores"]) * 100,
                 "avgTer": calculate_average(stats["ter_scores"]) if stats["ter_scores"] else 0,
                 "avgChrf": calculate_average(stats["chrf_scores"]) if stats["chrf_scores"] else 0,
-                "avgMetricX": calculate_average(stats["metricx_scores"]),
+                "avgCometKiwi": calculate_average(stats["cometkiwi_scores"]),
                 "totalTranslations": stats["total_translations"],
                 "languagePairs": [pair],
                 "models": list(stats["models"]),

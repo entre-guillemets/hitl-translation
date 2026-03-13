@@ -11,14 +11,14 @@ logger = logging.getLogger(__name__)
 
 class HealthService:
     def __init__(self):
-        self.metricx_service_instance = None
+        self.cometkiwi_model = None
         self.multi_engine_service_instance = None
         logger.info("HealthService initialized (services not yet set)")
 
-    def set_services(self, metricx_service, multi_engine_service):
-        self.metricx_service_instance = metricx_service
+    def set_services(self, cometkiwi_model, multi_engine_service):
+        self.cometkiwi_model = cometkiwi_model
         self.multi_engine_service_instance = multi_engine_service
-        logger.info("HealthService received MetricX and MultiEngine services")
+        logger.info("HealthService received COMETKiwi and MultiEngine services")
 
     async def get_detailed_status(self):
         """Gathers detailed health status of the system and services."""
@@ -38,13 +38,7 @@ class HealthService:
         cuda_available = torch.cuda.is_available()
         cuda_devices = torch.cuda.device_count() if cuda_available else 0
 
-        metricx_ready = False
-        if self.metricx_service_instance:
-            try:                
-                metricx_ready = self.metricx_service_instance is not None
-            except Exception as e:
-                logger.warning(f"MetricX service check failed: {e}")
-                metricx_ready = False
+        cometkiwi_ready = self.cometkiwi_model is not None
 
         multi_engine_ready = False
         available_engines_list = []
@@ -57,7 +51,7 @@ class HealthService:
                 multi_engine_ready = False
 
         status = "healthy"
-        if db_status.startswith("error") or not metricx_ready or not multi_engine_ready:
+        if db_status.startswith("error") or not multi_engine_ready:
             status = "unhealthy"
 
         return {
@@ -71,7 +65,7 @@ class HealthService:
                 "cuda_available": cuda_available,
                 "cuda_devices": cuda_devices
             },
-            "metricx_available": metricx_ready,
+            "cometkiwi_available": cometkiwi_ready,
             "translation_service_available": True, 
             "local_engines_available": multi_engine_ready,
             "available_engines": available_engines_list

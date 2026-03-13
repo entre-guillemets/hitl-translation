@@ -27,9 +27,9 @@ def get_comet_model(request: Request):
     return getattr(request.app.state, "comet_model", None)
 
 
-def get_metricx_service(request: Request):
-    # May be None; callers must check
-    return getattr(request.app.state, "metricx_service", None)
+def get_cometkiwi_model(request: Request):
+    # May be None if COMETKiwi failed to load; callers must check
+    return getattr(request.app.state, "cometkiwi_model", None)
 
 
 def get_health_service(request: Request):

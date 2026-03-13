@@ -143,13 +143,15 @@ const QualityPrediction: React.FC = () => {
     );
   };
 
+  // COMETKiwi (wmt20-comet-qe-da) outputs DA z-scores centred around 0, range ~-2 to +2.
+  // Thresholds are calibrated for this range, not the 0–1 range of newer COMET models.
   const getCometQualityBadge = (score: number | null) => {
     if (score === null) return { variant: 'outline' as const, label: 'N/A' };
-    if (score >= 0.8) return { variant: 'default' as const, label: 'Excellent' };
-    if (score >= 0.6) return { variant: 'secondary' as const, label: 'Good' };
-    if (score >= 0.4) return { variant: 'outline' as const, label: 'Fair' };
-    if (score >= 0.2) return { variant: 'destructive' as const, label: 'Poor' };
-    return { variant: 'destructive' as const, label: 'Very Poor' };
+    if (score >= 0.3) return { variant: 'default' as const, label: 'Excellent' };
+    if (score >= 0.0) return { variant: 'secondary' as const, label: 'Good' };
+    if (score >= -0.3) return { variant: 'outline' as const, label: 'Fair' };
+    if (score >= -0.7) return { variant: 'destructive' as const, label: 'Poor' };
+    return { variant: 'destructive' as const, label: 'Critical' };
   };
 
   // Get quality metrics display for a request
@@ -507,7 +509,7 @@ const QualityPrediction: React.FC = () => {
         .filter(str => str.qualityMetrics && str.qualityMetrics.length > 0)
         .map(str => ({
           language: getLanguageLabel(str.targetLanguage),
-          COMET: str.qualityMetrics![0].cometScore * 100, // Assuming first metric is the relevant one
+          COMET: str.qualityMetrics![0].cometScore, // DA z-score, displayed as-is
           qualityLabel: str.qualityMetrics![0].qualityLabel
         }));
     }
@@ -516,7 +518,7 @@ const QualityPrediction: React.FC = () => {
       // Use legacy predictions data
       return request.cometPredictions!.map(prediction => ({
         language: getLanguageLabel(prediction.targetLanguage),
-        COMET: prediction.cometScore * 100,
+        COMET: prediction.cometScore,
         qualityLabel: prediction.qualityLabel
       }));
     }
@@ -524,15 +526,16 @@ const QualityPrediction: React.FC = () => {
     return [];
   };
 
+  // Display the raw DA z-score (e.g. "0.82" or "-0.64"), not as a percentage.
   const formatScore = (score: number | null) => {
-    return score ? (score * 100).toFixed(1) + '%' : 'N/A';
+    return score !== null ? score.toFixed(2) : 'N/A';
   };
 
   const getCometColor = (score: number | null) => {
     if (score === null) return 'text-gray-400';
-    if (score >= 0.8) return 'text-green-600';
-    if (score >= 0.6) return 'text-blue-600';
-    if (score >= 0.4) return 'text-yellow-600';
+    if (score >= 0.3) return 'text-green-600';
+    if (score >= 0.0) return 'text-blue-600';
+    if (score >= -0.3) return 'text-yellow-600';
     return 'text-red-600';
   };
 
@@ -586,11 +589,11 @@ const QualityPrediction: React.FC = () => {
 
       {/* Batch Operations */}
       {selectedRequests.size > 0 && (
-        <Card className="border-blue-200 bg-blue-50">
+        <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/40">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
-                <p className="text-blue-800">
+                <p className="text-blue-800 dark:text-blue-200">
                   {selectedRequests.size} request(s) selected
                 </p>
               </div>
@@ -654,7 +657,7 @@ const QualityPrediction: React.FC = () => {
       {showTrends && (
         <Card>
           <CardHeader>
-            <CardTitle>COMET Quality Trends</CardTitle>
+            <CardTitle>COMETKiwi Quality Trends</CardTitle>
             <div className="flex space-x-2">
               <Button
                 variant={trendType === 'language_pair' ? 'default' : 'outline'}
@@ -683,15 +686,15 @@ const QualityPrediction: React.FC = () => {
             <ResponsiveContainer width="100%" height={400}>
               <LineChart data={trendsData}>
                 <XAxis dataKey="label" />
-                <YAxis domain={[0, 1]} tickFormatter={(value) => `${(value * 100).toFixed(0)}%`} />
-                <Tooltip formatter={(value) => [`${(Number(value) * 100).toFixed(1)}%`, 'Average COMET Score']} />
+                <YAxis domain={[-2, 2]} tickFormatter={(value) => Number(value).toFixed(1)} />
+                <Tooltip formatter={(value) => [Number(value).toFixed(2), 'Avg COMETKiwi (DA)']} />
                 <Legend />
                 <Line
                   type="monotone"
                   dataKey="averageCometScore"
                   stroke="#8884d8"
                   strokeWidth={2}
-                  name="Average COMET Score"
+                  name="Average COMETKiwi Score"
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -833,7 +836,7 @@ const QualityPrediction: React.FC = () => {
                     {getSortIcon('status')}
                   </div>
                 </TableHead>
-                <TableHead>COMET Quality Prediction</TableHead>
+                <TableHead>COMETKiwi Quality Prediction</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -879,7 +882,7 @@ const QualityPrediction: React.FC = () => {
                         <div className="space-y-1 text-xs">
                           <div className="flex items-center space-x-2">
                             <span className={`font-semibold ${getCometColor(qualityDisplay.avgScore)}`}>
-                              COMET: {formatScore(qualityDisplay.avgScore)}
+                              COMETKiwi: {formatScore(qualityDisplay.avgScore)}
                             </span>
                             <Badge
                               variant={getCometQualityBadge(qualityDisplay.avgScore).variant}
@@ -896,7 +899,7 @@ const QualityPrediction: React.FC = () => {
                         <div className="space-y-1 text-xs">
                           <div className="flex items-center space-x-2">
                             <span className={`font-semibold ${getCometColor(avgScore)}`}>
-                              COMET: {formatScore(avgScore)}
+                              COMETKiwi: {formatScore(avgScore)}
                             </span>
                             <Badge
                               variant={getCometQualityBadge(avgScore).variant}
@@ -950,13 +953,13 @@ const QualityPrediction: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Selected Request COMET Predictions */}
+      {/* Selected Request COMETKiwi Predictions */}
       {selectedRequest && hasQualityData(selectedRequest) && (
         <div className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>
-                COMET Quality Predictions for {selectedRequest.fileName}
+                COMETKiwi Quality Predictions for {selectedRequest.fileName}
               </CardTitle>
               <div className="text-sm text-muted-foreground">
                 {getLanguageLabel(selectedRequest.sourceLanguage)} → {selectedRequest.targetLanguages.map(lang => getLanguageLabel(lang)).join(', ')}
@@ -989,7 +992,7 @@ const QualityPrediction: React.FC = () => {
                               {getLanguageLabel(str.targetLanguage)}
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
-                              Neural-based quality prediction
+                              COMETKiwi reference-free QE
                             </div>
                             <Badge
                               variant={getCometQualityBadge(metric.cometScore).variant}
@@ -1032,19 +1035,19 @@ const QualityPrediction: React.FC = () => {
             </CardContent>
           </Card>
 
-          {/* COMET Prediction Chart */}
+          {/* COMETKiwi Prediction Chart */}
           <Card>
             <CardHeader>
-              <CardTitle>COMET Quality Scores by Language</CardTitle>
+              <CardTitle>COMETKiwi Quality Scores by Language</CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={getChartData(selectedRequest)}>
                   <XAxis dataKey="language" />
-                  <YAxis domain={[0, 100]} />
-                  <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, 'COMET Score']} />
+                  <YAxis domain={[-2, 2]} tickFormatter={(value) => Number(value).toFixed(1)} />
+                  <Tooltip formatter={(value) => [Number(value).toFixed(2), 'COMETKiwi (DA)']} />
                   <Legend />
-                  <Bar dataKey="COMET" fill="#8884d8" name="COMET Quality Score" />
+                  <Bar dataKey="COMET" fill="#8884d8" name="COMETKiwi Quality Score" />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>

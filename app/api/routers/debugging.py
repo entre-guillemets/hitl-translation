@@ -13,7 +13,7 @@ from app.services.translation_service import translation_service
 from app.services.multi_engine_service import CleanMultiEngineService
 from app.utils.text_processing import detokenize_japanese
 from app.api.routers.analytics import calculate_chrf
-from app.dependencies import get_comet_model, get_metricx_service, get_multi_engine_service
+from app.dependencies import get_comet_model, get_cometkiwi_model, get_multi_engine_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/debug", tags=["Debugging"])
@@ -56,7 +56,7 @@ async def get_system_info():
 
 @router.get("/models-status")
 async def get_models_status(
-    metricx_service=Depends(get_metricx_service),
+    cometkiwi_model=Depends(get_cometkiwi_model),
     multi_engine_service=Depends(get_multi_engine_service),
 ):
     """Get status of all translation models"""
@@ -70,10 +70,9 @@ async def get_models_status(
                 "loaded_pipelines": list(translation_service.pipelines.keys()),
                 "device": translation_service.device
             },
-            "metricx_service": {
-                "is_loaded": metricx_service.is_loaded if metricx_service else False,
-                "model_name": metricx_service.model_name if metricx_service else "N/A",
-                "device": metricx_service.device if metricx_service else "N/A"
+            "cometkiwi_service": {
+                "is_loaded": cometkiwi_model is not None,
+                "model_name": "Unbabel/wmt22-cometkiwi-da" if cometkiwi_model else "N/A",
             },
             "multi_engine_service": {
                 "available_engines": list(multi_engine_service.engine_configs.keys()) if multi_engine_service else [],

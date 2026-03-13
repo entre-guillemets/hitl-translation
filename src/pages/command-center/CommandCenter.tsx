@@ -74,7 +74,7 @@ interface TranslationString {
 
 interface QualityMetrics {
   id: string;
-  metricXScore: number | null;
+  cometKiwiScore: number | null;
   metricXConfidence: number | null;
   metricXMode: string | null;
   metricXVariant: string | null;
@@ -1764,7 +1764,7 @@ export const CommandCenter: React.FC = () => {
               {selectedJob.qualityMetrics && selectedJob.qualityMetrics.length > 0 && (
                 <>
                   <div>
-                    <strong>MetricX Score:</strong> {selectedJob.qualityMetrics[0].metricXScore?.toFixed(1) || 'N/A'}
+                    <strong>COMETKiwi Score:</strong> {selectedJob.qualityMetrics[0].cometKiwiScore?.toFixed(2) || 'N/A'}
                   </div>
                   <div>
                     <strong>BLEU Score:</strong> {selectedJob.qualityMetrics[0].bleuScore ? (selectedJob.qualityMetrics[0].bleuScore * 100).toFixed(1) + '%' : 'N/A'}

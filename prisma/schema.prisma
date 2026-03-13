@@ -100,19 +100,20 @@ model QualityMetrics {
   hasReference         Boolean             @default(false)
   referenceType        ReferenceType?
   calculationEngine    String?
-  
-  translationRequestId String?             
-  
-  translationStringId  String?             
+  engineName           String?  // MT engine that produced the hypothesis (null = single-engine / aggregated)
+
+  translationRequestId String?
+
+  translationStringId  String?
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
-  
+
   translationRequest   TranslationRequest? @relation(fields: [translationRequestId], references: [id])
   translationString    TranslationString?  @relation(fields: [translationStringId], references: [id])
 
-  // 💡 Performance indices on foreign keys
   @@index([translationRequestId])
   @@index([translationStringId])
+  @@index([engineName])
   @@map("quality_metrics")
 }
 // ----------------------------------------------------------------------

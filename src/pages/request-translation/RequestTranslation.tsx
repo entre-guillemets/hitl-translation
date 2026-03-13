@@ -330,9 +330,9 @@ const SegmentationEditor: React.FC<SegmentationEditorProps> = ({
     return (
       <div 
         className={`p-3 border rounded-lg cursor-pointer transition-all ${
-          selectedSegments.has(segment.id) 
-            ? 'border-blue-500 bg-blue-50' 
-            : 'border-gray-200 hover:border-gray-300'
+          selectedSegments.has(segment.id)
+            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/50 dark:border-blue-400'
+            : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
         } ${highlightedSegment?.id === segment.id ? 'ring-2 ring-yellow-400' : ''}`}
         onClick={() => !isEditing && handleSegmentClick(segment.id)}
       >
@@ -554,7 +554,7 @@ const SegmentationEditor: React.FC<SegmentationEditorProps> = ({
                   onEnded={() => setIsPlaying(false)}
                 />
 
-                <div className="h-32 bg-gray-100 rounded-lg flex items-center justify-center relative overflow-hidden">
+                <div className="h-32 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center relative overflow-hidden">
                   <div className="absolute inset-0 flex items-center">
                     {Array.from({length: 100}).map((_, i) => (
                       <div

@@ -76,7 +76,7 @@ interface ModelLeaderboardEntry {
   avgBleu: number;
   avgComet: number;
   avgTer: number; 
-  avgMetricX: number;
+  avgCometKiwi: number;
   avgChrf: number;  // Added ChrF
   totalTranslations: number;
   languagePairs?: string[];
@@ -96,7 +96,7 @@ interface PerformanceTimeEntry {
   model: string;
   bleuScore: number;
   cometScore: number;
-  metricXScore: number;
+  cometKiwiScore: number;
   translationCount: number;
   languagePair?: string;
   requestId?: string;
@@ -318,8 +318,8 @@ const performanceChartConfig = {
     label: "COMET Score",
     color: "hsl(var(--chart-2))",
   },
-  metricXScore: {
-    label: "MetricX Score",
+  cometKiwiScore: {
+    label: "COMETKiwi Score",
     color: "hsl(var(--chart-3))",
   },
   terScore: {
@@ -1090,8 +1090,9 @@ const QualityDashboard: React.FC = () => {
                         <BarChart data={postEditData.languagePairMetrics}>
                           <CartesianGrid strokeDasharray="3 3" />
                           <XAxis dataKey="languagePair" />
-                          <YAxis domain={[0, 100]} />
+                          <YAxis domain={['auto', 'auto']} tickFormatter={(v: number) => Math.round(v).toString()} />
                           <ChartTooltip content={<ChartTooltipContent />} />
+                          <Legend />
                           <Bar dataKey="avgBleu" fill="var(--color-avgBleu)" name="BLEU Score (%)" />
                           <Bar dataKey="avgComet" fill="var(--color-avgComet)" name="COMET Score (%)" />
                           <Bar dataKey="avgTer" fill="var(--color-avgTer)" name="TER Score (%)" />
@@ -1270,7 +1271,7 @@ const QualityDashboard: React.FC = () => {
                       <ChartTooltip content={<ChartTooltipContent />} />
                       <Area type="monotone" dataKey="bleuScore" stackId="1" stroke="var(--color-bleuScore)" fill="var(--color-bleuScore)" />
                       <Area type="monotone" dataKey="cometScore" stackId="1" stroke="var(--color-cometScore)" fill="var(--color-cometScore)" />
-                      <Area type="monotone" dataKey="metricXScore" stackId="1" stroke="var(--color-metricXScore)" fill="var(--color-metricXScore)" />
+                      <Area type="monotone" dataKey="cometKiwiScore" stackId="1" stroke="var(--color-cometKiwiScore)" fill="var(--color-cometKiwiScore)" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </ChartContainer>

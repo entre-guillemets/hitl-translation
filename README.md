@@ -141,11 +141,13 @@ We provide a convenient script to automate this process.
     | `T5_BASE`/`T5_MULTILINGUAL` | [google-t5/t5-base](https://huggingface.co/google-t5/t5-base)                         | `google-t5_t5-base`               |
     | `NLLB_200`                  | [facebook/nllb-200-distilled-600M](https://huggingface.co/facebook/nllb-200-distilled-600M) | `nllb-200-distilled-600M`         |
     | `COMET`                     | [Unbabel/wmt22-comet-da](https://huggingface.co/Unbabel/wmt22-comet-da)                 | *(Managed by Hugging Face cache)* |
-    | `MetricX`                   | [google/metricx-24-hybrid-large-v2p6](https://huggingface.co/google/metricx-24-hybrid-large-v2p6) | *(Managed by Hugging Face cache)* |
+    | `COMETKiwi`                 | [Unbabel/wmt20-comet-qe-da](https://huggingface.co/Unbabel/wmt20-comet-qe-da)           | *(Managed by Hugging Face cache)* |
     | `Manga OCR`                 | [kha-white/manga-ocr-base](https://huggingface.co/kha-white/manga-ocr-base)               | *(Managed by Hugging Face cache)* |
     | `Whisper`                   | OpenAI Whisper models (base, small, medium, large) | *(Managed by Whisper library cache)* |
 
-    *Note: For Hugging Face models, you can use the "Download" button on the Hugging Face Hub page to download a zip of the repository, then unzip and rename the folder as specified above. COMET, MetricX, Manga OCR, and Whisper models are typically managed by their respective libraries' internal caching mechanisms when loaded programmatically.*
+    *Note: For Hugging Face models, you can use the "Download" button on the Hugging Face Hub page to download a zip of the repository, then unzip and rename the folder as specified above. COMET, COMETKiwi, Manga OCR, and Whisper models are typically managed by their respective libraries' internal caching mechanisms when loaded programmatically.*
+
+    **Quality Estimation model choice — COMETKiwi vs MetricX:** This project originally used `google/metricx-24-hybrid-large-v2p6` for reference-free quality estimation. MetricX was replaced with `Unbabel/wmt20-comet-qe-da` (a COMETKiwi-family QE model) for two reasons: (1) MetricX has significant performance issues on Apple Silicon (MacBook M3) without CUDA, making inference prohibitively slow; (2) `wmt22-cometkiwi-da` (the preferred newer QE model) is a gated HuggingFace repository requiring access approval. `wmt20-comet-qe-da` is freely available, uses the same `unbabel-comet` library already required for COMET-DA, and is a well-validated reference-free QE model from WMT 2020. COMET-DA (`wmt20-comet-da`) is retained for reference-based post-editing metrics (BLEU/TER/ChrF/COMET calculated against human-edited translations). To upgrade to `wmt22-cometkiwi-da`, request access at https://huggingface.co/Unbabel/wmt22-cometkiwi-da and update the model name in `app/main.py`.
 
 ### 3. Backend Setup
 

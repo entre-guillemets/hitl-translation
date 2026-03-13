@@ -1,6 +1,6 @@
 # app/api/routers/quality_assessment.py
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 import logging
 from typing import List, Dict, Any
 import sacrebleu
@@ -17,8 +17,7 @@ from app.schemas.quality import (
     PreferenceComparison,
     QualityMetricsCalculate,
     AnnotationCreate,
-    MetricXRequest,
-    BatchMetricXRequest
+    CometKiwiRequest,
 )
 
 # REMOVED: from comet.models.utils import CometDataModule (and all prior failed imports)
@@ -57,38 +56,93 @@ class CustomCometDataModule:
 
 from app.db.base import prisma
 from app.services.human_feedback_service import human_feedback_service
-from app.dependencies import get_comet_model, get_metricx_service
-_original_dataloader_init = torch.utils.data.DataLoader.__init__
-
-def safe_dataloader_init(self, *args, **kwargs):
-    if kwargs.get("num_workers", 0) == 0:
-        kwargs.pop("multiprocessing_context", None)
-        kwargs.pop("persistent_workers", None)
-    _original_dataloader_init(self, *args, **kwargs)
-
-torch.utils.data.DataLoader.__init__ = safe_dataloader_init
+from app.dependencies import get_comet_model, get_cometkiwi_model
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+
+def comet_predict(model, samples: list, batch_size: int = 8) -> list:
+    """Run COMET/COMETKiwi inference directly, bypassing PyTorch Lightning Trainer.
+
+    The Lightning Trainer fails to route data through prepare_for_inference on Apple
+    Silicon (M3) and certain CPU-only environments. Calling the model forward directly
+    is functionally identical and avoids the issue entirely.
+
+    Args:
+        model: Loaded COMET or COMETKiwi model instance.
+        samples: List of dicts with "src"/"mt" (and "ref" for reference-based models).
+        batch_size: Number of samples per forward pass.
+
+    Returns:
+        List of float scores, one per input sample.
+    """
+    import torch
+
+    all_scores: list[float] = []
+    model.eval()
+    with torch.no_grad():
+        for i in range(0, len(samples), batch_size):
+            batch_samples = samples[i : i + batch_size]
+            batch = model.prepare_for_inference(batch_samples)
+            out = model(**batch)
+            scores = out.score.tolist() if hasattr(out.score, "tolist") else [float(out.score)]
+            all_scores.extend(scores)
+    return all_scores
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/quality-assessment", tags=["Quality Assessment"])
 
 def get_comet_quality_label(comet_score: float) -> str:
-    """Convert COMET score to quality label"""
+    """Convert COMETKiwi DA z-score to quality label.
+
+    wmt20-comet-qe-da outputs DA z-scores centred around 0 (range roughly -2 to +2).
+    Thresholds are calibrated for this range, not the 0–1 range of newer COMET models.
+    """
     from prisma.enums import QualityLabel
-    if comet_score >= 0.8:
+    if comet_score >= 0.3:
         return str(QualityLabel.EXCELLENT)
-    elif comet_score >= 0.6:
+    elif comet_score >= 0.0:
         return str(QualityLabel.GOOD)
-    elif comet_score >= 0.4:
+    elif comet_score >= -0.3:
         return str(QualityLabel.FAIR)
-    elif comet_score >= 0.2:
+    elif comet_score >= -0.7:
         return str(QualityLabel.POOR)
     else:
         return str(QualityLabel.CRITICAL)
 
+def _quality_label_from_ter(ter_score: float):
+    from prisma.enums import QualityLabel
+    if ter_score <= 20.0:
+        return QualityLabel.EXCELLENT
+    elif ter_score <= 30.0:
+        return QualityLabel.GOOD
+    elif ter_score <= 50.0:
+        return QualityLabel.FAIR
+    else:
+        return QualityLabel.POOR
+
+
+def _score_hypothesis(hypothesis: str, reference: str, target_lang: str) -> dict:
+    """Calculate BLEU/TER/ChrF for a single hypothesis against a human-edited reference."""
+    tokenizer_option = 'ja-mecab' if target_lang in ['jp', 'ja'] else '13a'
+    try:
+        bleu = sacrebleu.sentence_bleu(hypothesis, [reference], tokenize=tokenizer_option).score / 100
+        ter = min(100.0, sacrebleu.sentence_ter(hypothesis, [reference]).score)
+        chrf = sacrebleu.sentence_chrf(hypothesis, [reference]).score
+    except Exception as e:
+        logger.warning(f"Surface scoring failed: {e}")
+        bleu, ter, chrf = 0.0, 100.0, 0.0
+    return {"bleu": bleu, "ter": ter, "chrf": chrf}
+
+
 async def calculate_metrics_for_string(translation_string_id: str, comet_model=None):
-    """Calculate BLEU/TER/ChrF/COMET metrics for a single translation string automatically"""
+    """Calculate BLEU/TER/ChrF/COMET for every MT engine output on a translation string.
+
+    One QualityMetrics row is written per engine (engineName set to the engine id).
+    For single-engine requests the row has engineName=None.
+    The human-edited translatedText is the reference for all engines.
+    COMET predictions are batched in a single call for efficiency.
+    """
     try:
         if not prisma.is_connected():
             await prisma.connect()
@@ -102,129 +156,90 @@ async def calculate_metrics_for_string(translation_string_id: str, comet_model=N
             logger.warning(f"Translation string {translation_string_id} not found")
             return None
 
-        original_mt = translation_string.originalTranslation
-        post_edited = translation_string.translatedText
-        source = translation_string.sourceText
-
-        is_post_edited = (
-            original_mt and 
-            post_edited and 
-            original_mt.strip() != post_edited.strip() and
-            translation_string.status in ["REVIEWED", "APPROVED"]
-        )
-
-        if not is_post_edited:
-            logger.info(f"String {translation_string_id} not post-edited, skipping metrics")
-            return None
-        
+        reference = translation_string.translatedText   # human post-edit = gold reference
+        source    = translation_string.sourceText
         target_lang = translation_string.targetLanguage.lower()
-        tokenizer_option = 'ja-mecab' if target_lang in ['jp', 'ja'] else '13a'
-        logger.info(f"Using tokenizer '{tokenizer_option}' for metrics on lang '{target_lang}'")
 
-        bleu_score = 0.5
-        ter_score = 50.0
-        chrf_score = 0.0
-        comet_score = 0.0
+        from prisma.enums import StringStatus
+        if not reference or translation_string.status not in [StringStatus.REVIEWED, StringStatus.APPROVED]:
+            logger.info(f"String {translation_string_id} not approved/reviewed, skipping metrics")
+            return None
 
-        try:
-            bleu_score = sacrebleu.sentence_bleu(
-                original_mt,
-                [post_edited],
-                tokenize=tokenizer_option
-            ).score / 100
-            
-            ter_result = sacrebleu.sentence_ter(
-                original_mt, 
-                [post_edited],
-                tokenize=tokenizer_option
-            )
-            ter_score = min(100.0, ter_result.score)
-            
-            chrf_result = sacrebleu.sentence_chrf(original_mt, [post_edited])
-            chrf_score = chrf_result.score
-            
-            if comet_model:
-                try:
-                    comet_model.eval()
-                    
-                    src_lang = translation_string.translationRequest.sourceLanguage.lower() if translation_string.translationRequest else 'en'
-                    tgt_lang = target_lang
-                    
-                    comet_data = [{
-                            "src": source,
-                            "mt": original_mt,
-                            "ref": post_edited,
-                            "src_lang": src_lang, 
-                            "tgt_lang": tgt_lang 
-                    }]
-                    
-                    # 1. Create the DataModule
-                    data_module = CustomCometDataModule(
-                        comet_data,
-                        batch_size=1,
-                        num_workers=0,
-                    )
+        # --- Build (engine_name, hypothesis) pairs ---
+        candidates: list[tuple] = []   # (engine_name: str|None, hypothesis: str)
 
-                    # 2. Call predict with the created DataModule
-                    comet_output = comet_model.predict(
-                        datamodule=data_module, 
-                        gpus=0,
-                        progress_bar=False
-                    )
-                    
-                    # Safely extract score
-                    if comet_output and comet_output[0] and hasattr(comet_output[0], 'scores') and len(comet_output[0].scores) > 0:
-                        comet_score = float(comet_output[0].scores[0])
-                    # --- END FIX ---
-                    else:
-                        logger.warning(f"COMET returned invalid output for {translation_string_id}")
-                        comet_score = 0.0
-                        
-                except Exception as comet_error:
-                    logger.error(f"COMET calculation failed for {translation_string_id}: {comet_error}")
-                    import traceback
-                    logger.error(traceback.format_exc())
-                    comet_score = 0.0
-            else:
-                logger.warning(f"COMET model not available for string {translation_string_id}")
-                comet_score = 0.0
-            
-        except Exception as scoring_error:
-            logger.error(f"Error calculating metrics for {translation_string_id}: {scoring_error}")
-            pass
+        engine_results = translation_string.engineResults
+        if engine_results and isinstance(engine_results, list):
+            for result in engine_results:
+                engine_id = result.get("engine")
+                text = (result.get("text") or "").strip()
+                if engine_id and text and text != reference.strip():
+                    candidates.append((engine_id, text))
 
-        from prisma.enums import QualityLabel
-        if ter_score <= 20.0:
-            quality_label = QualityLabel.EXCELLENT
-        elif ter_score <= 30.0:
-            quality_label = QualityLabel.GOOD
-        elif ter_score <= 50.0:
-            quality_label = QualityLabel.FAIR
-        else:
-            quality_label = QualityLabel.POOR
+        # Also score the original single-engine MT output if not already covered
+        original_mt = (translation_string.originalTranslation or "").strip()
+        if original_mt and original_mt != reference.strip():
+            if not any(h == original_mt for _, h in candidates):
+                candidates.append((None, original_mt))
 
-        await prisma.qualitymetrics.delete_many(
-            where={"translationStringId": translation_string_id}
+        if not candidates:
+            logger.info(f"No scoreable MT hypotheses for {translation_string_id}")
+            return None
+
+        src_lang = (
+            str(translation_string.translationRequest.sourceLanguage).lower()
+            if translation_string.translationRequest else "en"
         )
+
+        # --- Batch COMET in a single predict() call ---
+        comet_scores: list[float] = [0.0] * len(candidates)
+        if comet_model:
+            try:
+                comet_model.eval()
+                comet_data = [
+                    {"src": source, "mt": hyp, "ref": reference, "src_lang": src_lang, "tgt_lang": target_lang}
+                    for _, hyp in candidates
+                ]
+                comet_scores = comet_predict(comet_model, comet_data, batch_size=8)
+            except Exception as comet_error:
+                logger.error(f"COMET batch failed for {translation_string_id}: {comet_error}")
+        else:
+            logger.warning(f"COMET model not available for {translation_string_id}")
+
+        # --- Replace any existing metrics rows and write one per engine ---
+        await prisma.qualitymetrics.delete_many(where={"translationStringId": translation_string_id})
 
         from prisma.enums import ReferenceType
-        metrics = await prisma.qualitymetrics.create(
-            data={
-                "translationStringId": translation_string_id,
-                "translationRequestId": translation_string.translationRequest.id,
-                "bleuScore": bleu_score,
-                "cometScore": comet_score,
-                "chrfScore": chrf_score,
-                "terScore": ter_score,
-                "qualityLabel": quality_label,
-                "hasReference": True,
-                "referenceType": ReferenceType.POST_EDITED,
-                "calculationEngine": "auto-calculate"
-            }
+        request_id = (
+            translation_string.translationRequest.id
+            if translation_string.translationRequest else None
         )
-        logger.info(f"âœ… Recalculated metrics for {translation_string_id}: BLEU={bleu_score:.3f}, COMET={comet_score:.3f}, TER={ter_score:.2f}, ChrF={chrf_score:.2f}")
+        created = []
+        for i, (engine_name, hypothesis) in enumerate(candidates):
+            scores = _score_hypothesis(hypothesis, reference, target_lang)
+            row = await prisma.qualitymetrics.create(
+                data={
+                    "translationStringId": translation_string_id,
+                    "translationRequestId": request_id,
+                    "engineName": engine_name,
+                    "bleuScore": scores["bleu"],
+                    "cometScore": comet_scores[i],
+                    "chrfScore": scores["chrf"],
+                    "terScore": scores["ter"],
+                    "qualityLabel": _quality_label_from_ter(scores["ter"]),
+                    "hasReference": True,
+                    "referenceType": ReferenceType.POST_EDITED,
+                    "calculationEngine": "auto-calculate-per-engine",
+                }
+            )
+            created.append(row)
+            logger.info(
+                f"✅ Metrics [{engine_name or 'single-engine'}] {translation_string_id}: "
+                f"BLEU={scores['bleu']:.3f} TER={scores['ter']:.2f} "
+                f"ChrF={scores['chrf']:.2f} COMET={comet_scores[i]:.3f}"
+            )
 
-        return metrics
+        return created
 
     except Exception as e:
         logger.error(f"Failed to calculate metrics for string {translation_string_id}: {e}")
@@ -253,31 +268,10 @@ async def calculate_comet_score(
                 detail="Missing required fields: source, hypothesis, and reference"
             )
 
-        # --- START FIX: Use CustomCometDataModule ---
-        data = [{
-            "src": source,
-            "mt": hypothesis,
-            "ref": reference,
-            "src_lang": source_lang,
-            "tgt_lang": target_lang
-        }]
-        
-        data_module = CustomCometDataModule(
-            data,
-            batch_size=1,
-            num_workers=0,
-        )
-
-        model_output = comet_model.predict(
-            datamodule=data_module,
-            gpus=0,
-            progress_bar=False
-        )
-        
-        # Safely extract score
-        score = float(model_output[0].scores[0])
-        system_score = float(model_output[0].system_score)
-        # --- END FIX ---
+        data = [{"src": source, "mt": hypothesis, "ref": reference}]
+        scores = comet_predict(comet_model, data, batch_size=1)
+        score = scores[0]
+        system_score = score  # single-segment system score = segment score
 
 
         return {
@@ -318,22 +312,7 @@ async def calculate_batch_comet_scores(
                 "tgt_lang": target_lang
             })
         
-        # --- START FIX: Use CustomCometDataModule ---
-        data_module = CustomCometDataModule(
-            data,
-            batch_size=8,
-            num_workers=0,
-        )
-
-        model_output = comet_model.predict(
-            datamodule=data_module,
-            gpus=0,
-            progress_bar=False
-        )
-        
-        # Flatten the list of lists output from predict()
-        scores = [item for sublist in model_output for item in sublist.scores]
-        # --- END FIX ---
+        scores = comet_predict(comet_model, data, batch_size=8)
 
         results = []
         for i, score in enumerate(scores):
@@ -360,12 +339,12 @@ async def calculate_batch_comet_scores(
 @router.post("/predict-quality")
 async def predict_translation_quality(
     request_id: str = Query(..., description="Translation request ID"),
-    comet_model=Depends(get_comet_model),
+    cometkiwi_model=Depends(get_cometkiwi_model),
 ):
-    """Predict quality using COMET for a translation request"""
+    """Predict quality using COMETKiwi (reference-free QE) for a translation request"""
     try:
-        if comet_model is None:
-            raise HTTPException(status_code=503, detail="COMET model not available")
+        if cometkiwi_model is None:
+            raise HTTPException(status_code=503, detail="COMETKiwi model not available")
 
         if not prisma.is_connected():
             await prisma.connect()
@@ -392,40 +371,22 @@ async def predict_translation_quality(
             src_lang = translation_string.translationRequest.sourceLanguage.lower() if translation_string.translationRequest else 'en'
             tgt_lang = translation_string.targetLanguage.lower()
             
-            # Use source as reference for reference-free prediction
+            # COMETKiwi is reference-free — no ref field needed
             batch_data.append({
                 "src": translation_string.sourceText,
                 "mt": translation_string.translatedText,
-                "ref": translation_string.sourceText,
-                "src_lang": src_lang,
-                "tgt_lang": tgt_lang
             })
             string_ids.append(translation_string.id)
 
-        # --- START FIX: Use CustomCometDataModule ---
-        data_module = CustomCometDataModule(
-            batch_data,
-            batch_size=8,
-            num_workers=0,
-        )
+        scores = comet_predict(cometkiwi_model, batch_data, batch_size=8)
 
-        model_output = comet_model.predict(
-            datamodule=data_module,
-            gpus=0,
-            progress_bar=False
-        )
-        
-        # Flatten the output scores
-        scores = [item for sublist in model_output for item in sublist.scores]
-        # --- END FIX ---
-        
         for i, comet_score in enumerate(scores):
             comet_score = float(comet_score)
             quality_label = get_comet_quality_label(comet_score)
             string_id = string_ids[i]
             translation_string = translation_request.translationStrings[i]
 
-            logger.info(f"Saving quality metrics for string {string_id}: score={comet_score}, label={quality_label}")
+            logger.info(f"Saving COMETKiwi quality metrics for string {string_id}: score={comet_score}, label={quality_label}")
 
             quality_prediction = await prisma.qualitymetrics.create(
                 data={
@@ -434,7 +395,7 @@ async def predict_translation_quality(
                     "cometScore": comet_score,
                     "qualityLabel": quality_label,
                     "hasReference": False,
-                    "calculationEngine": "comet-prediction"
+                    "calculationEngine": "cometkiwi"
                 }
             )
             
@@ -467,12 +428,12 @@ async def predict_translation_quality(
 @router.post("/predict-quality-batch")
 async def predict_quality_batch(
     request_ids: List[str],
-    comet_model=Depends(get_comet_model),
+    cometkiwi_model=Depends(get_cometkiwi_model),
 ):
-    """Predict quality for multiple translation requests"""
+    """Predict quality for multiple translation requests using COMETKiwi (reference-free QE)"""
     try:
-        if comet_model is None:
-            raise HTTPException(status_code=503, detail="COMET model not available")
+        if cometkiwi_model is None:
+            raise HTTPException(status_code=503, detail="COMETKiwi model not available")
 
         if not prisma.is_connected():
             await prisma.connect()
@@ -512,12 +473,10 @@ async def predict_quality_batch(
                     src_lang = translation_string.translationRequest.sourceLanguage.lower() if translation_string.translationRequest else 'en'
                     tgt_lang = translation_string.targetLanguage.lower()
                     
+                    # COMETKiwi is reference-free — no ref field needed
                     batch_data.append({
                         "src": translation_string.sourceText,
                         "mt": translation_string.translatedText,
-                        "ref": translation_string.sourceText,
-                        "src_lang": src_lang,
-                        "tgt_lang": tgt_lang
                     })
                     string_to_save.append(translation_string)
 
@@ -530,22 +489,7 @@ async def predict_quality_batch(
                     })
                     continue
 
-                # --- START FIX: Use CustomCometDataModule ---
-                data_module = CustomCometDataModule(
-                    batch_data,
-                    batch_size=8,
-                    num_workers=0,
-                )
-
-                model_output = comet_model.predict(
-                    datamodule=data_module,
-                    gpus=0,
-                    progress_bar=False
-                )
-                
-                scores = [item for sublist in model_output for item in sublist.scores]
-                # --- END FIX ---
-                
+                scores = comet_predict(cometkiwi_model, batch_data, batch_size=8)
                 predictions = []
 
                 for i, comet_score in enumerate(scores):
@@ -560,7 +504,7 @@ async def predict_quality_batch(
                             "cometScore": comet_score,
                             "qualityLabel": quality_label,
                             "hasReference": False,
-                            "calculationEngine": "comet-prediction"
+                            "calculationEngine": "cometkiwi"
                         }
                     )
 
@@ -601,11 +545,11 @@ async def predict_quality_batch(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/process-all-pending")
-async def process_all_pending_quality_assessments(comet_model=Depends(get_comet_model)):
-    """Process quality assessment for all translation requests without quality metrics"""
+async def process_all_pending_quality_assessments(cometkiwi_model=Depends(get_cometkiwi_model)):
+    """Process COMETKiwi quality assessment for all translation strings without quality metrics"""
     try:
-        if comet_model is None:
-            raise HTTPException(status_code=503, detail="COMET model not available")
+        if cometkiwi_model is None:
+            raise HTTPException(status_code=503, detail="COMETKiwi model not available")
 
         if not prisma.is_connected():
             await prisma.connect()
@@ -633,34 +577,14 @@ async def process_all_pending_quality_assessments(comet_model=Depends(get_comet_
             src_lang = translation_string.translationRequest.sourceLanguage.lower() if translation_string.translationRequest else 'en'
             tgt_lang = translation_string.targetLanguage.lower()
 
-            batch_data.append({
-                "src": src, 
-                "mt": mt, 
-                "ref": src, # Reference-free mode uses src as ref
-                "src_lang": src_lang, 
-                "tgt_lang": tgt_lang
-            })
+            # COMETKiwi is reference-free — only src and mt needed
+            batch_data.append({"src": src, "mt": mt})
             string_lookup[len(batch_data) - 1] = translation_string # Index -> object lookup
 
         if not batch_data:
             return {"message": "No valid pending strings found after filtering", "totalProcessed": 0}
         
-        # --- START FIX: Use CustomCometDataModule ---
-        data_module = CustomCometDataModule(
-            batch_data,
-            batch_size=8,
-            num_workers=0,
-        )
-
-        model_output = comet_model.predict(
-            datamodule=data_module, 
-            gpus=0,
-            progress_bar=False
-        )
-        
-        scores = [item for sublist in model_output for item in sublist.scores]
-        # --- END FIX ---
-
+        scores = comet_predict(cometkiwi_model, batch_data, batch_size=8)
         processed_count = 0
         errors = []
         
@@ -680,7 +604,7 @@ async def process_all_pending_quality_assessments(comet_model=Depends(get_comet_
                         "cometScore": comet_score,
                         "qualityLabel": quality_label,
                         "hasReference": False,
-                        "calculationEngine": "comet-single-prediction"
+                        "calculationEngine": "cometkiwi"
                     }
                 )
                 processed_count += 1
@@ -928,21 +852,7 @@ async def calculate_quality_metrics(
         
         if comet_model and comet_batch_data:
             try:
-                # --- START FIX: Use CustomCometDataModule ---
-                data_module = CustomCometDataModule(
-                    comet_batch_data,
-                    batch_size=8,
-                    num_workers=0,
-                )
-                
-                comet_output = comet_model.predict(
-                    datamodule=data_module,
-                    gpus=0,
-                    progress_bar=False
-                )
-                
-                scores = [item for sublist in comet_output for item in sublist.scores]
-                # --- END FIX ---
+                scores = comet_predict(comet_model, comet_batch_data, batch_size=8)
                 
                 for i, score in enumerate(scores):
                     string_id = string_lookup[i]
@@ -1045,49 +955,47 @@ async def get_quality_summary(request_id: str):
         logger.error(f"Quality summary failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/metricx/evaluate")
-async def evaluate_translation(request: MetricXRequest):
-    """Evaluate translation using MetricX"""
+@router.post("/cometkiwi/evaluate")
+async def evaluate_translation_cometkiwi(
+    request: CometKiwiRequest,
+    cometkiwi_model=Depends(get_cometkiwi_model),
+):
+    """Evaluate translation quality using COMETKiwi (reference-free QE)"""
     try:
-        if metricx_service is None:
-            raise HTTPException(status_code=503, detail="MetricX service not loaded or initialized.")
+        if cometkiwi_model is None:
+            raise HTTPException(status_code=503, detail="COMETKiwi model not available")
 
-        result = metricx_service.evaluate_translation(
-            source=request.source,
-            hypothesis=request.hypothesis,
-            reference=request.reference,
-            source_language=request.source_language,
-            target_language=request.target_language
-        )
-        return result
+        data = [{"src": request.source, "mt": request.hypothesis}]
+        scores = comet_predict(cometkiwi_model, data, batch_size=1)
+        score = scores[0]
+        return {
+            "score": score,
+            "qualityLabel": get_comet_quality_label(score),
+            "model": "wmt22-cometkiwi-da",
+            "referenceRequired": False,
+        }
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"MetricX evaluation failed: {e}")
+        logger.error(f"COMETKiwi evaluation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/metricx/test")
-async def test_metricx():
-    """Test MetricX service availability and basic functionality"""
-    if metricx_service is None:
-        raise HTTPException(status_code=503, detail="MetricX service not loaded or initialized")
+
+@router.get("/cometkiwi/test")
+async def test_cometkiwi(cometkiwi_model=Depends(get_cometkiwi_model)):
+    """Test COMETKiwi service availability"""
+    if cometkiwi_model is None:
+        raise HTTPException(status_code=503, detail="COMETKiwi model not available")
 
     try:
-        test_score = metricx_service.evaluate_without_reference(
-            source="Hello world",
-            translation="Hola mundo"
-        )
-
-        return {
-            "status": "success",
-            "test_score": test_score,
-            "message": "MetricX is working correctly"
-        }
-
+        scores = comet_predict(cometkiwi_model, [{"src": "Hello world", "mt": "Hola mundo"}], batch_size=1)
+        return {"status": "success", "test_score": scores[0], "message": "COMETKiwi is working correctly"}
     except HTTPException:
         raise
     except Exception as e:
         traceback.print_exc()
-        logger.error(f"MetricX test failed: {e}")
-        raise HTTPException(status_code=500, detail=f"MetricX test failed: {str(e)}")
+        logger.error(f"COMETKiwi test failed: {e}")
+        raise HTTPException(status_code=500, detail=f"COMETKiwi test failed: {str(e)}")
 
 @router.post("/auto-calculate/{translation_string_id}")
 async def auto_calculate_metrics(translation_string_id: str):
@@ -1123,36 +1031,37 @@ async def auto_calculate_metrics(translation_string_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/calculate-all-approved")
-async def calculate_all_approved_metrics():
+async def calculate_all_approved_metrics(request: Request):
     """Calculate metrics for all approved/reviewed strings without metrics"""
+    comet_model = getattr(request.app.state, "comet_model", None)
     try:
         if not prisma.is_connected():
             await prisma.connect()
-        
+
         strings = await prisma.translationstring.find_many(
             where={
                 "status": {"in": ["REVIEWED", "APPROVED"]},
             },
             include={"translationRequest": True}
         )
-        
+
         logger.info(f"Found {len(strings)} approved/reviewed strings to process")
-        
+
         processed = 0
         errors = []
         skipped = 0
-        
+
         for string in strings:
             try:
                 if not string.originalTranslation or not string.translatedText:
                     skipped += 1
                     continue
-                
+
                 if string.originalTranslation.strip() == string.translatedText.strip():
                     skipped += 1
                     continue
-                    
-                metrics = await calculate_metrics_for_string(string.id)
+
+                metrics = await calculate_metrics_for_string(string.id, comet_model=comet_model)
                 if metrics:
                     processed += 1
                     

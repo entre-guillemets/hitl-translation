@@ -22,7 +22,6 @@ from app.api.routers import (
 from app.services.fuzzy_matching_service import FuzzyMatchingService
 from app.services.multi_engine_service import CleanMultiEngineService
 from app.services.translation_service import translation_service
-from app.services.metricx_service import MetricXService
 from app.services.health_service import HealthService
 from app.services.multimodal_service import multimodal_service as multimodal_service_instance
 from app.services.transcreation_service import TranscreationService
@@ -129,16 +128,23 @@ async def startup_event():
     else:
         logger.warning("❌ COMET model not available - quality assessment will be disabled")
 
-    # MetricX will be None, but we still pass it to HealthService
-    metricx_service = None
+    # Load COMETKiwi QE model for reference-free quality prediction.
+    # wmt22-cometkiwi-da is gated on HuggingFace and requires access approval; we use
+    # wmt20-comet-qe-da which is freely available and runs efficiently on CPU/Apple Silicon.
+    # Both are reference-free QE models from the COMET family.
+    cometkiwi_model = None
     try:
-        logger.info("MetricX loading disabled - using COMET for quality assessment")
-        metricx_service = MetricXService() # Instantiate it even if it won't load models, so it can be passed.
+        logger.info("Loading COMETKiwi (wmt20-comet-qe-da) for reference-free quality estimation...")
+        from comet import load_from_checkpoint, download_model
+        cometkiwi_path = download_model("Unbabel/wmt20-comet-qe-da")
+        cometkiwi_model = load_from_checkpoint(cometkiwi_path)
+        cometkiwi_model.eval()
+        logger.info("✓ COMETKiwi model (wmt20-comet-qe-da) loaded successfully")
     except Exception as e:
-        logger.error(f"❌ MetricX initialization failed: {e}")
-        metricx_service = None # Ensure it's None if init fails
+        logger.error(f"❌ COMETKiwi initialization failed: {e}")
+        cometkiwi_model = None
 
-    app.state.metricx_service = metricx_service
+    app.state.cometkiwi_model = cometkiwi_model
 
     # Initialize FuzzyMatchingService
     fuzzy_matcher = FuzzyMatchingService(prisma=prisma)
@@ -157,7 +163,7 @@ async def startup_event():
 
     # Initialize and set HealthService
     health_service = HealthService()
-    health_service.set_services(metricx_service, multi_engine_service)
+    health_service.set_services(cometkiwi_model, multi_engine_service)
     app.state.health_service = health_service
 
     # --- New Multimodal Service Initialization ---

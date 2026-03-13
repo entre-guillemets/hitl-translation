@@ -22,13 +22,8 @@ class AnnotationCreate(BaseModel):
     comment: str
     reviewer: Optional[str] = None
 
-class MetricXRequest(BaseModel):
+class CometKiwiRequest(BaseModel):
     source: str
     hypothesis: str
-    reference: Optional[str] = None
     source_language: str = "en"
     target_language: str = "es"
-    model: Optional[str] = "MetricX-24-Hybrid"
-
-class BatchMetricXRequest(BaseModel):
-    requests: List[MetricXRequest]

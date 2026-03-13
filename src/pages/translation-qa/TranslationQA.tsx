@@ -46,7 +46,7 @@ interface QualityMetrics {
   bleuScore?: number;
   cometScore?: number;
   terScore?: number;
-  metricXScore?: number;
+  cometKiwiScore?: number;
   qualityLabel?: string;
   hasReference?: boolean;
   referenceType?: string;
