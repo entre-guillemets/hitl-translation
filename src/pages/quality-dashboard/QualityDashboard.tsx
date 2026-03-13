@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { AlertTriangle, Circle, Download, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, Circle, Download, RefreshCw, X } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import ReactDiffViewer from 'react-diff-viewer-continued';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
@@ -27,6 +27,8 @@ import {
   DialogTitle
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Checkbox } from '@/components/ui/checkbox';
 import { API_BASE_URL } from '@/config/api';
 
 // Language Options (for filters)
@@ -289,6 +291,31 @@ interface LLMJudgeSummary {
   totalJudgments: number;
 }
 
+interface EvalSnapshot {
+  id: string;
+  requestId: string | null;
+  languagePair: string;
+  engineName: string | null;
+  runDate: string;
+  avgBleu: number | null;
+  avgComet: number | null;
+  avgChrf: number | null;
+  avgTer: number | null;
+  segmentCount: number;
+  notes: string | null;
+}
+
+interface RegressionReportEntry {
+  languagePair: string;
+  engineName: string | null;
+  status: 'ok' | 'regression' | 'insufficient_data';
+  message?: string;
+  latest: { id: string; runDate: string; notes: string | null; segmentCount: number; avgBleu: number | null; avgComet: number | null; avgChrf: number | null; avgTer: number | null };
+  previous: { id: string; runDate: string; notes: string | null; segmentCount: number; avgBleu: number | null; avgComet: number | null; avgChrf: number | null; avgTer: number | null } | null;
+  deltas: { bleu: number | null; comet: number | null; chrf: number | null; ter: number | null } | null;
+  regressions: { metric: string; delta: number; threshold: number }[];
+}
+
 interface LLMDisagreementEntry {
   translationStringId: string;
   engineName: string | null;
@@ -459,6 +486,13 @@ const tmImpactChartConfig = {
   },
 } satisfies ChartConfig;
 
+const regressionChartConfig = {
+  bleu: { label: "BLEU (×100)", color: "hsl(var(--chart-1))" },
+  comet: { label: "COMET", color: "hsl(var(--chart-2))" },
+  chrf: { label: "ChrF", color: "hsl(var(--chart-3))" },
+  ter: { label: "TER (lower=better)", color: "hsl(var(--chart-4))" },
+} satisfies ChartConfig;
+
 // Custom colors for stacked bar chart by errorType
 const errorTypeColors: { [key: string]: string } = {
   "Translation Error": "hsl(var(--chart-1))", // A distinct color
@@ -482,6 +516,66 @@ const getAllErrorTypes = (data: AnnotationData) => {
     errorTypes.add(item.errorType);
   });
   return Array.from(errorTypes);
+};
+
+// Global MultiSelect component
+const MultiSelect: React.FC<{
+  options: { label: string; value: string }[];
+  selected: string[];
+  onChange: (values: string[]) => void;
+  placeholder: string;
+}> = ({ options, selected, onChange, placeholder }) => {
+  const [open, setOpen] = React.useState(false);
+
+  const toggle = (value: string) => {
+    onChange(selected.includes(value) ? selected.filter(v => v !== value) : [...selected, value]);
+  };
+
+  const label = selected.length === 0
+    ? placeholder
+    : selected.length === 1
+      ? (options.find(o => o.value === selected[0])?.label ?? selected[0])
+      : `${selected.length} selected`;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="min-w-[160px] justify-between font-normal">
+          <span className="truncate">{label}</span>
+          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[220px] p-2" align="start">
+        <div className="space-y-0.5 max-h-60 overflow-y-auto">
+          {options.map(option => (
+            <div
+              key={option.value}
+              className="flex items-center gap-2 px-2 py-1.5 rounded text-sm cursor-pointer hover:bg-muted"
+              onClick={() => toggle(option.value)}
+            >
+              <Checkbox
+                checked={selected.includes(option.value)}
+                onCheckedChange={() => toggle(option.value)}
+                onClick={e => e.stopPropagation()}
+              />
+              <span>{option.label}</span>
+              {selected.includes(option.value) && <Check className="ml-auto h-3 w-3 text-primary" />}
+            </div>
+          ))}
+          {options.length === 0 && (
+            <p className="text-xs text-muted-foreground text-center py-2">No options available</p>
+          )}
+        </div>
+        {selected.length > 0 && (
+          <div className="border-t mt-2 pt-2">
+            <Button variant="ghost" size="sm" className="w-full h-7 text-xs" onClick={() => onChange([])}>
+              <X className="h-3 w-3 mr-1" /> Clear all
+            </Button>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
 };
 
 // Translator Impact Components
@@ -518,52 +612,6 @@ const TranslationComparison: React.FC<{
 };
 
 // Model Performance Controls Component
-const ModelPerformanceControls: React.FC<{
-  chartGroupBy: 'model' | 'language_pair';
-  setChartGroupBy: (value: 'model' | 'language_pair') => void;
-  selectedLanguagePair: string;
-  setSelectedLanguagePair: (value: string) => void;
-  onRefresh: () => void;
-}> = ({ chartGroupBy, setChartGroupBy, selectedLanguagePair, setSelectedLanguagePair, onRefresh }) => (
-  <div className="flex items-center space-x-4 mb-4">
-    <div className="flex items-center space-x-2">
-      <label className="text-sm font-medium">Group by:</label>
-      <Select value={chartGroupBy} onValueChange={setChartGroupBy}>
-        <SelectTrigger className="w-40">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="model">Model</SelectItem>
-          <SelectItem value="language_pair">Language Pair</SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
-
-    <div className="flex items-center space-x-2">
-      <label className="text-sm font-medium">Language Pair:</label>
-      <Select value={selectedLanguagePair} onValueChange={setSelectedLanguagePair}>
-        <SelectTrigger className="w-40">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">All Pairs</SelectItem>
-          {/* Dynamically populate based on available data or common pairs */}
-          <SelectItem value="JP-EN">Japanese → English</SelectItem>
-          <SelectItem value="EN-JP">English → Japanese</SelectItem>
-          <SelectItem value="FR-EN">French → English</SelectItem>
-          <SelectItem value="EN-FR">English → French</SelectItem>
-          <SelectItem value="JP-FR">Japanese → French</SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
-
-    <Button onClick={onRefresh} variant="outline" size="sm">
-      <RefreshCw className="h-4 w-4 mr-2" />
-      Update Chart
-    </Button>
-  </div>
-);
-
 // Multi-Metric Chart Component
 const MultiMetricChart: React.FC<{ data: ModelLeaderboardEntry[] }> = ({ data }) => {
   // Transform data to use the correct field names
@@ -796,10 +844,20 @@ const QualityDashboard: React.FC = () => {
   const [selectedComparison, setSelectedComparison] = useState<TranslationComparisonEntry | null>(null);
   const [isComparisonModalOpen, setIsComparisonModalOpen] = useState(false);
 
+  // Controlled tab state (prevents tab resets on data refetch)
+  const [activeTab, setActiveTab] = useState<string>('quality');
+
+  // Global multiselect filters — applied to every tab
+  const [selectedLanguagePairs, setSelectedLanguagePairs] = useState<string[]>([]);
+  const [selectedModels, setSelectedModels] = useState<string[]>([]);
+
   // State for chart controls
   const [chartGroupBy, setChartGroupBy] = useState<'model' | 'language_pair'>('model');
-  const [selectedLanguagePair, setSelectedLanguagePair] = useState<string>('all');
   const [dateRange, setDateRange] = useState<{ from?: string; to?: string }>({});
+
+  // Regression / snapshot data
+  const [snapshots, setSnapshots] = useState<EvalSnapshot[]>([]);
+  const [regressionReport, setRegressionReport] = useState<RegressionReportEntry[]>([]);
 
   // Pagination states for Translator Impact Analysis
   const [currentPageTranslator, setCurrentPageTranslator] = useState(1);
@@ -819,15 +877,93 @@ const QualityDashboard: React.FC = () => {
   const itemsPerPageOptionsPreferences = [25, 50, 100, 0];
 
 
-  // Memoized data for Translator Impact Analysis table pagination
-  const paginatedTranslatorComparisons = useMemo(() => {
-    if (!translatorImpactData || !translatorImpactData.comparisons) return [];
-    const startIndex = (currentPageTranslator - 1) * itemsPerPageTranslator;
-    const endIndex = itemsPerPageTranslator === 0 ? translatorImpactData.comparisons.length : startIndex + itemsPerPageTranslator;
-    return translatorImpactData.comparisons.slice(startIndex, endIndex);
-  }, [translatorImpactData, currentPageTranslator, itemsPerPageTranslator]);
+  // ── Available filter options (derived from loaded data) ──────────────────
+  const availableLanguagePairs = useMemo(() => {
+    const pairs = new Set<string>();
+    dashboardData?.modelPerformance.leaderboard.forEach(e => e.languagePairs?.forEach(p => pairs.add(p)));
+    postEditData?.languagePairMetrics.forEach(e => pairs.add(e.languagePair));
+    translatorImpactData?.comparisons.forEach(e => pairs.add(e.languagePair));
+    snapshots.forEach(s => pairs.add(s.languagePair));
+    return Array.from(pairs).filter(Boolean).sort().map(p => ({ label: p, value: p }));
+  }, [dashboardData, postEditData, translatorImpactData, snapshots]);
 
-  const totalTranslatorComparisonsCount = translatorImpactData?.comparisons?.length || 0;
+  const availableModels = useMemo(() => {
+    const models = new Set<string>();
+    dashboardData?.modelPerformance.leaderboard.forEach(e => {
+      const name = e.name || e.model;
+      if (name) models.add(name);
+    });
+    snapshots.forEach(s => { if (s.engineName) models.add(s.engineName); });
+    return Array.from(models).sort().map(m => ({ label: m, value: m }));
+  }, [dashboardData, snapshots]);
+
+  // ── Global client-side filtered views ────────────────────────────────────
+  const matchLP = (lp: string | undefined) =>
+    selectedLanguagePairs.length === 0 || (lp != null && selectedLanguagePairs.includes(lp));
+  const matchModel = (name: string | undefined) =>
+    selectedModels.length === 0 || (name != null && selectedModels.includes(name));
+
+  const filteredLeaderboard = useMemo(() =>
+    (dashboardData?.modelPerformance.leaderboard ?? []).filter(e => {
+      const modelName = e.name || e.model;
+      if (!matchModel(modelName)) return false;
+      if (selectedLanguagePairs.length > 0 && e.languagePairs) {
+        return e.languagePairs.some(p => selectedLanguagePairs.includes(p));
+      }
+      return true;
+    }),
+  [dashboardData, selectedLanguagePairs, selectedModels]);
+
+  const filteredPostEditMetrics = useMemo(() =>
+    (postEditData?.languagePairMetrics ?? []).filter(e => matchLP(e.languagePair)),
+  [postEditData, selectedLanguagePairs]);
+
+  const filteredTranslatorComparisons = useMemo(() =>
+    (translatorImpactData?.comparisons ?? []).filter(e => matchLP(e.languagePair)),
+  [translatorImpactData, selectedLanguagePairs]);
+
+  // Snapshots filtered by both language pair and engine (model)
+  const filteredSnapshots = useMemo(() =>
+    snapshots.filter(s =>
+      matchLP(s.languagePair) &&
+      (selectedModels.length === 0 || (s.engineName != null && selectedModels.includes(s.engineName)))
+    ),
+  [snapshots, selectedLanguagePairs, selectedModels]);
+
+  // Latest snapshot per (languagePair, engineName) for the regression chart
+  const regressionChartData = useMemo(() => {
+    const byKey: Record<string, EvalSnapshot> = {};
+    for (const s of filteredSnapshots) {
+      const key = `${s.languagePair}|${s.engineName ?? 'agg'}`;
+      if (!byKey[key] || s.runDate > byKey[key].runDate) byKey[key] = s;
+    }
+    return Object.values(byKey).map(s => ({
+      name: s.engineName ? `${s.languagePair} (${s.engineName})` : s.languagePair,
+      bleu: s.avgBleu != null ? parseFloat((s.avgBleu * 100).toFixed(1)) : null,
+      comet: s.avgComet != null ? parseFloat(s.avgComet.toFixed(3)) : null,
+      chrf: s.avgChrf != null ? parseFloat(s.avgChrf.toFixed(1)) : null,
+      ter: s.avgTer != null ? parseFloat(s.avgTer.toFixed(1)) : null,
+      notes: s.notes,
+      runDate: s.runDate,
+    }));
+  }, [filteredSnapshots]);
+
+  const filteredRegressionReport = useMemo(() =>
+    regressionReport.filter(r =>
+      matchLP(r.languagePair) &&
+      (selectedModels.length === 0 || r.engineName == null || selectedModels.includes(r.engineName))
+    ),
+  [regressionReport, selectedLanguagePairs, selectedModels]);
+
+  // ── Translator Impact pagination (uses filtered comparisons) ─────────────
+  const paginatedTranslatorComparisons = useMemo(() => {
+    if (filteredTranslatorComparisons.length === 0) return [];
+    const startIndex = (currentPageTranslator - 1) * itemsPerPageTranslator;
+    const endIndex = itemsPerPageTranslator === 0 ? filteredTranslatorComparisons.length : startIndex + itemsPerPageTranslator;
+    return filteredTranslatorComparisons.slice(startIndex, endIndex);
+  }, [filteredTranslatorComparisons, currentPageTranslator, itemsPerPageTranslator]);
+
+  const totalTranslatorComparisonsCount = filteredTranslatorComparisons.length;
   const totalPagesTranslator = itemsPerPageTranslator === 0
     ? 1
     : Math.ceil(totalTranslatorComparisonsCount / itemsPerPageTranslator);
@@ -890,7 +1026,9 @@ const QualityDashboard: React.FC = () => {
     return languageOptions.find((lang: { value: string }) => lang.value === code)?.label || code;
   };
 
-  // Enhanced fetchDashboardData with new parameters
+  // Single language pair for API calls — pass first selected item when exactly one is chosen
+  const apiLanguagePair = selectedLanguagePairs.length === 1 ? selectedLanguagePairs[0] : undefined;
+
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
@@ -898,21 +1036,14 @@ const QualityDashboard: React.FC = () => {
 
       const params = new URLSearchParams({
         group_by: chartGroupBy,
-        ...(selectedLanguagePair !== 'all' && { language_pair: selectedLanguagePair }),
-        ...(preferencesEngineFilter !== 'all' && { engine_filter: preferencesEngineFilter }), // Pass engine filter
-        ...(preferencesLanguagePairFilter !== 'all' && { language_pair: preferencesLanguagePairFilter }), // Pass language pair filter for preferences
+        ...(apiLanguagePair && { language_pair: apiLanguagePair }),
         ...(dateRange?.from && { date_from: dateRange.from }),
-        ...(dateRange?.to && { date_to: dateRange.to })
+        ...(dateRange?.to && { date_to: dateRange.to }),
       });
 
       const response = await fetch(`${API_BASE_URL}/api/analytics/dashboard/analytics?${params}`);
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      setDashboardData(data);
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      setDashboardData(await response.json());
     } catch (err) {
       console.error('Failed to fetch dashboard data:', err);
       setError('Failed to load dashboard data. Please try again.');
@@ -924,19 +1055,13 @@ const QualityDashboard: React.FC = () => {
   const fetchPostEditData = async () => {
     try {
       const params = new URLSearchParams({
-        ...(selectedLanguagePair !== 'all' && { language_pair: selectedLanguagePair }),
+        ...(apiLanguagePair && { language_pair: apiLanguagePair }),
         ...(dateRange?.from && { date_from: dateRange.from }),
-        ...(dateRange?.to && { date_to: dateRange.to })
+        ...(dateRange?.to && { date_to: dateRange.to }),
       });
-
       const response = await fetch(`${API_BASE_URL}/api/analytics/dashboard/post-edit-metrics?${params}`);
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      setPostEditData(data);
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      setPostEditData(await response.json());
     } catch (err) {
       console.error('Failed to fetch post-edit data:', err);
     }
@@ -945,17 +1070,11 @@ const QualityDashboard: React.FC = () => {
   const fetchTranslatorImpactData = async () => {
     try {
       const params = new URLSearchParams({
-        ...(selectedLanguagePair !== 'all' && { language_pair: selectedLanguagePair })
+        ...(apiLanguagePair && { language_pair: apiLanguagePair }),
       });
-
       const response = await fetch(`${API_BASE_URL}/api/analytics/dashboard/translator-impact?${params}`);
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      setTranslatorImpactData(data);
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      setTranslatorImpactData(await response.json());
     } catch (err) {
       console.error('Failed to fetch translator impact data:', err);
     }
@@ -977,6 +1096,25 @@ const QualityDashboard: React.FC = () => {
     }
   };
 
+  const fetchSnapshotData = async () => {
+    try {
+      const [snapshotsRes, reportRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/benchmarks/snapshots?limit=200`),
+        fetch(`${API_BASE_URL}/api/benchmarks/regression-report`),
+      ]);
+      if (snapshotsRes.ok) {
+        const data = await snapshotsRes.json();
+        setSnapshots(data.snapshots ?? []);
+      }
+      if (reportRes.ok) {
+        const data = await reportRes.json();
+        setRegressionReport(data.report ?? []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch snapshot data:', err);
+    }
+  };
+
   const runLlmJudge = async () => {
     setLlmJudgeRunning(true);
     try {
@@ -987,32 +1125,13 @@ const QualityDashboard: React.FC = () => {
     }
   };
 
-  // REMOVED individual fetch calls for multi-engine, quality-scores, and tm-glossary
-  // as their data is expected to be part of the main dashboardData payload.
-  // The 'multiEngine', 'qualityScores', and 'tmGlossary' data will be accessed directly from dashboardData.
-  /*
-  const fetchMultiEngineData = async () => { ... };
-  const fetchQualityScoresData = async () => { ... };
-  const fetchTMGlossaryData = async () => { ... };
-  */
-
-  // useEffect with updated dependencies and removed specific fetches
   useEffect(() => {
     fetchDashboardData();
     fetchPostEditData();
     fetchTranslatorImpactData();
     fetchLlmJudgeData();
-    // Removed these calls:
-    // fetchMultiEngineData();
-    // fetchQualityScoresData();
-    // fetchTMGlossaryData();
-  }, [
-    chartGroupBy,
-    selectedLanguagePair,
-    dateRange,
-    preferencesEngineFilter,
-    preferencesLanguagePairFilter
-  ]);
+    fetchSnapshotData();
+  }, [chartGroupBy, selectedLanguagePairs, selectedModels, dateRange]);
 
   const getEditTypeBadge = (editType: string) => {
     const variants = {
@@ -1114,8 +1233,8 @@ const QualityDashboard: React.FC = () => {
         </div>
       </div>
 
-      <Tabs defaultValue="quality" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-8">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <TabsList className="grid w-full grid-cols-9">
           <TabsTrigger value="quality">Quality</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="translator-impact">Translator Impact</TabsTrigger>
@@ -1124,15 +1243,47 @@ const QualityDashboard: React.FC = () => {
           <TabsTrigger value="operational">Operational</TabsTrigger>
           <TabsTrigger value="tm-glossary">TM & Glossary</TabsTrigger>
           <TabsTrigger value="llm-judge">LLM Judge</TabsTrigger>
-          {/* Note: Multi-Engine tab is intentionally excluded as per recent discussions, 
-             assuming its content is integrated elsewhere or no longer needed as a separate top-level tab.
-             If it's needed, it must be added here and its content (further down) uncommented.
-             If it's to be a top-level tab, you'd need to add:
-             <TabsTrigger value="multi-engine">Multi-Engine</TabsTrigger>
-             And then ensure dashboardData.multiEngine is directly used.
-             Given current issue, I'm removing the old API calls that were causing 404s.
-          */}
+          <TabsTrigger value="regression">Regression</TabsTrigger>
         </TabsList>
+
+        {/* ── Global filters bar ─────────────────────────────────────────── */}
+        <div className="flex flex-wrap items-center gap-3 px-3 py-2.5 rounded-lg border bg-muted/30">
+          <span className="text-sm font-medium text-muted-foreground shrink-0">Filters:</span>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Language pair</span>
+            <MultiSelect
+              options={availableLanguagePairs}
+              selected={selectedLanguagePairs}
+              onChange={setSelectedLanguagePairs}
+              placeholder="All pairs"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Model</span>
+            <MultiSelect
+              options={availableModels}
+              selected={selectedModels}
+              onChange={setSelectedModels}
+              placeholder="All models"
+            />
+          </div>
+          {(selectedLanguagePairs.length > 0 || selectedModels.length > 0) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => { setSelectedLanguagePairs([]); setSelectedModels([]); }}
+            >
+              <X className="h-3 w-3 mr-1" />
+              Clear filters
+            </Button>
+          )}
+          {(selectedLanguagePairs.length > 0 || selectedModels.length > 0) && (
+            <Badge variant="secondary" className="ml-auto text-xs">
+              Filtering active
+            </Badge>
+          )}
+        </div>
 
         {/* NEW: Quality Tab */}
         <TabsContent value="quality" className="space-y-6">
@@ -1150,7 +1301,7 @@ const QualityDashboard: React.FC = () => {
                   <CardContent>
                     <ChartContainer config={postEditChartConfig} className="h-[300px]">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={postEditData.languagePairMetrics}>
+                        <BarChart data={filteredPostEditMetrics}>
                           <CartesianGrid strokeDasharray="3 3" />
                           <XAxis dataKey="languagePair" />
                           <YAxis domain={['auto', 'auto']} tickFormatter={(v: number) => Math.round(v).toString()} />
@@ -1259,16 +1410,21 @@ const QualityDashboard: React.FC = () => {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <ModelPerformanceControls
-                chartGroupBy={chartGroupBy}
-                setChartGroupBy={setChartGroupBy}
-                selectedLanguagePair={selectedLanguagePair}
-                setSelectedLanguagePair={setSelectedLanguagePair}
-                onRefresh={fetchDashboardData}
-              />
+              <div className="flex items-center gap-3 mb-4">
+                <span className="text-sm font-medium">Group by:</span>
+                <Select value={chartGroupBy} onValueChange={(v) => setChartGroupBy(v as 'model' | 'language_pair')}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="model">Model</SelectItem>
+                    <SelectItem value="language_pair">Language Pair</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-              {dashboardData.modelPerformance.leaderboard.length > 0 ? (
-                <MultiMetricChart data={dashboardData.modelPerformance.leaderboard} />
+              {filteredLeaderboard.length > 0 ? (
+                <MultiMetricChart data={filteredLeaderboard} />
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
                   No performance data available for the selected criteria. Ensure there are human post-edits.
@@ -1278,7 +1434,7 @@ const QualityDashboard: React.FC = () => {
           </Card>
 
           {/* Model Performance Leaderboard Table */}
-          {dashboardData.modelPerformance.leaderboard.length > 0 && (
+          {filteredLeaderboard.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle>Model Performance Leaderboard</CardTitle>
@@ -1294,19 +1450,19 @@ const QualityDashboard: React.FC = () => {
                         <th className="p-3 text-left">BLEU Score</th>
                         <th className="p-3 text-left">COMET Score</th>
                         <th className="p-3 text-left">TER Score</th>
-                        <th className="p-3 text-left">ChrF Score</th> {/* Added ChrF */}
+                        <th className="p-3 text-left">ChrF Score</th>
                         <th className="p-3 text-left">Total Translations</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {dashboardData.modelPerformance.leaderboard.map((item, index) => (
+                      {filteredLeaderboard.map((item, index) => (
                         <tr key={index} className="border-b hover:bg-muted/30">
                           <td className="p-3 font-medium">{item.name || item.model}</td>
                           <td className="p-3">{item.engineType}</td>
                           <td className="p-3">{formatPercentage(item.avgBleu)}</td>
                           <td className="p-3">{formatPercentage(item.avgComet)}</td>
                           <td className="p-3">{formatPercentage(item.avgTer)}</td>
-                          <td className="p-3">{formatPercentage(item.avgChrf)}</td> {/* Added ChrF */}
+                          <td className="p-3">{formatPercentage(item.avgChrf)}</td>
                           <td className="p-3">{item.totalTranslations}</td>
                         </tr>
                       ))}
@@ -2383,6 +2539,172 @@ const QualityDashboard: React.FC = () => {
             </CardContent>
           </Card>
         </TabsContent>
+        {/* ── Regression Tab ─────────────────────────────────────────────── */}
+        <TabsContent value="regression" className="space-y-6">
+
+          {/* Metric bars chart */}
+          <Card>
+            <CardHeader>
+              <CardTitle>WMT Baseline Metrics by Language Pair</CardTitle>
+              <CardDescription>
+                Scores from the most recent snapshot per language pair / engine. BLEU is scaled ×100.
+                TER is lower-is-better — high values indicate more post-editing effort.
+                Use the global filters above to isolate a specific pair or model.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {regressionChartData.length > 0 ? (
+                <ChartContainer config={regressionChartConfig} className="h-[380px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={regressionChartData} margin={{ top: 16, right: 24, left: 0, bottom: 60 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" angle={-35} textAnchor="end" height={80} interval={0} tick={{ fontSize: 12 }} />
+                      <YAxis domain={[0, 105]} tickFormatter={(v: number) => `${v}`} />
+                      <ChartTooltip
+                        content={<ChartTooltipContent />}
+                        formatter={(value: number, name: string) => {
+                          const labels: Record<string, string> = { bleu: 'BLEU ×100', comet: 'COMET', chrf: 'ChrF', ter: 'TER' };
+                          return [value != null ? value.toFixed(2) : '—', labels[name] ?? name];
+                        }}
+                      />
+                      <Legend />
+                      <Bar dataKey="bleu" name="BLEU ×100" fill="var(--color-bleu)" radius={[3,3,0,0]}>
+                        <LabelList dataKey="bleu" position="top" formatter={(v: number) => v != null ? v.toFixed(0) : ''} style={{ fontSize: 10 }} />
+                      </Bar>
+                      <Bar dataKey="comet" name="COMET" fill="var(--color-comet)" radius={[3,3,0,0]} />
+                      <Bar dataKey="chrf" name="ChrF" fill="var(--color-chrf)" radius={[3,3,0,0]} />
+                      <Bar dataKey="ter" name="TER" fill="var(--color-ter)" radius={[3,3,0,0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              ) : (
+                <div className="text-center py-12 text-muted-foreground">
+                  <AlertTriangle className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                  <p>No snapshot data available. Run <code className="text-xs bg-muted px-1 rounded">POST /api/benchmarks/snapshot</code> after running WMT evaluations.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Regression status table */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Regression Status</CardTitle>
+              <CardDescription>
+                Compares the two most recent snapshots per language pair / engine.
+                A regression is flagged when BLEU drops &gt;2 pts, COMET drops &gt;0.02, ChrF drops &gt;2 pts, or TER rises &gt;2 pts.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {filteredRegressionReport.length > 0 ? (
+                <div className="rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-3 text-left">Language Pair</th>
+                        <th className="p-3 text-left">Engine</th>
+                        <th className="p-3 text-left">Status</th>
+                        <th className="p-3 text-left">ΔBLEU</th>
+                        <th className="p-3 text-left">ΔCOMET</th>
+                        <th className="p-3 text-left">ΔChrF</th>
+                        <th className="p-3 text-left">ΔTER</th>
+                        <th className="p-3 text-left">Latest run</th>
+                        <th className="p-3 text-left">Segments</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredRegressionReport.map((row, i) => {
+                        const isRegression = row.status === 'regression';
+                        const isInsufficient = row.status === 'insufficient_data';
+                        const fmtDelta = (v: number | null | undefined, invert = false) => {
+                          if (v == null) return <span className="text-muted-foreground">—</span>;
+                          const bad = invert ? v > 0 : v < 0;
+                          const color = bad ? 'text-destructive' : 'text-green-500';
+                          return <span className={color}>{v > 0 ? '+' : ''}{v.toFixed(3)}</span>;
+                        };
+                        return (
+                          <tr key={i} className={`border-b hover:bg-muted/30 ${isRegression ? 'bg-destructive/5' : ''}`}>
+                            <td className="p-3 font-medium">{row.languagePair}</td>
+                            <td className="p-3 text-muted-foreground">{row.engineName ?? 'aggregated'}</td>
+                            <td className="p-3">
+                              {isRegression ? (
+                                <Badge variant="destructive">Regression ({row.regressions.length})</Badge>
+                              ) : isInsufficient ? (
+                                <Badge variant="outline" className="text-muted-foreground">Baseline only</Badge>
+                              ) : (
+                                <Badge variant="secondary" className="text-green-600">OK</Badge>
+                              )}
+                            </td>
+                            <td className="p-3">{fmtDelta(row.deltas?.bleu)}</td>
+                            <td className="p-3">{fmtDelta(row.deltas?.comet)}</td>
+                            <td className="p-3">{fmtDelta(row.deltas?.chrf)}</td>
+                            <td className="p-3">{fmtDelta(row.deltas?.ter, true)}</td>
+                            <td className="p-3 text-muted-foreground text-xs">
+                              {row.latest ? new Date(row.latest.runDate).toLocaleDateString() : '—'}
+                              {row.latest?.notes && <span className="ml-1 opacity-60">({row.latest.notes})</span>}
+                            </td>
+                            <td className="p-3 text-muted-foreground">{row.latest?.segmentCount ?? '—'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No regression data available yet. Snapshot at least two runs to start detecting regressions.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Raw snapshot history */}
+          {filteredSnapshots.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Snapshot History</CardTitle>
+                <CardDescription>All recorded evaluation snapshots, newest first.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-3 text-left">Date</th>
+                        <th className="p-3 text-left">Language Pair</th>
+                        <th className="p-3 text-left">Engine</th>
+                        <th className="p-3 text-left">BLEU ×100</th>
+                        <th className="p-3 text-left">COMET</th>
+                        <th className="p-3 text-left">ChrF</th>
+                        <th className="p-3 text-left">TER</th>
+                        <th className="p-3 text-left">Segments</th>
+                        <th className="p-3 text-left">Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...filteredSnapshots]
+                        .sort((a, b) => b.runDate.localeCompare(a.runDate))
+                        .map((s, i) => (
+                          <tr key={i} className="border-b hover:bg-muted/30">
+                            <td className="p-3 text-muted-foreground text-xs">{new Date(s.runDate).toLocaleDateString()}</td>
+                            <td className="p-3 font-medium">{s.languagePair}</td>
+                            <td className="p-3 text-muted-foreground">{s.engineName ?? 'aggregated'}</td>
+                            <td className="p-3">{s.avgBleu != null ? (s.avgBleu * 100).toFixed(1) : '—'}</td>
+                            <td className="p-3">{s.avgComet != null ? s.avgComet.toFixed(3) : '—'}</td>
+                            <td className="p-3">{s.avgChrf != null ? s.avgChrf.toFixed(1) : '—'}</td>
+                            <td className="p-3">{s.avgTer != null ? s.avgTer.toFixed(1) : '—'}</td>
+                            <td className="p-3">{s.segmentCount}</td>
+                            <td className="p-3 text-muted-foreground">{s.notes ?? '—'}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
       </Tabs>
 
       {/* Comparison Modal */}
