@@ -122,12 +122,30 @@ def _quality_label_from_ter(ter_score: float):
         return QualityLabel.POOR
 
 
+def _cjk_char_tokenize(text: str) -> str:
+    """Insert spaces between every character for CJK text so TER counts character edits.
+
+    Japanese has no word-boundary spaces, so whitespace-tokenized TER always produces 1 edit
+    for 1 reference token = 100%.  Character-level tokenization gives meaningful edit rates.
+    """
+    return ' '.join(list(text))
+
+
 def _score_hypothesis(hypothesis: str, reference: str, target_lang: str) -> dict:
     """Calculate BLEU/TER/ChrF for a single hypothesis against a human-edited reference."""
-    tokenizer_option = 'ja-mecab' if target_lang in ['jp', 'ja'] else '13a'
+    is_japanese = target_lang in ['jp', 'ja']
+    tokenizer_option = 'ja-mecab' if is_japanese else '13a'
     try:
         bleu = sacrebleu.sentence_bleu(hypothesis, [reference], tokenize=tokenizer_option).score / 100
-        ter = min(100.0, sacrebleu.sentence_ter(hypothesis, [reference]).score)
+        # TER has no ja-mecab option. Japanese text has no spaces, so the entire sentence is a
+        # single whitespace token — TER is always 100% unless strings are identical. Instead,
+        # split each character into its own token so TER measures character-level edit rate.
+        if is_japanese:
+            ter_hyp = _cjk_char_tokenize(hypothesis)
+            ter_ref = _cjk_char_tokenize(reference)
+        else:
+            ter_hyp, ter_ref = hypothesis, reference
+        ter = min(100.0, sacrebleu.sentence_ter(ter_hyp, [ter_ref]).score)
         chrf = sacrebleu.sentence_chrf(hypothesis, [reference]).score
     except Exception as e:
         logger.warning(f"Surface scoring failed: {e}")
