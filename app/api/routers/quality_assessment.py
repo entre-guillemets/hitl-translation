@@ -156,31 +156,48 @@ async def calculate_metrics_for_string(translation_string_id: str, comet_model=N
             logger.warning(f"Translation string {translation_string_id} not found")
             return None
 
-        reference = translation_string.translatedText   # human post-edit = gold reference
-        source    = translation_string.sourceText
+        source      = translation_string.sourceText
         target_lang = translation_string.targetLanguage.lower()
 
         from prisma.enums import StringStatus
-        if not reference or translation_string.status not in [StringStatus.REVIEWED, StringStatus.APPROVED]:
+        if translation_string.status not in [StringStatus.REVIEWED, StringStatus.APPROVED]:
             logger.info(f"String {translation_string_id} not approved/reviewed, skipping metrics")
+            return None
+
+        # WMT benchmark strings: referenceText is the gold reference, translatedText is the MT output
+        is_wmt = bool(translation_string.referenceText and str(getattr(translation_string, "referenceType", "") or "") == "WMT")
+        if is_wmt:
+            reference = translation_string.referenceText
+            hypothesis_single = (translation_string.translatedText or "").strip()
+        else:
+            reference = translation_string.translatedText   # human post-edit = gold reference
+            hypothesis_single = None
+
+        if not reference:
+            logger.info(f"String {translation_string_id} has no reference, skipping metrics")
             return None
 
         # --- Build (engine_name, hypothesis) pairs ---
         candidates: list[tuple] = []   # (engine_name: str|None, hypothesis: str)
 
-        engine_results = translation_string.engineResults
-        if engine_results and isinstance(engine_results, list):
-            for result in engine_results:
-                engine_id = result.get("engine")
-                text = (result.get("text") or "").strip()
-                if engine_id and text and text != reference.strip():
-                    candidates.append((engine_id, text))
+        if is_wmt:
+            # WMT: only one MT output (translatedText), no per-engine breakdown
+            if hypothesis_single and hypothesis_single != reference.strip():
+                candidates.append((None, hypothesis_single))
+        else:
+            engine_results = translation_string.engineResults
+            if engine_results and isinstance(engine_results, list):
+                for result in engine_results:
+                    engine_id = result.get("engine")
+                    text = (result.get("text") or "").strip()
+                    if engine_id and text and text != reference.strip():
+                        candidates.append((engine_id, text))
 
-        # Also score the original single-engine MT output if not already covered
-        original_mt = (translation_string.originalTranslation or "").strip()
-        if original_mt and original_mt != reference.strip():
-            if not any(h == original_mt for _, h in candidates):
-                candidates.append((None, original_mt))
+            # Also score the original single-engine MT output if not already covered
+            original_mt = (translation_string.originalTranslation or "").strip()
+            if original_mt and original_mt != reference.strip():
+                if not any(h == original_mt for _, h in candidates):
+                    candidates.append((None, original_mt))
 
         if not candidates:
             logger.info(f"No scoreable MT hypotheses for {translation_string_id}")
@@ -1053,13 +1070,28 @@ async def calculate_all_approved_metrics(request: Request):
 
         for string in strings:
             try:
-                if not string.originalTranslation or not string.translatedText:
+                if not string.translatedText:
                     skipped += 1
                     continue
 
-                if string.originalTranslation.strip() == string.translatedText.strip():
-                    skipped += 1
-                    continue
+                is_wmt = bool(
+                    string.referenceText
+                    and str(getattr(string, "referenceType", "") or "") == "WMT"
+                )
+
+                if is_wmt:
+                    # Skip if MT output is identical to the gold reference (nothing to score)
+                    if string.translatedText.strip() == string.referenceText.strip():
+                        skipped += 1
+                        continue
+                else:
+                    # Regular post-edit: need originalTranslation and a post-edited version
+                    if not string.originalTranslation:
+                        skipped += 1
+                        continue
+                    if string.originalTranslation.strip() == string.translatedText.strip():
+                        skipped += 1
+                        continue
 
                 metrics = await calculate_metrics_for_string(string.id, comet_model=comet_model)
                 if metrics:

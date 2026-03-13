@@ -211,25 +211,31 @@ async def create_wmt_benchmark_request( #
             await prisma.connect()
         
         logger.info(f"Creating WMT benchmark request for {language_pair} with {sample_size} samples")
-        
+
         from prisma.enums import MTModel
-        from prisma import Json # Needed for fuzzyMatches as Json
-        
-        # Map language pairs to models
-        model_mapping_enum = { #
-            'jpn-eng': MTModel.ELAN_MT_JP_EN,
-            'eng-jpn': MTModel.MARIAN_MT_EN_JP,
-            'eng-fra': MTModel.MARIAN_MT_EN_FR,
-            'fra-eng': MTModel.MARIAN_MT_FR_EN,
-            'jpn-fra': MTModel.PIVOT_JP_EN_FR
+        from prisma import Json
+
+        # Normalise 3-letter codes (jpn-eng → jp-en) to match WMT_SAMPLE_DATA keys
+        _lang_norm = {"jpn": "jp", "eng": "en", "fra": "fr"}
+        parts = language_pair.lower().split('-')
+        norm_parts = [_lang_norm.get(p, p) for p in parts]
+        normalized_lp = '-'.join(norm_parts)  # e.g. "jp-en"
+
+        # Map language pairs to models (accept both forms)
+        model_mapping_enum = {
+            'jpn-eng': MTModel.ELAN_MT_JP_EN,  'jp-en': MTModel.ELAN_MT_JP_EN,
+            'eng-jpn': MTModel.MARIAN_MT_EN_JP, 'en-jp': MTModel.MARIAN_MT_EN_JP,
+            'eng-fra': MTModel.MARIAN_MT_EN_FR, 'en-fr': MTModel.MARIAN_MT_EN_FR,
+            'fra-eng': MTModel.MARIAN_MT_FR_EN, 'fr-en': MTModel.MARIAN_MT_FR_EN,
+            'jpn-fra': MTModel.PIVOT_JP_EN_FR,  'jp-fr': MTModel.PIVOT_JP_EN_FR,
         }
-        
-        mt_model_enum_val = model_mapping_enum.get(language_pair, MTModel.MARIAN_MT_EN_FR) 
-        
-        # Parse language pair
-        source_lang, target_lang = language_pair.split('-')
-        source_lang_code = source_lang.upper()[:2]
-        target_lang_code = target_lang.upper()[:2]
+
+        mt_model_enum_val = model_mapping_enum.get(language_pair, model_mapping_enum.get(normalized_lp, MTModel.MARIAN_MT_EN_FR))
+
+        # Parse language pair using normalised 2-letter codes
+        source_lang, target_lang = normalized_lp.split('-')
+        source_lang_code = source_lang.upper()
+        target_lang_code = target_lang.upper()
         
         # Create WMT benchmark request
         wmt_request = await prisma.translationrequest.create(
@@ -245,84 +251,84 @@ async def create_wmt_benchmark_request( #
             }
         )
         
-        # Create sample WMT test data (using static list for example)
-        sample_texts = [ #
-            "This is a sample sentence for WMT benchmark testing.",
-            "Machine translation quality has improved significantly over the years.",
-            "Evaluation metrics help us understand translation performance.",
-            "Neural machine translation models show promising results.",
-            "Benchmark datasets are essential for comparing different systems.",
-            "Quality estimation is an important aspect of translation evaluation.",
-            "Human evaluation remains the gold standard for translation quality.",
-            "Automatic metrics provide quick feedback during development.",
-            "Cross-lingual understanding is crucial for global communication.",
-            "Translation technology continues to evolve rapidly."
-        ]
-        
-        # Create translation strings for benchmark
-        for i, source_text in enumerate(sample_texts[:sample_size]): #
-            try: #
-                # Use get_model_for_language_pair to get the model string key
-                model_key_for_wmt = get_model_for_language_pair(source_lang, target_lang) #
+        # Use WMT_SAMPLE_DATA for this language pair
+        lp_key = f"{source_lang}-{target_lang}"
+        wmt_samples = WMT_SAMPLE_DATA.get(lp_key, [])
+        if not wmt_samples:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No WMT sample data for language pair {lp_key}. Available: {list(WMT_SAMPLE_DATA.keys())}"
+            )
 
-                translated_text = "" #
-                # Special handling for JP-FR for pivot
-                if model_key_for_wmt == 'PIVOT_ELAN_HELSINKI': #
-                    translated_text = await multi_engine_service._translate_with_pivot(source_text.strip(), source_lang_code, target_lang_code, multi_engine_service.engine_configs['elan_quality']['pivot_strategy']) #
-                else: #
-                    # Direct translation using the specified model
-                    # Ensure source_text is stripped for consistency with other methods
-                    src_lang_code_for_ts = source_lang.lower() #
-                    tgt_lang_code_for_ts = target_lang.lower() #
-                    
-                    # Fetch prefix/lang_tag from translation_service.language_pair_models if available
-                    prefix_or_lang_tag = None #
-                    model_info_from_ts = next( #
-                        (info for info in translation_service.language_pair_models.get(f"{source_lang.upper()}-{target_lang.upper()}", []) 
-                        if info[0] == model_key_for_wmt),
+        selected_samples = wmt_samples[:sample_size]  # take all (up to sample_size)
+
+        # Create translation strings for benchmark
+        for i, sample in enumerate(selected_samples):
+            source_text = sample["source"]
+            reference_text = sample["reference"]
+            try:
+                model_key_for_wmt = get_model_for_language_pair(source_lang, target_lang)
+
+                translated_text = ""
+                if model_key_for_wmt == 'PIVOT_ELAN_HELSINKI':
+                    translated_text = await multi_engine_service._translate_with_pivot(
+                        source_text.strip(), source_lang_code, target_lang_code,
+                        multi_engine_service.engine_configs['elan_quality']['pivot_strategy']
+                    )
+                else:
+                    src_lang_code_for_ts = source_lang.lower()
+                    tgt_lang_code_for_ts = target_lang.lower()
+                    prefix_or_lang_tag = None
+                    model_info_from_ts = next(
+                        (info for info in translation_service.language_pair_models.get(f"{source_lang.upper()}-{target_lang.upper()}", [])
+                         if info[0] == model_key_for_wmt),
                         None
                     )
-                    if model_info_from_ts and len(model_info_from_ts) == 3: #
-                        prefix_or_lang_tag = model_info_from_ts[2] #
+                    if model_info_from_ts and len(model_info_from_ts) == 3:
+                        prefix_or_lang_tag = model_info_from_ts[2]
 
-                    translated_text = translation_service.translate_by_model_type( #
-                        source_text.strip(), 
+                    translated_text = translation_service.translate_by_model_type(
+                        source_text.strip(),
                         model_key_for_wmt,
-                        source_lang=src_lang_code_for_ts, 
-                        target_lang=tgt_lang_code_for_ts, 
-                        target_lang_tag=prefix_or_lang_tag 
+                        source_lang=src_lang_code_for_ts,
+                        target_lang=tgt_lang_code_for_ts,
+                        target_lang_tag=prefix_or_lang_tag
                     )
-                
-                if target_lang_code == 'jp': #
-                    translated_text = detokenize_japanese(translated_text) #
-                
-                # Create translation string
-                await prisma.translationstring.create( #
+
+                if target_lang_code == 'jp':
+                    translated_text = detokenize_japanese(translated_text)
+
+                await prisma.translationstring.create(
                     data={
                         "sourceText": source_text,
                         "translatedText": translated_text,
+                        "referenceText": reference_text,
+                        "referenceType": "WMT",
+                        "hasReference": True,
                         "targetLanguage": target_lang_code,
                         "status": "REVIEWED",
                         "isApproved": False,
-                        "processingTimeMs": 1000, # Mock processing time
+                        "processingTimeMs": 1000,
                         "translationRequestId": wmt_request.id,
-                        "fuzzyMatches": Json("[]") # Added Json for fuzzyMatches as empty array
+                        "fuzzyMatches": Json("[]"),
                     }
                 )
-                
+
             except Exception as e:
-                logger.error(f"Failed to translate WMT sample {i}: {e}") #
-                # Create failed translation
-                await prisma.translationstring.create( #
+                logger.error(f"Failed to translate WMT sample {i}: {e}")
+                await prisma.translationstring.create(
                     data={
                         "sourceText": source_text,
                         "translatedText": f"Translation failed: {str(e)}",
+                        "referenceText": reference_text,
+                        "referenceType": "WMT",
+                        "hasReference": True,
                         "targetLanguage": target_lang_code,
                         "status": "DRAFT",
                         "isApproved": False,
                         "processingTimeMs": 0,
                         "translationRequestId": wmt_request.id,
-                        "fuzzyMatches": Json("[]") # Added Json for fuzzyMatches as empty array
+                        "fuzzyMatches": Json("[]"),
                     }
                 )
         
@@ -374,7 +380,7 @@ async def get_wmt_results(request_id: str):
     try:
         if not prisma.is_connected():
             await prisma.connect()
-        
+
         wmt_request = await prisma.translationrequest.find_unique(
             where={"id": request_id},
             include={
@@ -382,12 +388,73 @@ async def get_wmt_results(request_id: str):
                 "qualityMetrics": True
             }
         )
-        
+
         if not wmt_request:
             raise HTTPException(status_code=404, detail="WMT request not found")
-        
+
         return wmt_request
-        
+
     except Exception as e:
         logger.error(f"Failed to fetch WMT results: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch WMT results: {str(e)}")
+
+
+@router.post("/ingest-to-tm/{request_id}")
+async def ingest_wmt_to_tm(request_id: str):
+    """Ingest WMT reference translations into Translation Memory.
+
+    Takes the reference translations (not the MT outputs) from a WMT benchmark
+    request and upserts them into the translation_memory table as HIGH quality
+    entries. Only strings with referenceType=WMT and a non-empty referenceText
+    are eligible.
+    """
+    if not prisma.is_connected():
+        await prisma.connect()
+
+    wmt_request = await prisma.translationrequest.find_unique(
+        where={"id": request_id},
+        include={"translationStrings": True},
+    )
+    if not wmt_request:
+        raise HTTPException(status_code=404, detail="WMT request not found")
+
+    source_lang = str(wmt_request.sourceLanguage)
+    ingested = 0
+    skipped = 0
+
+    for ts in wmt_request.translationStrings:
+        if not ts.referenceText or ts.referenceType != "WMT":
+            skipped += 1
+            continue
+
+        # Upsert: if this exact (source, target lang) pair is already in TM, skip
+        existing = await prisma.translationmemory.find_first(
+            where={
+                "sourceText": ts.sourceText,
+                "targetLanguage": ts.targetLanguage,
+                "sourceLanguage": source_lang,
+            }
+        )
+        if existing:
+            skipped += 1
+            continue
+
+        await prisma.translationmemory.create(
+            data={
+                "sourceText": ts.sourceText,
+                "targetText": ts.referenceText,
+                "sourceLanguage": source_lang,
+                "targetLanguage": ts.targetLanguage,
+                "quality": "HIGH",
+                "domain": "wmt_benchmark",
+                "originalRequestId": request_id,
+            }
+        )
+        ingested += 1
+
+    return {
+        "success": True,
+        "ingested": ingested,
+        "skipped": skipped,
+        "message": f"Ingested {ingested} WMT reference translations into TM (skipped {skipped} duplicates/ineligible)",
+    }

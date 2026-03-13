@@ -44,3 +44,8 @@ def get_transcreation_service(request: Request):
     if service is None:
         raise HTTPException(status_code=503, detail="Transcreation service not initialized.")
     return service
+
+
+def get_llm_judge_service():
+    from app.services.llm_judge_service import llm_judge_service
+    return llm_judge_service

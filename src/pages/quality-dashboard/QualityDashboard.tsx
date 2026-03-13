@@ -274,6 +274,37 @@ interface PreferenceReasonEntry {
   avgSatisfaction: number;
 }
 
+interface LLMJudgeSummaryEntry {
+  languagePair: string;
+  n: number;
+  avgAdequacy: number | null;
+  avgFluency: number | null;
+  avgConfidence: number | null;
+  avgCometDisagreement: number | null;
+  highDisagreementCount: number;
+}
+
+interface LLMJudgeSummary {
+  languagePairs: LLMJudgeSummaryEntry[];
+  totalJudgments: number;
+}
+
+interface LLMDisagreementEntry {
+  translationStringId: string;
+  engineName: string | null;
+  languagePair: string | null;
+  sourceText: string | null;
+  hypothesis: string | null;
+  humanReference: string | null;
+  adequacyScore: number;
+  fluencyScore: number;
+  confidenceScore: number;
+  cometDisagreement: number | null;
+  rationale: string | null;
+  judgeModel: string;
+  createdAt: string;
+}
+
 interface TranslatorImpactData {
   comparisons: TranslationComparisonEntry[];
   summary: TranslatorSummaryEntry[];
@@ -775,6 +806,10 @@ const QualityDashboard: React.FC = () => {
   const [itemsPerPageTranslator, setItemsPerPageTranslator] = useState(25);
   const itemsPerPageOptionsTranslator = [25, 50, 100, 0]; // 0 for All
 
+  const [llmJudgeSummary, setLlmJudgeSummary] = useState<LLMJudgeSummary | null>(null);
+  const [llmDisagreements, setLlmDisagreements] = useState<LLMDisagreementEntry[]>([]);
+  const [llmJudgeRunning, setLlmJudgeRunning] = useState(false);
+
   // Filter states for Detailed Engine Preferences
   const [preferencesEngineFilter, setPreferencesEngineFilter] = useState<string>('all');
   const [preferencesLanguagePairFilter, setPreferencesLanguagePairFilter] = useState<string>('all');
@@ -926,6 +961,32 @@ const QualityDashboard: React.FC = () => {
     }
   };
 
+  const fetchLlmJudgeData = async () => {
+    try {
+      const [summaryRes, disagreementsRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/llm-judge/summary`),
+        fetch(`${API_BASE_URL}/api/llm-judge/disagreements?limit=50`),
+      ]);
+      if (summaryRes.ok) setLlmJudgeSummary(await summaryRes.json());
+      if (disagreementsRes.ok) {
+        const data = await disagreementsRes.json();
+        setLlmDisagreements(data.disagreements ?? []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch LLM judge data:', err);
+    }
+  };
+
+  const runLlmJudge = async () => {
+    setLlmJudgeRunning(true);
+    try {
+      await fetch(`${API_BASE_URL}/api/llm-judge/evaluate-all-approved?limit=10`, { method: 'POST' });
+      await fetchLlmJudgeData();
+    } finally {
+      setLlmJudgeRunning(false);
+    }
+  };
+
   // REMOVED individual fetch calls for multi-engine, quality-scores, and tm-glossary
   // as their data is expected to be part of the main dashboardData payload.
   // The 'multiEngine', 'qualityScores', and 'tmGlossary' data will be accessed directly from dashboardData.
@@ -940,6 +1001,7 @@ const QualityDashboard: React.FC = () => {
     fetchDashboardData();
     fetchPostEditData();
     fetchTranslatorImpactData();
+    fetchLlmJudgeData();
     // Removed these calls:
     // fetchMultiEngineData();
     // fetchQualityScoresData();
@@ -1053,7 +1115,7 @@ const QualityDashboard: React.FC = () => {
       </div>
 
       <Tabs defaultValue="quality" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-7">
+        <TabsList className="grid w-full grid-cols-8">
           <TabsTrigger value="quality">Quality</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="translator-impact">Translator Impact</TabsTrigger>
@@ -1061,6 +1123,7 @@ const QualityDashboard: React.FC = () => {
           <TabsTrigger value="annotations">Annotations</TabsTrigger>
           <TabsTrigger value="operational">Operational</TabsTrigger>
           <TabsTrigger value="tm-glossary">TM & Glossary</TabsTrigger>
+          <TabsTrigger value="llm-judge">LLM Judge</TabsTrigger>
           {/* Note: Multi-Engine tab is intentionally excluded as per recent discussions, 
              assuming its content is integrated elsewhere or no longer needed as a separate top-level tab.
              If it's needed, it must be added here and its content (further down) uncommented.
@@ -2176,6 +2239,149 @@ const QualityDashboard: React.FC = () => {
                     )}
                 </CardContent>
             </Card>
+        </TabsContent>
+
+        {/* LLM Judge Tab */}
+        <TabsContent value="llm-judge" className="space-y-6">
+          {/* Header with run button */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold">LLM-as-Judge Evaluation</h3>
+              <p className="text-sm text-muted-foreground">
+                Gemini scores MT outputs on adequacy and fluency. High disagreement with COMET identifies segments where automatic metrics give misleading confidence.
+              </p>
+            </div>
+            <Button onClick={runLlmJudge} disabled={llmJudgeRunning} variant="outline">
+              {llmJudgeRunning ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+              {llmJudgeRunning ? 'Running…' : 'Run on All Approved'}
+            </Button>
+          </div>
+
+          {/* Summary stats */}
+          {llmJudgeSummary && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Total Judgments</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-3xl font-bold">{llmJudgeSummary.totalJudgments}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">High Disagreement Segments</CardTitle>
+                  <CardDescription>COMET vs adequacy delta &gt; 0.25</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-3xl font-bold text-amber-600">
+                    {llmJudgeSummary.languagePairs.reduce((sum, p) => sum + p.highDisagreementCount, 0)}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* Per-language-pair summary table */}
+          {llmJudgeSummary && llmJudgeSummary.languagePairs.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Summary by Language Pair</CardTitle>
+                <CardDescription>Average scores and disagreement signal per language pair</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md border">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-3 text-left">Language Pair</th>
+                        <th className="p-3 text-left">N</th>
+                        <th className="p-3 text-left">Avg Adequacy</th>
+                        <th className="p-3 text-left">Avg Fluency</th>
+                        <th className="p-3 text-left">Avg Confidence</th>
+                        <th className="p-3 text-left">Avg COMET Disagreement</th>
+                        <th className="p-3 text-left">High Disagreement</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {llmJudgeSummary.languagePairs.map((row, i) => (
+                        <tr key={i} className="border-b hover:bg-muted/30">
+                          <td className="p-3 font-medium">{row.languagePair}</td>
+                          <td className="p-3">{row.n}</td>
+                          <td className="p-3">{row.avgAdequacy?.toFixed(2) ?? '—'} / 4</td>
+                          <td className="p-3">{row.avgFluency?.toFixed(2) ?? '—'} / 4</td>
+                          <td className="p-3">{row.avgConfidence?.toFixed(2) ?? '—'}</td>
+                          <td className="p-3">
+                            {row.avgCometDisagreement != null ? (
+                              <Badge variant={row.avgCometDisagreement > 0.25 ? 'destructive' : 'default'}>
+                                {row.avgCometDisagreement.toFixed(3)}
+                              </Badge>
+                            ) : '—'}
+                          </td>
+                          <td className="p-3">{row.highDisagreementCount}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Disagreement table */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Top Disagreement Segments</CardTitle>
+              <CardDescription>
+                Segments where COMET and LLM judge diverge most — candidates for human review
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {llmDisagreements.length > 0 ? (
+                <div className="rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-3 text-left">Pair</th>
+                        <th className="p-3 text-left">Engine</th>
+                        <th className="p-3 text-left w-1/4">Source</th>
+                        <th className="p-3 text-left">Adequacy</th>
+                        <th className="p-3 text-left">Fluency</th>
+                        <th className="p-3 text-left">Disagreement</th>
+                        <th className="p-3 text-left w-1/3">Rationale</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {llmDisagreements.map((row, i) => (
+                        <tr key={i} className="border-b hover:bg-muted/30 align-top">
+                          <td className="p-3">{row.languagePair ?? '—'}</td>
+                          <td className="p-3">{row.engineName ?? 'single'}</td>
+                          <td className="p-3 max-w-xs">
+                            <p className="truncate" title={row.sourceText ?? ''}>{row.sourceText ?? '—'}</p>
+                          </td>
+                          <td className="p-3">{row.adequacyScore.toFixed(1)} / 4</td>
+                          <td className="p-3">{row.fluencyScore.toFixed(1)} / 4</td>
+                          <td className="p-3">
+                            {row.cometDisagreement != null ? (
+                              <Badge variant={row.cometDisagreement > 0.25 ? 'destructive' : 'secondary'}>
+                                {row.cometDisagreement.toFixed(3)}
+                              </Badge>
+                            ) : '—'}
+                          </td>
+                          <td className="p-3 text-muted-foreground">{row.rationale ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <AlertTriangle className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                  <p>No LLM judgments yet. Click "Run on All Approved" to evaluate approved strings.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

@@ -76,7 +76,8 @@ model TranslationString {
   annotations              Annotation[]
   enginePreferences        EnginePreference[]
   modelOutputs             ModelOutput[]
-  qualityMetrics           QualityMetrics[] 
+  qualityMetrics           QualityMetrics[]
+  llmJudgments             LLMJudgment[]
   translationRequest       TranslationRequest @relation(fields: [translationRequestId], references: [id], onDelete: Cascade)
 
   @@index([status]) // 💡 Performance index on frequently filtered column
@@ -296,6 +297,45 @@ model ModelOutput {
   translationString   TranslationString @relation(fields: [translationStringId], references: [id])
 
   @@map("model_outputs")
+}
+// ----------------------------------------------------------------------
+model LLMJudgment {
+  id                  String            @id @default(cuid())
+  translationStringId String
+  engineName          String?
+  judgeModel          String
+  adequacyScore       Float
+  fluencyScore        Float
+  confidenceScore     Float
+  rationale           String?
+  cometDisagreement   Float?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  translationString   TranslationString @relation(fields: [translationStringId], references: [id], onDelete: Cascade)
+
+  @@index([translationStringId])
+  @@index([engineName])
+  @@map("llm_judgments")
+}
+// ----------------------------------------------------------------------
+model EvalSnapshot {
+  id           String   @id @default(cuid())
+  requestId    String?  // WMT benchmark TranslationRequest that was snapshotted
+  languagePair String   // e.g. "jp-en"
+  engineName   String?  // null = aggregated across all engines for this request
+  runDate      DateTime @default(now())
+  avgBleu      Float?
+  avgComet     Float?
+  avgChrf      Float?
+  avgTer       Float?
+  segmentCount Int
+  notes        String?  // optional label, e.g. "baseline", "after OPUS-MT update"
+  createdAt    DateTime @default(now())
+
+  @@index([languagePair])
+  @@index([engineName])
+  @@index([runDate])
+  @@map("eval_snapshots")
 }
 // ----------------------------------------------------------------------
 model HumanFeedback {

@@ -16,7 +16,9 @@ from app.api.routers import (
     quality_assessment,
     debugging,
     health,
-    analytics
+    analytics,
+    llm_judge,
+    benchmarks,
 )
 
 from app.services.fuzzy_matching_service import FuzzyMatchingService
@@ -61,6 +63,8 @@ app.include_router(quality_assessment.router)
 app.include_router(debugging.router)
 app.include_router(analytics.router)
 app.include_router(analytics.router, prefix="/api")
+app.include_router(llm_judge.router)
+app.include_router(benchmarks.router)
 
 # Database startup/shutdown events
 @app.on_event("startup")

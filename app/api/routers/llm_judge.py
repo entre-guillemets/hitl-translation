@@ -1,0 +1,372 @@
+# app/api/routers/llm_judge.py
+"""LLM-as-Judge evaluation endpoints.
+
+POST /api/llm-judge/evaluate/{translation_string_id}
+    Evaluate all MT engine outputs for a single approved/reviewed string.
+    Writes one LLMJudgment row per engine. Computes cometDisagreement by
+    joining with the existing QualityMetrics row for the same engine.
+
+POST /api/llm-judge/evaluate-all-approved
+    Batch evaluate all approved/reviewed strings that have no LLMJudgment yet.
+
+GET /api/llm-judge/disagreements
+    Return segments ranked by cometDisagreement (highest first).
+    Query params: limit (default 50), min_disagreement (default 0.0).
+"""
+
+import asyncio
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from app.db.base import prisma
+from app.dependencies import get_llm_judge_service
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/llm-judge", tags=["LLM Judge"])
+
+
+# ---------------------------------------------------------------------------
+# Single-string evaluation
+# ---------------------------------------------------------------------------
+
+@router.post("/evaluate/{translation_string_id}")
+async def evaluate_string(
+    translation_string_id: str,
+    judge=Depends(get_llm_judge_service),
+):
+    """Evaluate all MT engine outputs for one translation string."""
+    if not judge.available:
+        raise HTTPException(status_code=503, detail="LLM judge not available — check GEMINI_API_KEY.")
+
+    if not prisma.is_connected():
+        await prisma.connect()
+
+    ts = await prisma.translationstring.find_unique(
+        where={"id": translation_string_id},
+        include={"translationRequest": True},
+    )
+    if not ts:
+        raise HTTPException(status_code=404, detail="Translation string not found.")
+
+    from prisma.enums import StringStatus
+    if ts.status not in [StringStatus.REVIEWED, StringStatus.APPROVED]:
+        raise HTTPException(
+            status_code=400,
+            detail="String must be REVIEWED or APPROVED to evaluate.",
+        )
+
+    reference = ts.translatedText   # human post-edit
+    source = ts.sourceText
+    target_lang = ts.targetLanguage.lower()
+    src_lang = (
+        str(ts.translationRequest.sourceLanguage).lower()
+        if ts.translationRequest else "en"
+    )
+
+    # Build (engine_name, hypothesis) pairs — same logic as calculate_metrics_for_string
+    candidates: list[tuple] = []
+    engine_results = ts.engineResults
+    if engine_results and isinstance(engine_results, list):
+        for result in engine_results:
+            engine_id = result.get("engine")
+            text = (result.get("text") or "").strip()
+            if engine_id and text and text != reference.strip():
+                candidates.append((engine_id, text))
+
+    original_mt = (ts.originalTranslation or "").strip()
+    if original_mt and original_mt != reference.strip():
+        if not any(h == original_mt for _, h in candidates):
+            candidates.append((None, original_mt))
+
+    if not candidates:
+        return {"evaluated": 0, "message": "No scoreable MT hypotheses found."}
+
+    # Fetch existing QualityMetrics for disagreement calculation
+    existing_metrics = await prisma.qualitymetrics.find_many(
+        where={"translationStringId": translation_string_id},
+    )
+    comet_by_engine: dict = {m.engineName: m.cometScore for m in existing_metrics}
+
+    # Delete any previous judgments for this string to allow re-evaluation
+    await prisma.llmjudgment.delete_many(where={"translationStringId": translation_string_id})
+
+    created = []
+    for engine_name, hypothesis in candidates:
+        try:
+            scores = await judge.evaluate(
+                source=source,
+                hypothesis=hypothesis,
+                source_lang=src_lang,
+                target_lang=target_lang,
+                reference=reference,
+            )
+            comet_score = comet_by_engine.get(engine_name)
+            disagreement = judge.compute_disagreement(comet_score, scores["adequacy"])
+
+            await prisma.llmjudgment.create(
+                data={
+                    "translationStringId": translation_string_id,
+                    "engineName": engine_name,
+                    "judgeModel": judge.model,
+                    "adequacyScore": scores["adequacy"],
+                    "fluencyScore": scores["fluency"],
+                    "confidenceScore": scores["confidence"],
+                    "rationale": scores["rationale"],
+                    "cometDisagreement": disagreement,
+                }
+            )
+            created.append({
+                "engine": engine_name,
+                "adequacy": scores["adequacy"],
+                "fluency": scores["fluency"],
+                "confidence": scores["confidence"],
+                "cometDisagreement": disagreement,
+                "rationale": scores["rationale"],
+            })
+            logger.info(
+                f"✅ LLM judge [{engine_name or 'single-engine'}] {translation_string_id}: "
+                f"adequacy={scores['adequacy']:.1f} fluency={scores['fluency']:.1f} "
+                f"disagreement={disagreement}"
+            )
+        except Exception as e:
+            logger.error(f"LLM judge failed for engine={engine_name} string={translation_string_id}: {e}")
+
+    return {"evaluated": len(created), "judgments": created}
+
+
+# ---------------------------------------------------------------------------
+# Batch evaluation
+# ---------------------------------------------------------------------------
+
+@router.post("/evaluate-all-approved")
+async def evaluate_all_approved(
+    judge=Depends(get_llm_judge_service),
+    limit: int = Query(10, ge=1, le=200, description="Max strings to evaluate per run (free tier: ~40 strings/day)"),
+):
+    """Batch LLM-judge approved/reviewed strings that have no judgment yet."""
+    if not judge.available:
+        raise HTTPException(status_code=503, detail="LLM judge not available — check GEMINI_API_KEY.")
+
+    if not prisma.is_connected():
+        await prisma.connect()
+
+    # Only process strings not yet judged, capped by limit
+    strings = await prisma.translationstring.find_many(
+        where={
+            "status": {"in": ["REVIEWED", "APPROVED"]},
+            "llmJudgments": {"none": {}},
+        },
+        include={"translationRequest": True},
+        take=limit,
+    )
+
+    logger.info(f"LLM judge batch: {len(strings)} strings to evaluate (limit={limit}).")
+
+    processed = 0
+    skipped = 0
+    errors = []
+
+    for ts in strings:
+        if not ts.originalTranslation or not ts.translatedText:
+            skipped += 1
+            continue
+        if ts.originalTranslation.strip() == ts.translatedText.strip():
+            skipped += 1
+            continue
+        reference = ts.translatedText
+        source = ts.sourceText
+        target_lang = ts.targetLanguage.lower()
+        src_lang = (
+            str(ts.translationRequest.sourceLanguage).lower()
+            if ts.translationRequest else "en"
+        )
+
+        candidates: list[tuple] = []
+        engine_results = ts.engineResults
+        if engine_results and isinstance(engine_results, list):
+            for result in engine_results:
+                engine_id = result.get("engine")
+                text = (result.get("text") or "").strip()
+                if engine_id and text and text != reference.strip():
+                    candidates.append((engine_id, text))
+        original_mt = (ts.originalTranslation or "").strip()
+        if original_mt and original_mt != reference.strip():
+            if not any(h == original_mt for _, h in candidates):
+                candidates.append((None, original_mt))
+
+        if not candidates:
+            skipped += 1
+            continue
+
+        existing_metrics = await prisma.qualitymetrics.find_many(
+            where={"translationStringId": ts.id},
+        )
+        comet_by_engine: dict = {m.engineName: m.cometScore for m in existing_metrics}
+
+        string_processed = 0
+        for engine_name, hypothesis in candidates:
+            try:
+                scores = await judge.evaluate(
+                    source=source,
+                    hypothesis=hypothesis,
+                    source_lang=src_lang,
+                    target_lang=target_lang,
+                    reference=reference,
+                )
+                comet_score = comet_by_engine.get(engine_name)
+                disagreement = judge.compute_disagreement(comet_score, scores["adequacy"])
+
+                await prisma.llmjudgment.create(
+                    data={
+                        "translationStringId": ts.id,
+                        "engineName": engine_name,
+                        "judgeModel": judge.model,
+                        "adequacyScore": scores["adequacy"],
+                        "fluencyScore": scores["fluency"],
+                        "confidenceScore": scores["confidence"],
+                        "rationale": scores["rationale"],
+                        "cometDisagreement": disagreement,
+                    }
+                )
+                string_processed += 1
+            except Exception as e:
+                logger.error(f"LLM judge error string={ts.id} engine={engine_name}: {e}")
+                errors.append({"id": ts.id, "engine": engine_name, "error": str(e)})
+            finally:
+                # Throttle to ~12 RPM — well under the 15 RPM free-tier limit
+                await asyncio.sleep(5)
+
+        if string_processed > 0:
+            processed += 1
+        else:
+            skipped += 1
+
+    return {
+        "success": True,
+        "processed": processed,
+        "skipped": skipped,
+        "total": len(strings),
+        "errors": errors or None,
+        "message": f"LLM judge evaluated {processed} strings (skipped {skipped})",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Disagreement report
+# ---------------------------------------------------------------------------
+
+@router.get("/disagreements")
+async def get_disagreements(
+    limit: int = Query(50, ge=1, le=500),
+    min_disagreement: float = Query(0.0, ge=0.0, le=1.0),
+):
+    """Return segments with highest COMET vs LLM-judge disagreement.
+
+    cometDisagreement is |comet_normalized - adequacy_normalized| where both
+    are scaled to [0, 1]. Values above 0.25 indicate meaningful disagreement.
+    """
+    if not prisma.is_connected():
+        await prisma.connect()
+
+    judgments = await prisma.llmjudgment.find_many(
+        where={
+            "cometDisagreement": {"gte": min_disagreement},
+        },
+        include={
+            "translationString": {
+                "include": {"translationRequest": True}
+            }
+        },
+        order={"cometDisagreement": "desc"},
+        take=limit,
+    )
+
+    results = []
+    for j in judgments:
+        ts = j.translationString
+        lang_pair = None
+        if ts and ts.translationRequest:
+            src = str(ts.translationRequest.sourceLanguage)
+            tgt = ts.targetLanguage.upper()
+            lang_pair = f"{src}-{tgt}"
+
+        results.append({
+            "translationStringId": j.translationStringId,
+            "engineName": j.engineName,
+            "languagePair": lang_pair,
+            "sourceText": ts.sourceText if ts else None,
+            "hypothesis": ts.originalTranslation if ts else None,
+            "humanReference": ts.translatedText if ts else None,
+            "adequacyScore": j.adequacyScore,
+            "fluencyScore": j.fluencyScore,
+            "confidenceScore": j.confidenceScore,
+            "cometDisagreement": j.cometDisagreement,
+            "rationale": j.rationale,
+            "judgeModel": j.judgeModel,
+            "createdAt": j.createdAt.isoformat(),
+        })
+
+    return {
+        "count": len(results),
+        "minDisagreement": min_disagreement,
+        "disagreements": results,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Summary stats
+# ---------------------------------------------------------------------------
+
+@router.get("/summary")
+async def get_judge_summary():
+    """Aggregate adequacy/fluency/disagreement stats per language pair."""
+    if not prisma.is_connected():
+        await prisma.connect()
+
+    judgments = await prisma.llmjudgment.find_many(
+        include={
+            "translationString": {
+                "include": {"translationRequest": True}
+            }
+        }
+    )
+
+    from collections import defaultdict
+    import statistics as _stats
+
+    by_pair: dict = defaultdict(lambda: {
+        "adequacy": [], "fluency": [], "confidence": [], "disagreement": []
+    })
+
+    for j in judgments:
+        ts = j.translationString
+        if not ts or not ts.translationRequest:
+            continue
+        src = str(ts.translationRequest.sourceLanguage)
+        tgt = ts.targetLanguage.upper()
+        pair = f"{src}-{tgt}"
+        by_pair[pair]["adequacy"].append(j.adequacyScore)
+        by_pair[pair]["fluency"].append(j.fluencyScore)
+        by_pair[pair]["confidence"].append(j.confidenceScore)
+        if j.cometDisagreement is not None:
+            by_pair[pair]["disagreement"].append(j.cometDisagreement)
+
+    summary = []
+    for pair, data in by_pair.items():
+        n = len(data["adequacy"])
+        summary.append({
+            "languagePair": pair,
+            "n": n,
+            "avgAdequacy": round(_stats.mean(data["adequacy"]), 3) if n else None,
+            "avgFluency": round(_stats.mean(data["fluency"]), 3) if n else None,
+            "avgConfidence": round(_stats.mean(data["confidence"]), 3) if n else None,
+            "avgCometDisagreement": (
+                round(_stats.mean(data["disagreement"]), 3)
+                if data["disagreement"] else None
+            ),
+            "highDisagreementCount": sum(1 for d in data["disagreement"] if d > 0.25),
+        })
+
+    summary.sort(key=lambda x: x["avgCometDisagreement"] or 0, reverse=True)
+    return {"languagePairs": summary, "totalJudgments": len(judgments)}
