@@ -614,20 +614,18 @@ const TranslationComparison: React.FC<{
 // Model Performance Controls Component
 // Multi-Metric Chart Component
 const MultiMetricChart: React.FC<{ data: ModelLeaderboardEntry[] }> = ({ data }) => {
-  // Transform data to use the correct field names
   const chartData = data.map(item => ({
     name: item.name || item.model,
-    avgBleu: item.avgBleu,
-    avgComet: item.avgComet,
-    avgTer: item.avgTer,
-    avgChrf: item.avgChrf, // Added ChrF
-    totalTranslations: item.totalTranslations
+    avgBleu: item.avgBleu != null ? parseFloat(item.avgBleu.toFixed(1)) : null,
+    avgComet: item.avgComet != null ? parseFloat(item.avgComet.toFixed(1)) : null,
+    avgTer: item.avgTer != null ? parseFloat(item.avgTer.toFixed(1)) : null,
+    avgChrf: item.avgChrf != null ? parseFloat(item.avgChrf.toFixed(1)) : null,
   }));
 
   return (
     <ChartContainer config={multiMetricChartConfig} className="h-[400px]">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+        <BarChart data={chartData} margin={{ top: 20, right: 30, left: 40, bottom: 60 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis
             dataKey="name"
@@ -636,12 +634,19 @@ const MultiMetricChart: React.FC<{ data: ModelLeaderboardEntry[] }> = ({ data })
             height={100}
             interval={0}
           />
-          <YAxis domain={[0, 100]} />
-          <ChartTooltip content={<ChartTooltipContent />} />
+          <YAxis
+            domain={['auto', 'auto']}
+            tickFormatter={(v: number) => v.toFixed(0)}
+            width={45}
+          />
+          <ChartTooltip
+            content={<ChartTooltipContent />}
+            formatter={(v: number) => v != null ? v.toFixed(1) : '—'}
+          />
           <Bar dataKey="avgBleu" fill="var(--color-avgBleu)" name="BLEU Score (%)" />
-          <Bar dataKey="avgComet" fill="var(--color-avgComet)" name="COMET Score (%)" />
+          <Bar dataKey="avgComet" fill="var(--color-avgComet)" name="COMET (×100)" />
           <Bar dataKey="avgTer" fill="var(--color-avgTer)" name="TER Score (%)" />
-          <Bar dataKey="avgChrf" fill="var(--color-avgChrf)" name="ChrF Score (%)" /> {/* Added ChrF */}
+          <Bar dataKey="avgChrf" fill="var(--color-avgChrf)" name="ChrF Score (%)" />
         </BarChart>
       </ResponsiveContainer>
     </ChartContainer>

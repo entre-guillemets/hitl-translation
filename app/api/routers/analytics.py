@@ -944,7 +944,6 @@ def group_by_model(quality_metrics, lang_filter):
     
     for metric in quality_metrics:
         model_name, language_pair = extract_model_and_language_info(metric)
-        print(f"Extracted model_name: {model_name}")
         
         if model_name in ["Untraceable/Other", "Human-Post-Edit", "COMET-Prediction", "MetricX-Evaluation"]:
             continue 
