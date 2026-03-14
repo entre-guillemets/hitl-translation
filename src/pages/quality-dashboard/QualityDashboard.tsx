@@ -950,12 +950,15 @@ const QualityDashboard: React.FC = () => {
       const key = `${s.languagePair}|${s.engineName ?? 'agg'}`;
       if (!byKey[key] || s.runDate > byKey[key].runDate) byKey[key] = s;
     }
+    // avgBleu stored 0–1, multiply ×100. avgComet stored as raw COMET-DA (0–1.5 range),
+    // multiply ×100 to put it on the same scale as BLEU/ChrF/TER.
+    // avgChrf and avgTer are already 0–100.
     return Object.values(byKey).map(s => ({
       name: s.engineName ? `${s.languagePair} (${s.engineName})` : s.languagePair,
-      bleu: s.avgBleu != null ? parseFloat((s.avgBleu * 100).toFixed(1)) : null,
-      comet: s.avgComet != null ? parseFloat(s.avgComet.toFixed(3)) : null,
-      chrf: s.avgChrf != null ? parseFloat(s.avgChrf.toFixed(1)) : null,
-      ter: s.avgTer != null ? parseFloat(s.avgTer.toFixed(1)) : null,
+      bleu:  s.avgBleu  != null ? parseFloat((s.avgBleu  * 100).toFixed(1)) : null,
+      comet: s.avgComet != null ? parseFloat((s.avgComet * 100).toFixed(1)) : null,
+      chrf:  s.avgChrf  != null ? parseFloat(s.avgChrf.toFixed(1))          : null,
+      ter:   s.avgTer   != null ? parseFloat(s.avgTer.toFixed(1))           : null,
       notes: s.notes,
       runDate: s.runDate,
     }));
@@ -1507,11 +1510,11 @@ const QualityDashboard: React.FC = () => {
                     <AreaChart data={dashboardData.modelPerformance.performanceOverTime}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="date" />
-                      <YAxis domain={[0, 100]} />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Area type="monotone" dataKey="bleuScore" stackId="1" stroke="var(--color-bleuScore)" fill="var(--color-bleuScore)" />
-                      <Area type="monotone" dataKey="cometScore" stackId="1" stroke="var(--color-cometScore)" fill="var(--color-cometScore)" />
-                      <Area type="monotone" dataKey="cometKiwiScore" stackId="1" stroke="var(--color-cometKiwiScore)" fill="var(--color-cometKiwiScore)" />
+                      <YAxis domain={['auto', 'auto']} tickFormatter={(v: number) => v.toFixed(0)} width={45} />
+                      <ChartTooltip content={<ChartTooltipContent />} formatter={(v: number) => v.toFixed(1)} />
+                      <Area type="monotone" dataKey="bleuScore" stroke="var(--color-bleuScore)" fill="var(--color-bleuScore)" fillOpacity={0.3} />
+                      <Area type="monotone" dataKey="cometScore" stroke="var(--color-cometScore)" fill="var(--color-cometScore)" fillOpacity={0.3} />
+                      <Area type="monotone" dataKey="cometKiwiScore" stroke="var(--color-cometKiwiScore)" fill="var(--color-cometKiwiScore)" fillOpacity={0.3} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </ChartContainer>
@@ -2580,7 +2583,7 @@ const QualityDashboard: React.FC = () => {
                     <BarChart data={regressionChartData} margin={{ top: 16, right: 24, left: 0, bottom: 60 }}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="name" angle={-35} textAnchor="end" height={80} interval={0} tick={{ fontSize: 12 }} />
-                      <YAxis domain={[0, 105]} tickFormatter={(v: number) => `${v}`} />
+                      <YAxis domain={['auto', 'auto']} tickFormatter={(v: number) => v.toFixed(0)} width={45} />
                       <ChartTooltip
                         content={<ChartTooltipContent />}
                         formatter={(value: number, name: string) => {
@@ -2695,7 +2698,7 @@ const QualityDashboard: React.FC = () => {
                         <th className="p-3 text-left">Language Pair</th>
                         <th className="p-3 text-left">Engine</th>
                         <th className="p-3 text-left">BLEU ×100</th>
-                        <th className="p-3 text-left">COMET</th>
+                        <th className="p-3 text-left">COMET ×100</th>
                         <th className="p-3 text-left">ChrF</th>
                         <th className="p-3 text-left">TER</th>
                         <th className="p-3 text-left">Segments</th>
@@ -2711,7 +2714,7 @@ const QualityDashboard: React.FC = () => {
                             <td className="p-3 font-medium">{s.languagePair}</td>
                             <td className="p-3 text-muted-foreground">{s.engineName ?? 'aggregated'}</td>
                             <td className="p-3">{s.avgBleu != null ? (s.avgBleu * 100).toFixed(1) : '—'}</td>
-                            <td className="p-3">{s.avgComet != null ? s.avgComet.toFixed(3) : '—'}</td>
+                            <td className="p-3">{s.avgComet != null ? (s.avgComet * 100).toFixed(1) : '—'}</td>
                             <td className="p-3">{s.avgChrf != null ? s.avgChrf.toFixed(1) : '—'}</td>
                             <td className="p-3">{s.avgTer != null ? s.avgTer.toFixed(1) : '—'}</td>
                             <td className="p-3">{s.segmentCount}</td>
