@@ -1,64 +1,162 @@
-# Multi-Engine Translation Quality Dashboard with Multimodal OCR
+# MT Evals — Human-in-the-Loop Machine Translation Evaluation Platform
 
-This project provides a comprehensive platform for evaluating, comparing, and analyzing the quality of various machine translation (MT) engines. It features a robust FastAPI backend for translation and quality metric calculation, **multimodal content extraction with OCR and transcription capabilities**, and a Next.js/React frontend with a detailed analytics dashboard.
+A research-grade, full-stack platform for professional MT quality assurance across English, Japanese, and French. MT Evals implements an 8-stage HITL evaluation pipeline covering multimodal source ingestion, pre-translation review, quality estimation, human post-editing with error annotation, automated QA metrics, and multi-dimensional insights dashboards.
 
 ![Quality Dashboard Screenshot](https://github.com/user-attachments/assets/c6b88707-f57e-441f-a6d0-7efdb87c86b4)
 
-## Core Features
+This is not a demo or proof-of-concept. The platform is used for genuine multilingual MT evaluation where the author serves as the qualified human annotator for all three production languages — a deliberate methodological choice that enables authentic HITL evaluation rather than synthetic ground truth.
 
-### Translation & Quality Analysis
-* **Multi-Engine Translation**: Supports multiple local translation models, including Helsinki-NLP (OPUS), ELAN, T5, and NLLB.
-* **Pivot Translation**: Enables translation between language pairs not directly supported by a single model (e.g., Japanese to French via English).
-* **Advanced Quality Metrics**: Automatically calculates standard industry metrics to evaluate post-edited translations:
-    * **BLEU**: Measures precision and recall of n-grams.
-    * **TER (Translation Edit Rate)**: Calculates the number of edits required to change a hypothesis to a reference.
-    * **COMET**: A state-of-the-art model-based metric that uses source, hypothesis, and reference for highly accurate quality scoring.
-    * **ChrF**: A character-level F-score that is known to correlate well with human judgments, especially for languages with rich morphology or different scripts.
+---
 
-### 🆕 Multimodal Content Extraction
-* **Image OCR**: Extract text from images with automatic language detection
-    * **Specialized Japanese OCR**: Uses Manga OCR for Japanese text with fallback to Tesseract
-    * **Multi-language Support**: Tesseract-based OCR for English, French, and other languages
-    * **Intelligent Preprocessing**: Automatic image enhancement for better OCR accuracy
-* **PDF Processing**: Extract text from both text-based and scanned PDFs
-    * **Hybrid Approach**: Direct text extraction for digital PDFs, OCR for scanned pages
-    * **Multi-page Support**: Process entire documents with page-by-page analysis
-* **Audio Transcription**: Convert speech to text using OpenAI Whisper
-    * **Language Detection**: Automatic audio language identification
-    * **Multiple Formats**: Support for various audio file types
-* **Smart Language Detection**: Automatic detection of content language across all input types
-    * **Character-based Detection**: Special handling for Japanese character recognition
-    * **Coherence Validation**: Ensures detected languages match actual content
+## 8-Stage Pipeline
 
-### Analytics & Visualization
-* **Interactive Analytics Dashboard**: A rich user interface built with Next.js, Shadcn UI, and Recharts to visualize:
-    * Model performance leaderboards.
-    * Post-edit quality analysis by language pair.
-    * Correlation matrices between different quality scores.
-    * Side-by-side diff viewer for comparing machine translations against human edits.
-* **Data Persistence**: Uses a Prisma ORM with a PostgreSQL database to store all translation requests, strings, model outputs, and quality metrics.
+Every feature in the platform maps to one of these stages.
+
+### Stage 1 — Upload
+Accept source files: images, PDFs, audio, plain text. Automatic MIME type detection routes each file to the appropriate processor.
+
+### Stage 2 — Parse & Segment
+Extract text strings with layout context preserved:
+- **Images**: Manga OCR (Japanese-specialized) or Tesseract with bounding box detection
+- **Audio**: OpenAI Whisper transcription with segment-level timestamps
+- **PDFs**: Direct text extraction with OCR fallback for scanned pages
+- **Text**: Direct segmentation
+
+Output is an ordered list of segments with source metadata attached.
+
+### Stage 3 — Pre-Translation Review (String Segmentation Editor)
+Interactive editor for reviewing and confirming parsed segments before translation:
+- Bounding box overlay on source images
+- Waveform player with timestamp markers for audio segments
+- Inline segment editing, splitting, and merging
+- Jobs must reach `RECONCILED` status before Stage 4 runs
+
+### Stage 4 — Quality Estimation
+COMETKiwi (`Unbabel/wmt22-cometkiwi-da`) runs reference-free QE on each confirmed segment. Per-segment QE scores (0–1) are stored in the database and surfaced in the post-editing UI to triage priority review before any human time is spent on translation.
+
+### Stage 5 — Translation & Post-Editing
+Multi-engine MT with parallel model outputs and a full post-editing interface:
+- Run Helsinki-NLP (OPUS), ELAN, mT5, NLLB-200, or Gemini on confirmed segments
+- Side-by-side engine output comparison
+- Inline translation editing
+- Annotation categories: mistranslation, fluency, terminology, omission, other
+- Annotation severity: minor, major, critical
+- Engine preference tracking (which engine the reviewer selected and why)
+- Translation Memory (TM) fuzzy match suggestions per segment
+- Bulk Review Mode with per-string signal confidence badges and completion tracking
+
+### Stage 6 — QA Metrics
+Reference-based metrics calculated against post-edited translations:
+- **BLEU**: n-gram precision; benchmarking across models over time
+- **TER**: Edit distance; directly measures post-editing effort
+- **COMET** (`Unbabel/wmt22-comet-da`): Semantic similarity via multilingual embeddings; highest signal
+- **ChrF**: Character-level F-score; reliable for Japanese and French morphology
+
+All metrics calculated per-segment and aggregated per-job. All statistics (p-values, confidence intervals, correlations) computed via `scipy.stats` — no hardcoded values.
+
+### Stage 6.5 — Agentic Analysis Layer
+Runs automatically after Stage 6 completes:
+- **Glossary reuse reporter**: Checks whether MT used correct target terms from the project glossary
+- **DNT compliance checker**: Verifies protected strings were preserved in translation
+- **TM leverage calculator**: Fuzzy match percentage against existing TM
+- **Glossary consistency auditor**: LLM-based scan for term inconsistencies across segments
+
+Findings surface in Stage 7 resource views and Stage 8 dashboards.
+
+### Stage 7 — Resource Management
+- **Translation Memory**: Review, approve, and edit past translations
+- **Glossary**: Add, edit, delete term pairs; review AI-proposed updates
+- **DNT list**: Manage protected strings per language pair
+
+All resources feed back into Stage 4 QE scoring and Stage 5 translation.
+
+### Stage 8 — Insights Dashboards
+- Model performance leaderboards per language pair
+- Post-edit quality trends over time
+- QE score vs. actual post-edit effort correlation
+- Glossary reuse rates and DNT compliance rates
+- Metric correlation matrices (BLEU/TER/COMET/ChrF)
+- **Segment Signal Confidence**: Cross-metric agreement score (`1 − 2σ` over normalized signals) — surfaces low-confidence segments for priority human review
+- **Evaluation Quality tab**: Signal coverage per language pair, metric correlations by pair, LLM judge calibration against human effort
+- Data source badges on every widget distinguishing live data from sample/fallback data
+
+---
+
+## Methodology
+
+### Metric Selection
+
+This platform uses BLEU + TER + ChrF + COMET + COMETKiwi. The combination is intentional:
+
+| Metric | Category | Rationale |
+|--------|----------|-----------|
+| BLEU | Reference-based | Fast, interpretable, industry standard for benchmarking over time |
+| TER | Reference-based | Directly measures post-editing effort — meaningful in a HITL workflow |
+| ChrF | Reference-based | Character-level; handles Japanese and French morphology better than BLEU |
+| COMET | Reference-based | Current gold standard for learned MT evaluation; uses multilingual embeddings |
+| COMETKiwi | Reference-free QE | Completely different category — enables pre-review triage without a human reference |
+
+**Not included, and why:**
+- **MetricX**: JAX/Apple Silicon incompatibility; can be run via Colab if needed
+- **BLEURT**: Redundant given ChrF + COMET for this language set
+
+### Language Coverage
+
+| Language | Status | Annotation basis |
+|----------|--------|-----------------|
+| English | Production | Native speaker |
+| Japanese | Production | Native speaker (Manga OCR specialized support) |
+| French | Production | Near-native speaker |
+| Swahili | In development | LLM-as-judge via Claude; inter-judge consistency testing across Claude/GPT-4/Gemini as validity proxy |
+
+The EN/JA/FR scope is a methodological choice: the author can serve as a qualified human annotator for all three, enabling genuine HITL evaluation. Swahili is the selected low-resource target: NLLB-200 provides translation coverage, and LLM-as-judge evaluation will explicitly document where automated evaluation degrades for low-resource pairs.
+
+### Job State Machine
+
+```
+UPLOADED → PARSED → RECONCILED → QE_COMPLETE →
+TRANSLATED → POST_EDITED → QA_COMPLETE → ARCHIVED
+```
+
+States must not be skipped. The pipeline enforces `RECONCILED` before QE runs and `QA_COMPLETE` before archiving.
+
+---
 
 ## Tech Stack
 
 ### Backend
-* **Core**: Python, FastAPI, Uvicorn
-* **Machine Learning**: PyTorch, Transformers, Unbabel-COMET, Sacrebleu
-* **OCR & Multimodal**: 
-    * Tesseract (via pytesseract)
-    * Manga OCR for Japanese text
-    * OpenAI Whisper for audio transcription
-    * PDFplumber for PDF processing
-    * OpenCV and PIL for image processing
-* **Language Detection**: langdetect, custom Japanese character detection
+- **Runtime**: Python 3.10+
+- **Framework**: FastAPI + Uvicorn
+- **ORM**: Prisma (Python client)
+- **Database**: PostgreSQL
+- **ML / Metrics**: PyTorch, HuggingFace Transformers, Unbabel-COMET, Sacrebleu, scipy
+- **QE**: COMETKiwi (`Unbabel/wmt22-cometkiwi-da`) — reference-free quality estimation
+- **OCR**: Tesseract (multi-language), Manga OCR (Japanese-specialized)
+- **Audio**: OpenAI Whisper (timestamped transcription)
+- **PDF**: PDFplumber
+- **Language Detection**: langdetect + custom Japanese character detection
 
 ### Frontend
-* **Framework**: Next.js, React, TypeScript
-* **Styling**: Tailwind CSS, Shadcn/UI
-* **Visualization**: Recharts
+- **Framework**: React + TypeScript + Vite
+- **Styling**: Tailwind CSS + Shadcn/UI
+- **Charts**: Recharts
+- **Theme**: Dark mode default
 
-### Database
-* **ORM**: Prisma
-* **Database**: PostgreSQL
+### Models
+
+| Key | Model | Direction |
+|-----|-------|-----------|
+| HELSINKI_EN_JP | Helsinki-NLP/opus-mt-en-jap | EN→JA |
+| OPUS_JA_EN | Helsinki-NLP/opus-mt-ja-en | JA→EN |
+| ELAN_JA_EN | Mitsua/elan-mt-bt-ja-en | JA→EN |
+| HELSINKI_EN_FR | Helsinki-NLP/opus-mt-en-fr | EN→FR |
+| HELSINKI_FR_EN | Helsinki-NLP/opus-mt-fr-en | FR→EN |
+| OPUS_TC_BIG_EN_FR | Helsinki-NLP/opus-mt-tc-big-en-fr | EN→FR (large) |
+| T5_BASE | google-t5/t5-base | multilingual |
+| NLLB_200 | facebook/nllb-200-distilled-600M | 200 languages |
+| GEMINI | Google Gemini API | transcreation |
+
+COMET, COMETKiwi, Manga OCR, and Whisper are managed via HuggingFace cache.
 
 ---
 
@@ -66,34 +164,25 @@ This project provides a comprehensive platform for evaluating, comparing, and an
 
 ### Prerequisites
 
-* Python 3.10+
-* Node.js 18+ and npm/yarn
-* Git
-* A running PostgreSQL database instance
-* **System Dependencies**:
-    * **Tesseract OCR**: Required for text extraction from images
-        ```bash
-        # On macOS
-        brew install tesseract tesseract-lang
-        # On Debian/Ubuntu  
-        sudo apt-get install tesseract-ocr tesseract-ocr-eng tesseract-ocr-fra tesseract-ocr-jpn
-        # On Windows
-        # Download from: https://github.com/UB-Mannheim/tesseract/wiki
-        ```
-    * **MeCab**: Required for Japanese tokenization with `sacrebleu`
-        ```bash
-        # On macOS
-        brew install mecab mecab-ipadic
-        # On Debian/Ubuntu
-        sudo apt-get install mecab libmecab-dev mecab-ipadic-utf8
-        ```
-    * **FFmpeg**: Required for audio processing with Whisper
-        ```bash
-        # On macOS
-        brew install ffmpeg
-        # On Debian/Ubuntu
-        sudo apt-get install ffmpeg
-        ```
+- Python 3.10+
+- Node.js 18+ and npm
+- Git
+- PostgreSQL
+- System dependencies:
+
+```bash
+# Tesseract OCR (required for image extraction)
+brew install tesseract tesseract-lang          # macOS
+sudo apt-get install tesseract-ocr tesseract-ocr-eng tesseract-ocr-fra tesseract-ocr-jpn  # Ubuntu
+
+# MeCab (required for Japanese tokenization with sacrebleu)
+brew install mecab mecab-ipadic               # macOS
+sudo apt-get install mecab libmecab-dev mecab-ipadic-utf8  # Ubuntu
+
+# FFmpeg (required for Whisper audio processing)
+brew install ffmpeg                           # macOS
+sudo apt-get install ffmpeg                   # Ubuntu
+```
 
 ### 1. Clone the Repository
 
@@ -102,91 +191,63 @@ git clone git@github.com:entre-guillemets/hitl-translation.git
 cd hitl-translation
 ```
 
-### 2. Download and Prepare Models
+### 2. Download Models
 
-**This is a critical step.** This project loads translation models from a local `models/` directory which is not checked into version control due to their large size. You must download and place the required models before running the application.
+Models load from a local `models/` directory not tracked in version control. Use the provided script:
 
-We provide a convenient script to automate this process.
+```bash
+python app/services/model_manager.py --download-all
+```
 
-1.  **Automated Download (Recommended)**
-    Use the provided `model_manager.py` script to download all necessary models directly into your project's `models/` directory. This script handles the correct naming and placement for you.
-    *Note: The model_manager.py script is located in app/services/*
+This downloads several gigabytes and may take 20–60 minutes. To check status:
 
-    ```bash
-    # Ensure you are in the project root directory
-    python app/services/model_manager.py --download-all
-    ```
-    *   **Note:** This process will download several gigabytes of data and may take a considerable amount of time (20-60 minutes or more) depending on your internet connection.
-    *   You can check the status of your models at any time:
-        ```bash
-        python app/services/model_manager.py --status
-        ```
-    *   If you only need a specific model, you can download it individually (e.g., for `T5_BASE`):
-        ```bash
-        python app/services/model_manager.py --download mt5_multilingual
-        ```
-        (Refer to the `model_manager.py` source or run `python app/services/model_manager.py --list` for all model keys.)
+```bash
+python app/services/model_manager.py --status
+```
 
-2.  **Manual Placement (Alternative)**
-    If you prefer to manually manage your models, or already have them downloaded, you can place them directly into a `models/` directory in the root of your project. Ensure the folder names inside `models/` **exactly match** the names listed below.
+To download a single model:
 
-    | Model Name in Code          | Hugging Face Repository                                                              | Target Folder Name                |
-    | :-------------------------- | :----------------------------------------------------------------------------------- | :-------------------------------- |
-    | `HELSINKI_EN_JP`/`OPUS_EN_JP` | [Helsinki-NLP/opus-mt-en-jap](https://huggingface.co/Helsinki-NLP/opus-mt-en-jap)         | `Helsinki-NLP_opus-mt-en-jap`     |
-    | `OPUS_JA_EN`                | [Helsinki-NLP/opus-mt-ja-en](https://huggingface.co/Helsinki-NLP/opus-mt-ja-en)           | `opus-mt-ja-en`                   |
-    | `ELAN_JA_EN`                | [Mitsua/elan-mt-bt-ja-en](https://huggingface.co/Mitsua/elan-mt-bt-ja-en/tree/main) | `Mitsua_elan-mt-bt-ja-en`       |
-    | `HELSINKI_EN_FR`            | [Helsinki-NLP/opus-mt-en-fr](https://huggingface.co/Helsinki-NLP/opus-mt-en-fr)           | `Helsinki-NLP_opus-mt-en-fr`      |
-    | `HELSINKI_FR_EN`            | [Helsinki-NLP/opus-mt-fr-en](https://huggingface.co/Helsinki-NLP/opus-mt-fr-en)           | `Helsinki-NLP_opus-mt-fr-en`      |
-    | `OPUS_TC_BIG_EN_FR`         | [Helsinki-NLP/opus-mt-tc-big-en-fr](https://huggingface.co/Helsinki-NLP/opus-mt-tc-big-en-fr) | `opus-mt-tc-big-en-fr`          |
-    | `T5_BASE`/`T5_MULTILINGUAL` | [google-t5/t5-base](https://huggingface.co/google-t5/t5-base)                         | `google-t5_t5-base`               |
-    | `NLLB_200`                  | [facebook/nllb-200-distilled-600M](https://huggingface.co/facebook/nllb-200-distilled-600M) | `nllb-200-distilled-600M`         |
-    | `COMET`                     | [Unbabel/wmt22-comet-da](https://huggingface.co/Unbabel/wmt22-comet-da)                 | *(Managed by Hugging Face cache)* |
-    | `COMETKiwi`                 | [Unbabel/wmt20-comet-qe-da](https://huggingface.co/Unbabel/wmt20-comet-qe-da)           | *(Managed by Hugging Face cache)* |
-    | `Manga OCR`                 | [kha-white/manga-ocr-base](https://huggingface.co/kha-white/manga-ocr-base)               | *(Managed by Hugging Face cache)* |
-    | `Whisper`                   | OpenAI Whisper models (base, small, medium, large) | *(Managed by Whisper library cache)* |
+```bash
+python app/services/model_manager.py --download mt5_multilingual
+```
 
-    *Note: For Hugging Face models, you can use the "Download" button on the Hugging Face Hub page to download a zip of the repository, then unzip and rename the folder as specified above. COMET, COMETKiwi, Manga OCR, and Whisper models are typically managed by their respective libraries' internal caching mechanisms when loaded programmatically.*
+**Manual placement** — if managing models yourself, place them in `models/` with these folder names:
 
-    **Quality Estimation model choice — COMETKiwi vs MetricX:** This project originally used `google/metricx-24-hybrid-large-v2p6` for reference-free quality estimation. MetricX was replaced with `Unbabel/wmt20-comet-qe-da` (a COMETKiwi-family QE model) for two reasons: (1) MetricX has significant performance issues on Apple Silicon (MacBook M3) without CUDA, making inference prohibitively slow; (2) `wmt22-cometkiwi-da` (the preferred newer QE model) is a gated HuggingFace repository requiring access approval. `wmt20-comet-qe-da` is freely available, uses the same `unbabel-comet` library already required for COMET-DA, and is a well-validated reference-free QE model from WMT 2020. COMET-DA (`wmt20-comet-da`) is retained for reference-based post-editing metrics (BLEU/TER/ChrF/COMET calculated against human-edited translations). To upgrade to `wmt22-cometkiwi-da`, request access at https://huggingface.co/Unbabel/wmt22-cometkiwi-da and update the model name in `app/main.py`.
+| Model Key | HuggingFace Repo | Folder Name |
+|-----------|-----------------|-------------|
+| HELSINKI_EN_JP | Helsinki-NLP/opus-mt-en-jap | `Helsinki-NLP_opus-mt-en-jap` |
+| OPUS_JA_EN | Helsinki-NLP/opus-mt-ja-en | `opus-mt-ja-en` |
+| ELAN_JA_EN | Mitsua/elan-mt-bt-ja-en | `Mitsua_elan-mt-bt-ja-en` |
+| HELSINKI_EN_FR | Helsinki-NLP/opus-mt-en-fr | `Helsinki-NLP_opus-mt-en-fr` |
+| HELSINKI_FR_EN | Helsinki-NLP/opus-mt-fr-en | `Helsinki-NLP_opus-mt-fr-en` |
+| OPUS_TC_BIG_EN_FR | Helsinki-NLP/opus-mt-tc-big-en-fr | `opus-mt-tc-big-en-fr` |
+| T5_BASE | google-t5/t5-base | `google-t5_t5-base` |
+| NLLB_200 | facebook/nllb-200-distilled-600M | `nllb-200-distilled-600M` |
+| COMET | Unbabel/wmt22-comet-da | *(HuggingFace cache)* |
+| COMETKiwi | Unbabel/wmt22-cometkiwi-da | *(HuggingFace cache)* |
+| Manga OCR | kha-white/manga-ocr-base | *(HuggingFace cache)* |
+| Whisper | openai/whisper | *(Whisper library cache)* |
+
+**Note on COMETKiwi**: `wmt22-cometkiwi-da` is a gated HuggingFace repository — request access at https://huggingface.co/Unbabel/wmt22-cometkiwi-da. The fallback `wmt20-comet-qe-da` is freely available and uses the same `unbabel-comet` library. To upgrade, update the model name in `app/main.py`.
 
 ### 3. Backend Setup
 
-The backend serves the translation models, multimodal processing, and the main API.
-
 ```bash
-# Navigate to the project directory
-/path/to/your/download
-
-# Create a virtual environment
 python -m venv venv
 source venv/bin/activate
 
-# Install Python dependencies
 pip install sentencepiece==0.2.0
 pip install -r requirements.txt
+
+# Multimodal dependencies
+pip install pytesseract opencv-python pillow pdfplumber manga-ocr openai-whisper langdetect
 ```
 
-**Additional dependencies for multimodal features:**
-```bash
-# OCR and image processing
-pip install pytesseract opencv-python pillow pdfplumber
+Configure environment:
 
-# Japanese OCR (optional but recommended for Japanese content)
-pip install manga-ocr
-
-# Audio transcription (optional but recommended for audio content)  
-pip install openai-whisper
-
-# Language detection
-pip install langdetect
-```
-
-**Set up your environment variables:**
 ```bash
 cp .env.example .env
 ```
-
-Edit the `.env` file with your PostgreSQL database connection string and the following details:
 
 ```env
 DATABASE_URL="postgresql://user:password@localhost:5432/mydb"
@@ -198,276 +259,90 @@ HF_HOME=./models
 PYTORCH_TRANSFORMERS_CACHE=./models
 LOG_LEVEL=INFO
 TRANSFORMERS_TRUST_REMOTE_CODE=1
-
-# Optional: Tesseract path (if not in system PATH)
-# TESSERACT_CMD=/usr/local/bin/tesseract
 ```
 
-**Initialize the Database:**
-Run the Prisma command to push the schema to your database.
+Initialize the database:
+
 ```bash
 python -m prisma db push
 ```
 
 ### 4. Frontend Setup
 
-The frontend is the Next.js quality dashboard with Shadcn components.
-
 ```bash
-# Install Node.js dependencies
 npm install
 ```
 
-### 5. Run the Front & Backends (using concurrently)
+### 5. Run
 
 ```bash
 npm run dev:full
 ```
-The backend API will be available at `http://localhost:8001`.
-The frontend, using Next.js and Shadcn components, will be available typically on port `5173`. Check your terminal for the exact URL (e.g., `http://localhost:5173`).
+
+- Backend: `http://localhost:8001`
+- Frontend: `http://localhost:5173`
+- API docs (Swagger UI): `http://localhost:8001/docs`
 
 ---
 
-## API Endpoints
+## API Reference
 
-The FastAPI backend provides several endpoints for debugging and interacting with the system. View the full, interactive documentation provided by Swagger UI at:
+Full interactive documentation at `http://localhost:8001/docs`.
 
-**[http://localhost:8001/docs](http://localhost:8001/docs)**
+### Multimodal (Stage 1–2)
+- `POST /api/extract-text` — extract text from images, PDFs, audio
+- `POST /api/detect-language` — detect language from multimodal content
+- `POST /api/translate-file` — upload and translate content from files
 
-### 🆕 Multimodal Endpoints
-* `POST /api/extract-text`: Extract text from uploaded files (images, PDFs, audio)
-* `POST /api/detect-language`: Detect language from multimodal content
-* `POST /api/translate-file`: Upload and translate content from files
+### Translation (Stage 5)
+- `POST /api/translate` — translate text between supported language pairs
+- `GET /api/translation-requests` — retrieve jobs with metrics
+- `PUT /api/translation-requests/translation-strings/:id` — post-edit a string
+- `POST /api/translation-requests/translation-strings/:id/annotations` — add annotation
 
-### Translation Endpoints
-* `POST /api/translate`: Translate text between supported language pairs
-* `GET /api/translation-requests`: Retrieve translation history and metrics
+### Quality Estimation (Stage 4)
+- `POST /api/quality-estimation` — run COMETKiwi QE on segments
 
-### Usage Examples
+### Analytics (Stage 8)
+- `GET /api/analytics/model-performance` — leaderboard data
+- `GET /api/analytics/post-edit-metrics` — BLEU/TER/COMET/ChrF by language pair
+- `GET /api/analytics/segment-confidence` — cross-metric signal confidence scores
+- `GET /api/analytics/eval-quality` — coverage, correlations, judge calibration
+- `GET /api/analytics/rlhf/quality-rating` — human preference data
 
-**Extract text from an image:**
-```bash
-curl -X POST "http://localhost:8001/api/extract-text" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@screenshot.png"
-```
-
-**Translate content from a PDF:**
-```bash
-curl -X POST "http://localhost:8001/api/translate-file" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@document.pdf" \
-  -F "target_language=fr"
-```
-
----
-
-## Supported File Types
-
-### Images
-* **Formats**: PNG, JPEG, GIF, BMP, TIFF
-* **OCR Engines**: 
-  * Tesseract (multi-language)
-  * Manga OCR (specialized for Japanese)
-* **Languages**: English, French, Japanese, and others supported by Tesseract
-
-### Documents  
-* **PDF**: Both text-based and scanned documents
-* **Text Files**: Plain text in various encodings
-
-### Audio
-* **Formats**: MP3, WAV, M4A, FLAC, and other formats supported by FFmpeg
-* **Transcription**: OpenAI Whisper with automatic language detection
-* **Languages**: 99+ languages supported by Whisper
-
----
-
-## Architecture Overview
-
-### Multimodal Processing Pipeline
-
-1. **File Upload**: Accept various file types through FastAPI endpoints
-2. **Content Detection**: Automatic MIME type and language detection
-3. **Specialized Processing**:
-   - **Images**: Language detection → Preprocessing → OCR (Manga OCR for Japanese, Tesseract for others)
-   - **PDFs**: Text extraction → OCR for scanned pages → Content assembly  
-   - **Audio**: Whisper transcription with language detection
-4. **Post-processing**: Text cleanup, normalization, and optional LLM enhancement
-5. **Translation**: Processed text fed into existing translation pipeline
-
-### File Processing Classes
-
-* `MultimodalService`: Main orchestrator for all file processing
-* `ImageProcessor`: Image preprocessing and enhancement for OCR
-* `TextProcessor`: Post-OCR text cleanup and normalization
-* `LanguageDetector`: Multi-modal language detection
-* `TesseractOCREngine`: General-purpose OCR with multiple language support
-* `MangaOCREngine`: Specialized Japanese text recognition
-
----
-
-## Performance Considerations
-
-### OCR Optimization
-* **Image Preprocessing**: Automatic scaling and enhancement for better accuracy
-* **Multiple PSM Modes**: Tesseract uses different page segmentation modes for optimal results
-* **Language-specific Handling**: Japanese text uses specialized spacing fixes
-
-### Memory Management  
-* **Streaming Processing**: Large files processed in chunks where possible
-* **Temporary File Cleanup**: Automatic cleanup of temporary files for audio processing
-* **Model Caching**: OCR and Whisper models cached in memory for faster processing
-
-### Error Handling
-* **Graceful Fallbacks**: Multiple OCR engines with fallback strategies
-* **Comprehensive Logging**: Detailed error logging for debugging multimodal processing
-* **Format Validation**: Input validation for supported file types and sizes
-
----
-
-## Under Development
-## 🚧 Known Issues & Limitations
-
-### Multimodal Processing
-* **Large File Support**: Memory constraints for very large PDF or audio files
-* **OCR Accuracy**: Accuracy depends on image quality, font, and language complexity
-* **Audio Quality**: Transcription accuracy varies with audio clarity and background noise
-* **Language Detection**: May struggle with mixed-language content or short text snippets
-
-## Data & Analytics
-* Placeholder data replacement: Several analytics endpoints currently return hardcoded values (p-values, confidence intervals, correlation coefficients) instead of calculated statistics
-
-## API Consistency
-* Mixed routing patterns: Frontend components use inconsistent API paths (/api/analytics/ vs /api/translation-requests/)
-* Data source indicators: Dashboard doesn't clearly distinguish between real data and placeholder/sample data
-
-## Quality Metrics
-* Inter-rater agreement: Currently shows placeholder values; needs implementation when multiple reviewers are available
-* TM time savings: Calculations are estimated rather than based on actual processing time differences
-* Model utilization rates: Simple ratio calculations rather than capacity-based utilization metrics
-
-## 🔄 Planned Improvements
-
-### Multimodal Enhancements
-* **Batch Processing**: Support for multiple file uploads and batch processing
-* **Advanced OCR**: Integration with cloud OCR services for improved accuracy
-* **Format Support**: Additional file formats (DOCX, PPTX, video subtitles)
-* **Real-time Processing**: WebSocket support for real-time transcription and translation
-* **Quality Metrics**: OCR confidence scores and transcription reliability indicators
-
-### System Improvements
-* Replace all hardcoded statistical values with real calculations
-* Implement proper confidence interval computation using scipy.stats
-* Add data source badges to distinguish API data from fallback samples
-* Standardize API routing patterns across all frontend components
-* Cultural bias detection: Implement regex-based tone and cultural mismatch detection system
-* Advanced statistical analysis: Add bootstrap confidence intervals and proper correlation significance testing
-* Multi-annotator support: Inter-rater agreement calculations for quality assessment
-* Advanced bias detection: Move beyond regex to ML-based cultural adaptation metrics
-* Performance optimization: Batch processing for large-scale quality assessments
-* Extended language support: Additional language-specific quality metrics and cultural markers
-
-## ⚠️ Current Limitations
-
-### Database Dependencies
-* Some analytics require minimum data thresholds to generate meaningful insights
-* Quality correlations need sufficient sample sizes for statistical validity
-* System health metrics depend on active translation processing
-
-### External Service Dependencies
-* COMET model availability required for quality predictions
-* Translation engines must be accessible for multi-engine orchestration
-* Tesseract and system dependencies must be properly installed
-* Sufficient disk space required for model caching and temporary file processing
-
-### Hardware Requirements
-* **Memory**: At least 8GB RAM recommended for processing large files and models
-* **Storage**: 10GB+ free space for model downloads and temporary file processing
-* **CPU**: Multi-core processor recommended for efficient OCR and transcription
-
----
-
-## 📋 Testing Status
-
-## Fully Tested
-✅ Basic COMET scoring functionality
-✅ BLEU/TER calculation accuracy  
-✅ Database CRUD operations
-✅ Multi-engine orchestration
-✅ Image OCR with Tesseract and Manga OCR
-✅ PDF text extraction and OCR fallback
-✅ Audio transcription with Whisper
-✅ Language detection across modalities
-
-## Partially Tested
-⚠️ Statistical correlation calculations (needs validation with larger datasets)
-⚠️ Large file processing (memory and performance limits)
-⚠️ Edge cases in multimodal language detection
-
-## Needs Testing
-❌ Confidence interval calculations under various data distributions
-❌ Performance under high concurrent load
-❌ Batch multimodal processing
-❌ Error recovery in multimodal pipeline
-❌ Cross-platform compatibility of system dependencies
-
----
-
-## 🎯 Contribution Areas
-We welcome contributions in these areas:
-* **Multimodal Processing**: Improving OCR accuracy, adding new file format support, optimizing processing pipelines
-* **Statistical Methods**: Implementing robust confidence intervals and significance testing
-* **Cultural Linguistics**: Expanding bias detection patterns for additional languages
-* **Performance Optimization**: Improving batch processing and caching strategies for multimodal content
-* **Testing Coverage**: Adding unit tests for statistical calculations, multimodal processing, and edge cases
-* **Documentation**: API documentation and setup guides for development environment
-* **Mobile Support**: Optimizing multimodal processing for mobile file uploads
-* **Accessibility**: Ensuring OCR and transcription outputs are accessible
+### Health
+- `GET /api/health/detailed` — database, COMETKiwi, and MT engine status
 
 ---
 
 ## Troubleshooting
 
-### Common Issues
-
 **Tesseract not found:**
 ```bash
-# Make sure Tesseract is installed and in PATH
 which tesseract
-# If not found, install using package manager or set TESSERACT_CMD environment variable
+# If missing, install via package manager or set TESSERACT_CMD in .env
 ```
 
 **Japanese OCR not working:**
 ```bash
-# Install Japanese language data for Tesseract
-sudo apt-get install tesseract-ocr-jpn  # Ubuntu/Debian
-brew install tesseract-lang            # macOS
+sudo apt-get install tesseract-ocr-jpn   # Ubuntu
+brew install tesseract-lang              # macOS
 ```
 
-**Whisper transcription fails:**
+**Whisper fails:**
 ```bash
-# Install FFmpeg if not present
-brew install ffmpeg                    # macOS  
-sudo apt-get install ffmpeg           # Ubuntu/Debian
+brew install ffmpeg        # macOS
+sudo apt-get install ffmpeg  # Ubuntu
 ```
 
-**Memory issues with large files:**
-- Consider processing files in smaller chunks
-- Increase available RAM or use swap space
-- Monitor memory usage during processing
+**Database connection errors:**
+```bash
+python -m prisma db push   # re-apply schema
+python -m prisma generate  # regenerate client after schema edits
+```
 
 ---
 
-## Contributing
-
-Contributions are welcome! Please feel free to open an issue or submit a pull request.
-
-1.  Fork the repository.
-2.  Create your feature branch (`git checkout -b feature/AmazingFeature`).
-3.  Commit your changes (`git commit -m 'Add some AmazingFeature'`).
-4.  Push to the branch (`git push origin feature/AmazingFeature`).
-5.  Open a Pull Request.
-
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License — see [LICENSE](LICENSE) for details.
