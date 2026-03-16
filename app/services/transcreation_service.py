@@ -2,6 +2,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Optional
+import asyncio
 
 import yaml
 from google import genai
@@ -11,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 _CONFIG_DIR = Path(__file__).parent.parent.parent / "config" / "transcreation"
 
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.1-flash-lite-preview"
 
 
 class TranscreationService:
@@ -90,7 +91,7 @@ class TranscreationService:
             f"TranscreationService: calling {model} for '{pair}' "
             f"({len(golden_records)} golden records, {len(text)} chars)"
         )
-
+        await asyncio.sleep(4)
         response = self._client.models.generate_content(
             model=model,
             contents=contents,

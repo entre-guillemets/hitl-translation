@@ -19,6 +19,7 @@ from app.api.routers import (
     analytics,
     llm_judge,
     benchmarks,
+    admin,
 )
 
 from app.services.fuzzy_matching_service import FuzzyMatchingService
@@ -65,6 +66,7 @@ app.include_router(analytics.router)
 app.include_router(analytics.router, prefix="/api")
 app.include_router(llm_judge.router)
 app.include_router(benchmarks.router)
+app.include_router(admin.router)
 
 # Database startup/shutdown events
 @app.on_event("startup")
@@ -94,7 +96,7 @@ async def startup_event():
             from comet import load_from_checkpoint, download_model
 
             logger.info("Downloading/loading COMET model from Unbabel...")
-            model_path = download_model("Unbabel/wmt20-comet-da")
+            model_path = download_model("Unbabel/wmt22-comet-da")
             comet_model = load_from_checkpoint(model_path)
             comet_model.eval()
             logger.info("✓ COMET model loaded from Unbabel download")

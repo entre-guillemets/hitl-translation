@@ -53,6 +53,27 @@ class TranslationService:
                 ('PIVOT_ELAN_HELSINKI', None, None),
                 ('NLLB_200', self.model_paths['NLLB_200'][0], 'jpn_Jpan'),
             ],
+            # Swahili: NLLB-200 only — no dedicated Helsinki model exists for SW.
+            # NLLB tag: swh_Latn (Swahili, Latin script).
+            # LLM-as-judge is the primary quality signal for this pair;
+            # BLEU and TER are rated low reliability for SW due to agglutinative
+            # morphology and sparse training data in COMET/COMETKiwi.
+            'EN-SW': [
+                ('NLLB_200', self.model_paths['NLLB_200'][0], 'swh_Latn'),
+            ],
+            'SW-EN': [
+                ('NLLB_200', self.model_paths['NLLB_200'][0], 'eng_Latn'),
+            ],
+            # JP aliases — internal code used by WMT benchmarks maps to the same models as JA
+            'EN-JP': [
+                ('HELSINKI_EN_JA', self.model_paths['HELSINKI_EN_JA'][0], None),
+                ('NLLB_200', self.model_paths['NLLB_200'][0], 'jpn_Jpan'),
+            ],
+            'JP-EN': [
+                ('OPUS_JA_EN', self.model_paths['OPUS_JA_EN'][0], None),
+                ('ELAN_JA_EN', self.model_paths['ELAN_JA_EN'][0], None),
+                ('NLLB_200', self.model_paths['NLLB_200'][0], 'eng_Latn'),
+            ],
         }
 
     def _load_model(self, model_key: str):
@@ -176,7 +197,8 @@ class TranslationService:
                 if target_lang_tag is None:
                     nllb_lang_tags = {
                         "en": "eng_Latn", "fr": "fra_Latn", "ja": "jpn_Jpan",
-                        "ja": "jpn_Jpan", "fra": "fra_Latn", "eng": "eng_Latn"
+                        "jp": "jpn_Jpan", "fra": "fra_Latn", "eng": "eng_Latn",
+                        "sw": "swh_Latn",  # Swahili (Latin script)
                     }
                     target_lang_tag = nllb_lang_tags.get(target_lang.lower(), None)
                     if target_lang_tag is None:

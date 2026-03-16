@@ -23,6 +23,7 @@ class MultiEngineTranslationRequestCreate(BaseModel):
 class TranslationStringUpdate(BaseModel):
     translatedText: str
     status: str
+    annotatorId: Optional[str] = None  # e.g. "REVIEWER_1"
 
 class EngineSelectionData(BaseModel):
     engine: str

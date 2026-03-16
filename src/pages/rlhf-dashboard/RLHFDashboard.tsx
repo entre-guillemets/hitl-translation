@@ -2,8 +2,7 @@
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { RefreshCw, Star, Target, TrendingUp, Users } from 'lucide-react';
+import { RefreshCw, Target, TrendingUp, Users } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
@@ -17,7 +16,6 @@ interface RLHFAnalytics {
 
 export const RLHFDashboard: React.FC = () => {
   const [analytics, setAnalytics] = useState<RLHFAnalytics | null>(null);
-  const [isTraining, setIsTraining] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -42,36 +40,11 @@ export const RLHFDashboard: React.FC = () => {
     }
   };
 
-  const triggerTraining = async () => {
-    setIsTraining(true);
-    try {
-      // Corrected URL for training endpoint (assuming it follows the same pattern in backend)
-      const response = await fetch('http://localhost:8001/api/analytics/rlhf/train-reward-model', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force_retrain: true })
-      });
-
-      if (response.ok) {
-        alert('Reward model training started successfully!');
-        await fetchAnalytics(); // Refresh data
-      } else {
-        console.error('Failed to start training:', response.status, await response.text());
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-    } catch (error) {
-      console.error('Failed to start training:', error);
-      alert('Failed to start training');
-    } finally {
-      setIsTraining(false);
-    }
-  };
-
   if (loading) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold">RLHF Dashboard</h1>
+          <h1 className="text-3xl font-bold">Human Preference Data</h1>
         </div>
         <Card>
           <CardContent className="text-center py-8">
@@ -87,7 +60,7 @@ export const RLHFDashboard: React.FC = () => {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold">RLHF Dashboard</h1>
+          <h1 className="text-3xl font-bold">Human Preference Data</h1>
         </div>
         <Card>
           <CardContent className="text-center py-8">
@@ -112,7 +85,7 @@ export const RLHFDashboard: React.FC = () => {
     <div className="space-y-6">
       {/* Page Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">RLHF Dashboard</h1>
+        <h1 className="text-3xl font-bold">Human Preference Data</h1>
         <Button onClick={fetchAnalytics} variant="outline">
           <RefreshCw className="h-4 w-4 mr-2" />
           Refresh
@@ -145,35 +118,33 @@ export const RLHFDashboard: React.FC = () => {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Training Ready</CardTitle>
+            <CardTitle className="text-sm font-medium">Has Feedback</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className={`text-2xl font-bold ${analytics.training_data_available ? 'text-green-600' : 'text-red-600'}`}>
+            <div className={`text-2xl font-bold ${analytics.training_data_available ? 'text-green-600' : 'text-muted-foreground'}`}>
               {analytics.training_data_available ? 'Yes' : 'No'}
             </div>
             <p className="text-xs text-muted-foreground">
-              {analytics.training_data_available ? 'Ready to train' : 'Need more data'}
+              {analytics.training_data_available ? 'Preference data recorded' : 'No feedback yet'}
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Model Status</CardTitle>
-            <Star className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Fine-Tuning Data</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <Button
-              onClick={triggerTraining}
-              disabled={isTraining || !analytics.training_data_available}
-              className="w-full"
-            >
-              {isTraining ? 'Training...' : 'Train Reward Model'}
-            </Button>
-            {isTraining && (
-              <Progress value={50} className="mt-2" />
-            )}
+            <div className={`text-2xl font-bold ${analytics.training_data_available ? 'text-green-600' : 'text-yellow-600'}`}>
+              {analytics.training_data_available ? 'Available' : 'Building'}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {analytics.training_data_available
+                ? 'Preference pairs exportable for DPO/SFT'
+                : 'Collect more preference pairs'}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -217,35 +188,29 @@ export const RLHFDashboard: React.FC = () => {
         </Card>
       </div>
 
-      {/* RLHF Insights Panel */}
+      {/* Data methodology panel */}
       <Card>
         <CardHeader>
-          <CardTitle>Reinforcement Learning from Human Feedback Insights</CardTitle>
+          <CardTitle>About This Data</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-              <h4 className="font-semibold text-blue-800 dark:text-blue-200 mb-2">
-                🎯 Human Preference Learning
-              </h4>
+              <h4 className="font-semibold text-blue-800 dark:text-blue-200 mb-2">What is collected</h4>
               <p className="text-sm text-blue-700 dark:text-blue-300">
-                Every quality rating and preference comparison in Translation QA trains the reward model to better predict human preferences
+                Engine selection decisions, star ratings, preference reasons, and overall satisfaction scores — one record per reviewed string.
               </p>
             </div>
             <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-              <h4 className="font-semibold text-green-800 dark:text-green-200 mb-2">
-                📈 Continuous Improvement
-              </h4>
+              <h4 className="font-semibold text-green-800 dark:text-green-200 mb-2">How it could be used</h4>
               <p className="text-sm text-green-700 dark:text-green-300">
-                The reward model learns from your feedback patterns to provide increasingly accurate quality predictions
+                Preference pairs (chosen vs. rejected engine output) are the correct format for DPO or SFT fine-tuning of local MarianMT/ELAN models via HuggingFace TRL.
               </p>
             </div>
             <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-              <h4 className="font-semibold text-purple-800 dark:text-purple-200 mb-2">
-                🔄 Feedback Loop
-              </h4>
+              <h4 className="font-semibold text-purple-800 dark:text-purple-200 mb-2">Current status</h4>
               <p className="text-sm text-purple-700 dark:text-purple-300">
-                Quality ratings, preference comparisons, and annotations create training data that improves translation quality over time
+                Data collection only. Fine-tuning pipelines are out of scope for this platform — sufficient volume (&gt;500 pairs per language pair) and a GPU training environment are required.
               </p>
             </div>
           </div>

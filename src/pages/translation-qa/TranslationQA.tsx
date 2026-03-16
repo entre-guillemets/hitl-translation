@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { BarChart3, CheckCircle, ChevronLeft, ChevronRight, Copy, MessageSquare, X, XCircle } from 'lucide-react';
+import { BarChart3, CheckCircle, ChevronLeft, ChevronRight, Copy, MessageSquare, PartyPopper, X, XCircle } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 
 const API_BASE_URL = 'http://localhost:8001';
@@ -215,7 +215,7 @@ const ModelOutputCard: React.FC<{
         )}
 
         <div className="text-xs text-muted-foreground">
-          Confidence: {(result.confidence * 100).toFixed(0)}%
+          Engine self-score: {(result.confidence * 100).toFixed(0)}%
         </div>
 
         <Button
@@ -314,7 +314,7 @@ const TMMatchesCard: React.FC<{
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {fuzzyMatches.map((match: any, index: number) => (
+        {(Array.isArray(fuzzyMatches) ? fuzzyMatches : []).map((match: any, index: number) => (
           <div key={index} className="border rounded p-3 space-y-2">
             <div className="flex justify-between items-center">
               <Badge variant="secondary">{match.match_percentage}% match</Badge>
@@ -348,15 +348,19 @@ const BulkReviewOverlay: React.FC<{
   selectedStatus: string;
   setSelectedStatus: (status: string) => void;
   onClose: () => void;
+  onContinueReviewing: () => void;
   onUpdate: () => void;
   onApprove: () => void;
   onNext: () => void;
   onPrevious: () => void;
   currentIndex: number;
   totalCount: number;
+  approvedCount: number;
+  reviewComplete: boolean;
   onQualityRating: (rating: number, annotations: any[]) => void;
   onAnnotationAdd: (annotation: any) => void;
   selectedRequest: TranslationRequest | null;
+  stringConfidence?: { confidence: number | null; n_signals: number; mean_quality: number | null };
 }> = ({
   selectedString,
   editedText,
@@ -364,18 +368,25 @@ const BulkReviewOverlay: React.FC<{
   selectedStatus,
   setSelectedStatus,
   onClose,
+  onContinueReviewing,
   onUpdate,
   onApprove,
   onNext,
   onPrevious,
   currentIndex,
   totalCount,
+  approvedCount,
+  reviewComplete,
   onQualityRating,
   onAnnotationAdd,
-  selectedRequest
+  selectedRequest,
+  stringConfidence,
 }) => {
   const engineResults = selectedString.engineResults || [];
   const fuzzyMatches = selectedString.fuzzyMatches || [];
+
+  const [saveFeedback, setSaveFeedback] = useState(false);
+  const [approveFeedback, setApproveFeedback] = useState(false);
 
   // Translator details state
   const [reviewerExpertise, setReviewerExpertise] = useState('');
@@ -387,21 +398,78 @@ const BulkReviewOverlay: React.FC<{
     setEditedText(text);
   };
 
+  const handleUpdate = () => {
+    setSaveFeedback(true);
+    setTimeout(() => setSaveFeedback(false), 1500);
+    onUpdate();
+  };
+
+  const handleApprove = () => {
+    setApproveFeedback(true);
+    setTimeout(() => setApproveFeedback(false), 1500);
+    onApprove();
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-background rounded-lg shadow-xl w-full max-w-7xl h-[90vh] flex flex-col border">
         <div className="flex justify-between items-center p-6 border-b bg-muted/30">
           <h2 className="text-xl font-semibold">Bulk Review Mode</h2>
           <div className="flex items-center gap-4">
-            <span className="text-sm text-muted-foreground">
-              {currentIndex + 1} / {totalCount}
-            </span>
+            {reviewComplete ? (
+              <span className="text-sm font-medium text-green-500">All strings reviewed</span>
+            ) : (
+              <span className="text-sm text-muted-foreground">
+                {currentIndex + 1} / {totalCount}
+              </span>
+            )}
+            {stringConfidence && !reviewComplete && (() => {
+              const { confidence, n_signals } = stringConfidence;
+              if (confidence === null || n_signals < 2) {
+                return <Badge variant="outline" className="text-xs text-muted-foreground">Signal confidence: —</Badge>;
+              }
+              const pct = Math.round(confidence * 100);
+              if (confidence >= 0.7) {
+                return <Badge variant="outline" className="text-xs border-green-500 text-green-600 dark:text-green-400">Signal confidence: {pct}%</Badge>;
+              } else if (confidence >= 0.4) {
+                return <Badge variant="outline" className="text-xs border-yellow-500 text-yellow-600 dark:text-yellow-400">Signal confidence: {pct}%</Badge>;
+              } else {
+                return <Badge variant="outline" className="text-xs border-red-500 text-red-600 dark:text-red-400">Signal confidence: {pct}%</Badge>;
+              }
+            })()}
             <Button onClick={onClose} variant="outline" size="sm">
               <X className="w-4 h-4" />
             </Button>
           </div>
         </div>
 
+        {reviewComplete ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8 text-center">
+            <PartyPopper className="h-16 w-16 text-green-500" />
+            <div>
+              <h3 className="text-2xl font-semibold mb-2">Review Complete</h3>
+              <p className="text-muted-foreground text-lg">
+                You reviewed all {totalCount} string{totalCount !== 1 ? 's' : ''} in this job.
+              </p>
+              <p className="text-muted-foreground mt-1">
+                <span className="font-medium text-green-500">{approvedCount}</span> approved
+                {totalCount - approvedCount > 0 && (
+                  <span> · <span className="font-medium text-yellow-500">{totalCount - approvedCount}</span> pending</span>
+                )}
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Button onClick={onContinueReviewing} variant="outline" size="lg">
+                Continue Reviewing
+              </Button>
+              <Button onClick={onClose} size="lg">
+                <CheckCircle className="w-5 h-5 mr-2" />
+                Close
+              </Button>
+            </div>
+          </div>
+        ) : (
+        <>
         <div className="flex-1 overflow-auto p-6 space-y-6">
           {/* Layout change: Source Text and Translation Editor side-by-side */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6"> {/* Added grid layout */}
@@ -581,11 +649,11 @@ const BulkReviewOverlay: React.FC<{
             Previous
           </Button>
           <div className="flex gap-2">
-            <Button onClick={onUpdate} variant="outline">
-              Update Translation
+            <Button onClick={handleUpdate} variant={saveFeedback ? 'default' : 'outline'}>
+              {saveFeedback ? <><CheckCircle className="w-4 h-4 mr-2" />Saved!</> : 'Update Translation'}
             </Button>
-            <Button onClick={onApprove}>
-              Approve & Next
+            <Button onClick={handleApprove} variant={approveFeedback ? 'default' : 'default'} className={approveFeedback ? 'bg-green-600 hover:bg-green-600' : ''}>
+              {approveFeedback ? <><CheckCircle className="w-4 h-4 mr-2" />Approved!</> : 'Approve & Next'}
             </Button>
           </div>
           <Button onClick={onNext} disabled={currentIndex === totalCount - 1} variant="outline">
@@ -593,6 +661,8 @@ const BulkReviewOverlay: React.FC<{
             <ChevronRight className="w-4 h-4 ml-2" />
           </Button>
         </div>
+        </>
+        )}
       </div>
     </div>
   );
@@ -607,19 +677,31 @@ export const TranslationQA: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [bulkReviewMode, setBulkReviewMode] = useState(false);
+  const [reviewComplete, setReviewComplete] = useState(false);
+  const [segmentConfidence, setSegmentConfidence] = useState<Record<string, { confidence: number | null; n_signals: number; mean_quality: number | null }>>({});
   const [filterLanguage, setFilterLanguage] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [showAnalytics, setShowAnalytics] = useState(false);
 
   const [submitStatus, setSubmitStatus] = useState<{type: 'success' | 'error' | 'idle', message: string}>({type: 'idle', message: ''});
+  const [annotatorId, setAnnotatorId] = useState<string>(
+    () => localStorage.getItem('hitl_annotatorId') ?? 'REVIEWER_1'
+  );
+
+  const handleAnnotatorChange = (value: string) => {
+    setAnnotatorId(value);
+    localStorage.setItem('hitl_annotatorId', value);
+  };
 
   const [analytics, setAnalytics] = useState({
     totalStrings: 0,
     approvedStrings: 0,
     pendingStrings: 0,
     avgQualityScore: 0,
-    totalAnnotations: 0
+    totalAnnotations: 0,
+    annotationsByCategory: {} as Record<string, number>,
+    annotationsBySeverity: {} as Record<string, number>,
   });
 
   useEffect(() => {
@@ -630,6 +712,28 @@ export const TranslationQA: React.FC = () => {
     if (selectedRequest) {
       calculateAnalytics();
     }
+  }, [selectedRequest]);
+
+  useEffect(() => {
+    if (!selectedRequest) return;
+    const fetchConfidence = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/analytics/segment-confidence?job_id=${selectedRequest.id}`);
+        if (res.ok) {
+          const data = await res.json();
+          const map: Record<string, { confidence: number | null; n_signals: number; mean_quality: number | null }> = {};
+          for (const seg of data.segments ?? []) {
+            map[seg.segment_id] = {
+              confidence: seg.confidence,
+              n_signals: seg.n_signals,
+              mean_quality: seg.mean_quality,
+            };
+          }
+          setSegmentConfidence(map);
+        }
+      } catch { /* silently ignore */ }
+    };
+    fetchConfidence();
   }, [selectedRequest]);
 
   const showStatus = (type: 'success' | 'error', message: string) => {
@@ -656,14 +760,23 @@ export const TranslationQA: React.FC = () => {
     }
   };
 
-  const calculateAnalytics = () => {
-    if (!selectedRequest) return;
+  const calculateAnalytics = (request = selectedRequest) => {
+    if (!request) return;
 
-    const strings = selectedRequest.translationStrings;
+    const strings = request.translationStrings;
     const totalStrings = strings.length;
     const approvedStrings = strings.filter(s => s.status === 'APPROVED' || s.isApproved).length;
     const pendingStrings = strings.filter(s => s.status === 'REQUIRES_REVIEW').length;
-    const totalAnnotations = strings.reduce((sum, s) => sum + s.annotations.length, 0);
+
+    const allAnnotations = strings.flatMap(s => s.annotations ?? []);
+    const totalAnnotations = allAnnotations.length;
+
+    const annotationsByCategory: Record<string, number> = {};
+    const annotationsBySeverity: Record<string, number> = {};
+    for (const a of allAnnotations) {
+      annotationsByCategory[a.category] = (annotationsByCategory[a.category] ?? 0) + 1;
+      annotationsBySeverity[a.severity] = (annotationsBySeverity[a.severity] ?? 0) + 1;
+    }
 
     const bleuScores = strings
       .map(s => s.qualityMetrics?.bleuScore)
@@ -678,7 +791,9 @@ export const TranslationQA: React.FC = () => {
       approvedStrings,
       pendingStrings,
       avgQualityScore,
-      totalAnnotations
+      totalAnnotations,
+      annotationsByCategory,
+      annotationsBySeverity,
     });
   };
 
@@ -693,6 +808,7 @@ export const TranslationQA: React.FC = () => {
     setSelectedRequest(request);
     if (request.translationStrings.length > 0) {
       handleStringSelect(request.translationStrings[0], 0);
+      setReviewComplete(false);
       setBulkReviewMode(true);
     }
   };
@@ -707,7 +823,8 @@ export const TranslationQA: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           translatedText: editedText,
-          status: selectedStatus
+          status: selectedStatus,
+          annotatorId,
         })
       });
 
@@ -758,7 +875,8 @@ export const TranslationQA: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           translatedText: editedText,
-          status: 'APPROVED'
+          status: 'APPROVED',
+          annotatorId,
         })
       });
 
@@ -796,7 +914,12 @@ export const TranslationQA: React.FC = () => {
           setSelectedStatus('APPROVED');
         }
 
-        navigateNext();
+        const totalStrings = selectedRequest?.translationStrings.length ?? 0;
+        if (currentIndex === totalStrings - 1) {
+          setReviewComplete(true);
+        } else {
+          navigateNext();
+        }
       } else {
         showStatus('error', 'Failed to approve translation');
       }
@@ -904,6 +1027,23 @@ export const TranslationQA: React.FC = () => {
     return total > 0 ? (approved / total) * 100 : 0;
   };
 
+  const getConfidenceBadge = (stringId: string) => {
+    const conf = segmentConfidence[stringId];
+    if (!conf) return null;
+    const { confidence, n_signals } = conf;
+    if (confidence === null || n_signals < 2) {
+      return <Badge variant="outline" className="text-xs text-muted-foreground">Conf: —</Badge>;
+    }
+    const pct = Math.round(confidence * 100);
+    if (confidence >= 0.7) {
+      return <Badge variant="outline" className="text-xs border-green-500 text-green-600 dark:text-green-400">Conf: {pct}%</Badge>;
+    } else if (confidence >= 0.4) {
+      return <Badge variant="outline" className="text-xs border-yellow-500 text-yellow-600 dark:text-yellow-400">Conf: {pct}%</Badge>;
+    } else {
+      return <Badge variant="outline" className="text-xs border-red-500 text-red-600 dark:text-red-400">Conf: {pct}%</Badge>;
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -922,9 +1062,35 @@ export const TranslationQA: React.FC = () => {
       <div className="bg-card border-b px-6 py-4">
         <div className="flex justify-between items-center">
           <h1 className="text-2xl font-bold">MT Post-Editing</h1>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="annotator-id" className="text-sm text-muted-foreground whitespace-nowrap">Reviewing as</Label>
+              <Select value={annotatorId} onValueChange={handleAnnotatorChange}>
+                <SelectTrigger id="annotator-id" className="w-36 h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="REVIEWER_1">Reviewer 1</SelectItem>
+                  <SelectItem value="REVIEWER_2">Reviewer 2</SelectItem>
+                  <SelectItem value="REVIEWER_3">Reviewer 3</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <Button
-              onClick={() => setShowAnalytics(!showAnalytics)}
+              onClick={async () => {
+                if (!showAnalytics && selectedRequest) {
+                  // Re-fetch the job to get fresh annotations before showing
+                  try {
+                    const res = await fetch(`${API_BASE_URL}/api/translation-requests/${selectedRequest.id}`);
+                    if (res.ok) {
+                      const fresh = await res.json();
+                      setSelectedRequest(fresh);
+                      calculateAnalytics(fresh);
+                    }
+                  } catch { /* fall back to cached data */ }
+                }
+                setShowAnalytics(!showAnalytics);
+              }}
               variant="outline"
               size="sm"
             >
@@ -961,8 +1127,8 @@ export const TranslationQA: React.FC = () => {
       )}
 
       {showAnalytics && (
-        <div className="bg-card border-b px-6 py-4">
-          <div className="grid grid-cols-5 gap-4">
+        <div className="bg-card border-b px-6 py-4 space-y-3">
+          <div className="grid grid-cols-4 gap-4">
             <Card>
               <CardContent className="p-4 text-center">
                 <div className="text-2xl font-bold">{analytics.totalStrings}</div>
@@ -984,16 +1150,42 @@ export const TranslationQA: React.FC = () => {
             <Card>
               <CardContent className="p-4 text-center">
                 <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{(analytics.avgQualityScore * 100).toFixed(1)}%</div>
-                <div className="text-sm text-muted-foreground">Avg Quality</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4 text-center">
-                <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">{analytics.totalAnnotations}</div>
-                <div className="text-sm text-muted-foreground">Annotations</div>
+                <div className="text-sm text-muted-foreground">Avg BLEU</div>
               </CardContent>
             </Card>
           </div>
+          {analytics.totalAnnotations > 0 && (
+            <div className="grid grid-cols-2 gap-4">
+              <Card>
+                <CardContent className="p-4">
+                  <div className="text-sm font-medium mb-2">Annotations by category <span className="text-muted-foreground font-normal">({analytics.totalAnnotations} total)</span></div>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(analytics.annotationsByCategory).sort((a, b) => b[1] - a[1]).map(([cat, count]) => (
+                      <span key={cat} className="text-xs bg-muted px-2 py-1 rounded capitalize">{cat}: {count}</span>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <div className="text-sm font-medium mb-2">Annotations by severity</div>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(analytics.annotationsBySeverity).sort((a, b) => b[1] - a[1]).map(([sev, count]) => (
+                      <span key={sev} className={`text-xs px-2 py-1 rounded capitalize ${
+                        sev === 'CRITICAL' ? 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300' :
+                        sev === 'HIGH' ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300' :
+                        sev === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300' :
+                        'bg-muted'
+                      }`}>{sev}: {count}</span>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+          {analytics.totalAnnotations === 0 && (
+            <p className="text-sm text-muted-foreground">No annotations on this job.</p>
+          )}
         </div>
       )}
 
@@ -1147,6 +1339,7 @@ export const TranslationQA: React.FC = () => {
                               🤖 Multi
                             </Badge>
                           )}
+                          {getConfidenceBadge(string.id)}
                         </div>
                       </div>
                     </CardContent>
@@ -1162,25 +1355,34 @@ export const TranslationQA: React.FC = () => {
         </div>
       </div>
 
-      {bulkReviewMode && selectedString && (
-        <BulkReviewOverlay
-          selectedString={selectedString}
-          editedText={editedText}
-          setEditedText={setEditedText}
-          selectedStatus={selectedStatus}
-          setSelectedStatus={setSelectedStatus}
-          onClose={() => setBulkReviewMode(false)}
-          onUpdate={handleUpdateTranslation}
-          onApprove={handleApprove}
-          onNext={navigateNext}
-          onPrevious={navigatePrevious}
-          currentIndex={currentIndex}
-          totalCount={selectedRequest?.translationStrings.length || 0}
-          onQualityRating={handleQualityRating}
-          onAnnotationAdd={handleAnnotationAdd}
-          selectedRequest={selectedRequest}
-        />
-      )}
+      {bulkReviewMode && selectedString && (() => {
+        const strings = selectedRequest?.translationStrings ?? [];
+        const totalCount = strings.length;
+        const approvedCount = strings.filter(s => s.status === 'APPROVED' || s.isApproved).length;
+        return (
+          <BulkReviewOverlay
+            selectedString={selectedString}
+            editedText={editedText}
+            setEditedText={setEditedText}
+            selectedStatus={selectedStatus}
+            setSelectedStatus={setSelectedStatus}
+            onClose={() => { setBulkReviewMode(false); setReviewComplete(false); }}
+            onContinueReviewing={() => { setReviewComplete(false); navigatePrevious(); }}
+            onUpdate={handleUpdateTranslation}
+            onApprove={handleApprove}
+            onNext={navigateNext}
+            onPrevious={navigatePrevious}
+            currentIndex={currentIndex}
+            totalCount={totalCount}
+            approvedCount={approvedCount}
+            reviewComplete={reviewComplete}
+            onQualityRating={handleQualityRating}
+            onAnnotationAdd={handleAnnotationAdd}
+            selectedRequest={selectedRequest}
+            stringConfidence={selectedString ? segmentConfidence[selectedString.id] : undefined}
+          />
+        );
+      })()}
     </div>
   );
 };

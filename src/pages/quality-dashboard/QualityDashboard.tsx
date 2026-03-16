@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { AlertTriangle, Check, ChevronDown, Circle, Download, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, Download, RefreshCw, X } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import ReactDiffViewer from 'react-diff-viewer-continued';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
@@ -19,6 +19,7 @@ import {
 } from '../../components/ui/chart';
 
 // Import Dialog components for modal
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -28,7 +29,6 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Checkbox } from '@/components/ui/checkbox';
 import { API_BASE_URL } from '@/config/api';
 
 // Language Options (for filters)
@@ -150,6 +150,13 @@ interface MultiEngineData {
   interRaterAgreement: InterRaterEntry[];
 }
 
+interface EvaluationModeEntry {
+  mode: string;
+  count: number;
+  avgScore: number;
+  confidence: number;
+}
+
 interface QualityScoreData {
   evaluationModes: EvaluationModeEntry[];
   correlationMatrix: CorrelationEntry[];
@@ -208,6 +215,28 @@ interface InterRaterEntry {
   annotatorPair: string;
   agreement: number;
   category: string;
+}
+
+interface IAABreakdown {
+  n: number;
+  cohen_kappa: number | null;
+  krippendorff_alpha: number | null;
+  interpretation_kappa: string;
+  interpretation_alpha: string;
+}
+
+interface IAAByPair extends IAABreakdown {
+  language_pair: string;
+}
+
+interface IAAByAnnotator extends IAABreakdown {
+  annotator: string;
+}
+
+interface IAAData extends IAABreakdown {
+  by_language_pair: IAAByPair[];
+  by_annotator: IAAByAnnotator[];
+  data_source: string;
 }
 
 interface CorrelationEntry {
@@ -314,6 +343,120 @@ interface RegressionReportEntry {
   previous: { id: string; runDate: string; notes: string | null; segmentCount: number; avgBleu: number | null; avgComet: number | null; avgChrf: number | null; avgTer: number | null } | null;
   deltas: { bleu: number | null; comet: number | null; chrf: number | null; ter: number | null } | null;
   regressions: { metric: string; delta: number; threshold: number }[];
+}
+
+interface MetricReliabilityInfo {
+  reliability: 'high' | 'medium' | 'low';
+  reason: string;
+}
+
+interface MetricReliabilityData {
+  language_pair: string;
+  source_language: { code: string; name: string; script: string; notes: string | null };
+  target_language: { code: string; name: string; script: string; tokenization_strategy: string; notes: string | null };
+  primary_script: string;
+  primary_notes: string | null;
+  sample_size: number;
+  bleu_std: number | null;
+  min_reliable_sample_size: number;
+  reliability_warning: boolean;
+  metric_reliability_warning: boolean;
+  statistical_confidence_warning: boolean;
+  warning_reasons: string[];
+  recommended_primary_metric: string;
+  metrics: Record<string, MetricReliabilityInfo>;
+  data_source: string;
+}
+
+interface EvalCoverageSignal {
+  count: number;
+  pct: number;
+}
+
+interface EvalCoverageRow {
+  language_pair: string;
+  total: number;
+  signals: {
+    qe_score: EvalCoverageSignal;
+    post_edit: EvalCoverageSignal;
+    bleu: EvalCoverageSignal;
+    comet: EvalCoverageSignal;
+    ter: EvalCoverageSignal;
+    chrf: EvalCoverageSignal;
+    llm_judge: EvalCoverageSignal;
+  };
+}
+
+interface EvalCorrEntry {
+  metric1: string;
+  metric2: string;
+  r: number;
+  n: number;
+}
+
+interface EvalCorrByPair {
+  language_pair: string;
+  n: number;
+  correlations: EvalCorrEntry[];
+}
+
+interface EvalCalibration {
+  language_pair: string;
+  n: number;
+  ter_adequacy_r: number;
+  interpretation: string;
+}
+
+interface EvalQualityData {
+  coverage: EvalCoverageRow[];
+  correlations_by_pair: EvalCorrByPair[];
+  judge_calibration: EvalCalibration[];
+}
+
+interface SegmentConfPair {
+  language_pair: string;
+  count: number;
+  scoreable: number;
+  mean_confidence: number | null;
+  min_confidence: number | null;
+  max_confidence: number | null;
+}
+
+interface SegmentConfLow {
+  segment_id: string;
+  language_pair: string;
+  confidence: number | null;
+  n_signals: number;
+  mean_quality: number | null;
+}
+
+interface SegmentConfidenceData {
+  by_pair: SegmentConfPair[];
+  lowest_confidence: SegmentConfLow[];
+  total: number;
+  scoreable: number;
+}
+
+interface BenchmarkEngineResult {
+  engine: string;
+  bleu: number | null;
+  chrf: number | null;
+  ter: number | null;
+  comet: number | null;
+  n_segments: number;
+  snapshot_id: string;
+  error: string | null;
+}
+
+interface BenchmarkRunResult {
+  success: boolean;
+  language_pair: string;
+  request_id: string;
+  n_sentences: number;
+  engines_run: number;
+  comet_available: boolean;
+  notes: string | null;
+  comparison: BenchmarkEngineResult[];
 }
 
 interface LLMDisagreementEntry {
@@ -864,6 +1007,9 @@ const QualityDashboard: React.FC = () => {
   const [snapshots, setSnapshots] = useState<EvalSnapshot[]>([]);
   const [regressionReport, setRegressionReport] = useState<RegressionReportEntry[]>([]);
 
+  // Metric reliability — keyed by "SRC-TGT" language pair
+  const [reliabilityData, setReliabilityData] = useState<Record<string, MetricReliabilityData>>({});
+
   // Configured engines — seeds the model filter independently of whether metrics exist yet
   const [configuredEngines, setConfiguredEngines] = useState<{ id: string; name: string }[]>([]);
 
@@ -875,6 +1021,11 @@ const QualityDashboard: React.FC = () => {
   const [llmJudgeSummary, setLlmJudgeSummary] = useState<LLMJudgeSummary | null>(null);
   const [llmDisagreements, setLlmDisagreements] = useState<LLMDisagreementEntry[]>([]);
   const [llmJudgeRunning, setLlmJudgeRunning] = useState(false);
+  const [iaaData, setIaaData] = useState<IAAData | null>(null);
+  const [evalQualityData, setEvalQualityData] = useState<EvalQualityData | null>(null);
+  const [segmentConfidenceData, setSegmentConfidenceData] = useState<SegmentConfidenceData | null>(null);
+  const [currentPageDisagreements, setCurrentPageDisagreements] = useState(1);
+  const DISAGREEMENTS_PAGE_SIZE = 25;
 
   // Filter states for Detailed Engine Preferences
   const [preferencesEngineFilter, setPreferencesEngineFilter] = useState<string>('all');
@@ -884,16 +1035,27 @@ const QualityDashboard: React.FC = () => {
   const [itemsPerPagePreferences, setItemsPerPagePreferences] = useState(25);
   const itemsPerPageOptionsPreferences = [25, 50, 100, 0];
 
+  // Benchmark runner state
+  const [benchmarkPair, setBenchmarkPair] = useState<string>('en-fr');
+  const [benchmarkNotes, setBenchmarkNotes] = useState<string>('baseline');
+  const [benchmarkRunning, setBenchmarkRunning] = useState(false);
+  const [benchmarkResult, setBenchmarkResult] = useState<BenchmarkRunResult | null>(null);
+  const [benchmarkError, setBenchmarkError] = useState<string | null>(null);
+
+
+  // Normalize JA↔JP aliases to a single canonical pair string (DB uses JP for Japanese)
+  const normalizePair = (lp: string) => lp.toUpperCase().replace(/^JA-/, 'JP-').replace(/-JA$/, '-JP');
 
   // ── Available filter options (derived from loaded data) ──────────────────
   const availableLanguagePairs = useMemo(() => {
     const pairs = new Set<string>();
-    dashboardData?.modelPerformance.leaderboard.forEach(e => e.languagePairs?.forEach(p => pairs.add(p)));
-    postEditData?.languagePairMetrics.forEach(e => pairs.add(e.languagePair));
-    translatorImpactData?.comparisons.forEach(e => pairs.add(e.languagePair));
-    snapshots.forEach(s => pairs.add(s.languagePair));
+    dashboardData?.modelPerformance.leaderboard.forEach(e => e.languagePairs?.forEach(p => pairs.add(normalizePair(p))));
+    postEditData?.languagePairMetrics.forEach(e => pairs.add(normalizePair(e.languagePair)));
+    translatorImpactData?.comparisons.forEach(e => pairs.add(normalizePair(e.languagePair)));
+    snapshots.forEach(s => pairs.add(normalizePair(s.languagePair)));
+    llmDisagreements.forEach(r => { if (r.languagePair) pairs.add(normalizePair(r.languagePair)); });
     return Array.from(pairs).filter(Boolean).sort().map(p => ({ label: p, value: p }));
-  }, [dashboardData, postEditData, translatorImpactData, snapshots]);
+  }, [dashboardData, postEditData, translatorImpactData, snapshots, llmDisagreements]);
 
   const availableModels = useMemo(() => {
     // Map of value → label; configured engines seed it with proper display names
@@ -912,7 +1074,7 @@ const QualityDashboard: React.FC = () => {
 
   // ── Global client-side filtered views ────────────────────────────────────
   const matchLP = (lp: string | undefined) =>
-    selectedLanguagePairs.length === 0 || (lp != null && selectedLanguagePairs.includes(lp));
+    selectedLanguagePairs.length === 0 || (lp != null && selectedLanguagePairs.includes(normalizePair(lp)));
   const matchModel = (name: string | undefined) =>
     selectedModels.length === 0 || (name != null && selectedModels.includes(name));
 
@@ -955,7 +1117,7 @@ const QualityDashboard: React.FC = () => {
     // avgChrf and avgTer are already 0–100.
     return Object.values(byKey).map(s => ({
       name: s.engineName ? `${s.languagePair} (${s.engineName})` : s.languagePair,
-      bleu:  s.avgBleu  != null ? parseFloat((s.avgBleu  * 100).toFixed(1)) : null,
+      bleu:  s.avgBleu  != null ? parseFloat(s.avgBleu.toFixed(1))          : null,
       comet: s.avgComet != null ? parseFloat((s.avgComet * 100).toFixed(1)) : null,
       chrf:  s.avgChrf  != null ? parseFloat(s.avgChrf.toFixed(1))          : null,
       ter:   s.avgTer   != null ? parseFloat(s.avgTer.toFixed(1))           : null,
@@ -970,6 +1132,17 @@ const QualityDashboard: React.FC = () => {
       (selectedModels.length === 0 || r.engineName == null || selectedModels.includes(r.engineName))
     ),
   [regressionReport, selectedLanguagePairs, selectedModels]);
+
+  const filteredLlmDisagreements = useMemo(() =>
+    llmDisagreements.filter(r => matchLP(r.languagePair ?? undefined)),
+  [llmDisagreements, selectedLanguagePairs]);
+
+  const paginatedLlmDisagreements = useMemo(() => {
+    const start = (currentPageDisagreements - 1) * DISAGREEMENTS_PAGE_SIZE;
+    return filteredLlmDisagreements.slice(start, start + DISAGREEMENTS_PAGE_SIZE);
+  }, [filteredLlmDisagreements, currentPageDisagreements]);
+
+  const totalPagesDisagreements = Math.max(1, Math.ceil(filteredLlmDisagreements.length / DISAGREEMENTS_PAGE_SIZE));
 
   // ── Translator Impact pagination (uses filtered comparisons) ─────────────
   const paginatedTranslatorComparisons = useMemo(() => {
@@ -1098,15 +1271,17 @@ const QualityDashboard: React.FC = () => {
 
   const fetchLlmJudgeData = async () => {
     try {
-      const [summaryRes, disagreementsRes] = await Promise.all([
+      const [summaryRes, disagreementsRes, iaaRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/llm-judge/summary`),
         fetch(`${API_BASE_URL}/api/llm-judge/disagreements?limit=50`),
+        fetch(`${API_BASE_URL}/api/analytics/annotator-agreement`),
       ]);
       if (summaryRes.ok) setLlmJudgeSummary(await summaryRes.json());
       if (disagreementsRes.ok) {
         const data = await disagreementsRes.json();
         setLlmDisagreements(data.disagreements ?? []);
       }
+      if (iaaRes.ok) setIaaData(await iaaRes.json());
     } catch (err) {
       console.error('Failed to fetch LLM judge data:', err);
     }
@@ -1149,13 +1324,63 @@ const QualityDashboard: React.FC = () => {
       .catch(() => {});
   }, []);
 
+  // Fetch reliability data for all language pairs known to the dashboard
+  const fetchReliabilityData = async (pairs: string[]) => {
+    if (pairs.length === 0) return;
+    const results = await Promise.allSettled(
+      pairs.map(lp =>
+        fetch(`${API_BASE_URL}/api/analytics/metric-reliability/${encodeURIComponent(lp)}`)
+          .then(r => r.ok ? r.json() : null)
+      )
+    );
+    const map: Record<string, MetricReliabilityData> = {};
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled' && r.value) {
+        map[pairs[i].toUpperCase()] = r.value;
+      }
+    });
+    setReliabilityData(prev => ({ ...prev, ...map }));
+  };
+
+  const fetchEvalQualityData = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/analytics/eval-quality`);
+      if (res.ok) setEvalQualityData(await res.json());
+    } catch (err) {
+      console.error('Failed to fetch eval quality data:', err);
+    }
+  };
+
+  const fetchSegmentConfidenceData = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/analytics/segment-confidence`);
+      if (res.ok) setSegmentConfidenceData(await res.json());
+    } catch (err) {
+      console.error('Failed to fetch segment confidence data:', err);
+    }
+  };
+
   useEffect(() => {
     fetchDashboardData();
     fetchPostEditData();
     fetchTranslatorImpactData();
     fetchLlmJudgeData();
     fetchSnapshotData();
+    fetchEvalQualityData();
+    fetchSegmentConfidenceData();
   }, [chartGroupBy, selectedLanguagePairs, selectedModels, dateRange]);
+
+  // Fetch reliability data for all known language pairs.
+  // Includes coverage rows so SW and other pairs show reliability notes even before QA metrics exist.
+  useEffect(() => {
+    const seen = new Set<string>();
+    const pairs: string[] = [];
+    const add = (p: string) => { const u = normalizePair(p); if (u && !seen.has(u)) { seen.add(u); pairs.push(u); } };
+    dashboardData?.modelPerformance.leaderboard.forEach(e => e.languagePairs?.forEach(p => p && add(p)));
+    postEditData?.languagePairMetrics.forEach(e => e.languagePair && add(e.languagePair));
+    evalQualityData?.coverage.forEach(r => add(r.language_pair));
+    fetchReliabilityData(pairs);
+  }, [dashboardData, postEditData, evalQualityData]);
 
   const getEditTypeBadge = (editType: string) => {
     const variants = {
@@ -1184,16 +1409,13 @@ const QualityDashboard: React.FC = () => {
   };
 
   const formatPercentage = (value: number) => {
-    return `${(value).toFixed(1)}%`; // Assuming values are already 0-100
+    return `${(value).toFixed(1)}%`; // Assuming values are already 0-100    
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString();
-  };
-
-  const formatTime = (timeMs: number) => {
-    return `${timeMs.toFixed(0)}ms`;
-  };
+  const fmtBleu  = (v: number | null | undefined) => v != null ? v.toFixed(1) : '—';
+  const fmtChrf  = (v: number | null | undefined) => v != null ? v.toFixed(1) : '—';
+  const fmtTer   = (v: number | null | undefined) => v != null ? v.toFixed(1) : '—';
+  const fmtComet = (v: number | null | undefined) => v != null ? v.toFixed(3) : '—';
 
   // Helper for average of scores list for Quality Scores -> Score Distribution
   const calculateAverage = (scores: number[] | undefined) => {
@@ -1264,10 +1486,11 @@ const QualityDashboard: React.FC = () => {
           <TabsTrigger value="translator-impact">Translator Impact</TabsTrigger>
           <TabsTrigger value="preferences">Preferences</TabsTrigger>
           <TabsTrigger value="annotations">Annotations</TabsTrigger>
-          <TabsTrigger value="operational">Operational</TabsTrigger>
           <TabsTrigger value="tm-glossary">TM & Glossary</TabsTrigger>
           <TabsTrigger value="llm-judge">LLM Judge</TabsTrigger>
           <TabsTrigger value="regression">Regression</TabsTrigger>
+          <TabsTrigger value="eval-quality">Eval Quality</TabsTrigger>
+          <TabsTrigger value="benchmark">Benchmark</TabsTrigger>
         </TabsList>
 
         {/* ── Global filters bar ─────────────────────────────────────────── */}
@@ -1312,35 +1535,41 @@ const QualityDashboard: React.FC = () => {
         {/* NEW: Quality Tab */}
         <TabsContent value="quality" className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
+            <div className="lg:col-span-2 space-y-4">
               {/* Post-Edit Metrics */}
-              {postEditData && (
-                <Card className="h-full">
-                  <CardHeader>
-                    <CardTitle>Post-Edit Quality Metrics</CardTitle>
-                    <CardDescription>
-                      Quality metrics based on human post-editing ({postEditData.totalPostEdits} post-edits)
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ChartContainer config={postEditChartConfig} className="h-[300px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={filteredPostEditMetrics}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="languagePair" />
-                          <YAxis domain={['auto', 'auto']} tickFormatter={(v: number) => Math.round(v).toString()} />
-                          <ChartTooltip content={<ChartTooltipContent />} />
-                          <Legend />
-                          <Bar dataKey="avgBleu" fill="var(--color-avgBleu)" name="BLEU Score (%)" />
-                          <Bar dataKey="avgComet" fill="var(--color-avgComet)" name="COMET Score (%)" />
-                          <Bar dataKey="avgTer" fill="var(--color-avgTer)" name="TER Score (%)" />
-                          <Bar dataKey="avgChrf" fill="var(--color-avgChrf)" name="ChrF Score (%)" />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </ChartContainer>
-                  </CardContent>
-                </Card>
-              )}
+              {postEditData && (() => {
+                const postEditChartData = filteredPostEditMetrics.map(e => ({
+                  ...e,
+                  avgCometScaled: e.avgComet != null ? parseFloat((e.avgComet * 100).toFixed(1)) : null,
+                }));
+                return (
+                  <Card className="h-full">
+                    <CardHeader>
+                      <CardTitle>Post-Edit Quality Metrics</CardTitle>
+                      <CardDescription>
+                        Quality metrics based on human post-editing ({postEditData.totalPostEdits} post-edits)
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ChartContainer config={postEditChartConfig} className="h-[300px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={postEditChartData}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="languagePair" />
+                            <YAxis domain={['auto', 'auto']} tickFormatter={(v: number) => Math.round(v).toString()} />
+                            <ChartTooltip content={<ChartTooltipContent />} />
+                            <Legend />
+                            <Bar dataKey="avgBleu" fill="var(--color-avgBleu)" name="BLEU (0–100)" />
+                            <Bar dataKey="avgCometScaled" fill="var(--color-avgComet)" name="COMET (×100)" />
+                            <Bar dataKey="avgTer" fill="var(--color-avgTer)" name="TER (0–100, lower=better)" />
+                            <Bar dataKey="avgChrf" fill="var(--color-avgChrf)" name="ChrF (0–100)" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </ChartContainer>
+                    </CardContent>
+                  </Card>
+                );
+              })()}
             </div>
             <div className="lg:col-span-1">
               {/* Correlation Matrix */}
@@ -1349,7 +1578,101 @@ const QualityDashboard: React.FC = () => {
               )}
             </div>
           </div>
-          
+
+          {/* Metric Reliability Summary — consolidated card, one row per warned language pair */}
+          {(() => {
+            const seen = new Set<string>();
+            const warnedPairs = filteredPostEditMetrics
+              .map(e => reliabilityData[normalizePair(e.languagePair ?? '')])
+              .filter((r): r is MetricReliabilityData => {
+                if (!r?.reliability_warning) return false;
+                const key = normalizePair(r.language_pair);
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+              });
+            if (warnedPairs.length === 0) return null;
+            return (
+              <Card className="border-yellow-500/30">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-base text-yellow-600 dark:text-yellow-400">
+                    <AlertTriangle className="h-4 w-4" />
+                    Metric Reliability Notes
+                  </CardTitle>
+                  <CardDescription>
+                    Automatic metrics have known limitations for some language pairs. COMET and ChrF are recommended over BLEU/TER where flagged.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="rounded-md border text-sm">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b bg-muted/50 text-xs">
+                          <th className="p-2 text-left">Pair</th>
+                          <th className="p-2 text-left">Script</th>
+                          <th className="p-2 text-left">n</th>
+                          <th className="p-2 text-left">BLEU</th>
+                          <th className="p-2 text-left">TER</th>
+                          <th className="p-2 text-left">ChrF</th>
+                          <th className="p-2 text-left">COMET</th>
+                          <th className="p-2 text-left">Primary Signal</th>
+                          <th className="p-2 text-left">Warning Type</th>
+                          <th className="p-2 text-left">Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {warnedPairs.map(r => {
+                          const reliabilityBadge = (level: string) => (
+                            <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium ${
+                              level === 'high' ? 'bg-green-500/15 text-green-700 dark:text-green-400' :
+                              level === 'medium' ? 'bg-yellow-500/15 text-yellow-700 dark:text-yellow-400' :
+                              'bg-red-500/15 text-red-700 dark:text-red-400'
+                            }`}>
+                              {level === 'high' ? '✓' : level === 'medium' ? '~' : '⚠'} {level}
+                            </span>
+                          );
+                          const sampleWarning = r.statistical_confidence_warning;
+                          const metricWarning = r.metric_reliability_warning;
+                          return (
+                            <tr key={r.language_pair} className="border-b hover:bg-muted/20">
+                              <td className="p-2 font-medium">{r.language_pair}</td>
+                              <td className="p-2 text-muted-foreground">{r.primary_script}</td>
+                              <td className="p-2">
+                                <span className={sampleWarning ? 'text-yellow-600 dark:text-yellow-400 font-medium' : ''}>
+                                  {r.sample_size}{sampleWarning ? ` / ${r.min_reliable_sample_size}` : ''}
+                                </span>
+                              </td>
+                              <td className="p-2">{r.metrics.bleu ? reliabilityBadge(r.metrics.bleu.reliability) : '—'}</td>
+                              <td className="p-2">{r.metrics.ter ? reliabilityBadge(r.metrics.ter.reliability) : '—'}</td>
+                              <td className="p-2">{r.metrics.chrf ? reliabilityBadge(r.metrics.chrf.reliability) : '—'}</td>
+                              <td className="p-2">{r.metrics.comet ? reliabilityBadge(r.metrics.comet.reliability) : '—'}</td>
+                              <td className="p-2 text-xs font-medium text-blue-700 dark:text-blue-400">{r.recommended_primary_metric}</td>
+                              <td className="p-2">
+                                <div className="flex flex-col gap-1">
+                                  {metricWarning && (
+                                    <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-red-500/15 text-red-700 dark:text-red-400">
+                                      Metric
+                                    </span>
+                                  )}
+                                  {sampleWarning && (
+                                    <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-yellow-500/15 text-yellow-700 dark:text-yellow-400">
+                                      Sample
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="p-2 text-xs text-muted-foreground max-w-xs">{r.primary_notes ?? '—'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
+
           {/* Quality Scores - Evaluation Modes & Score Distribution */}
           <Card>
               <CardHeader>
@@ -1471,25 +1794,46 @@ const QualityDashboard: React.FC = () => {
                       <tr className="border-b bg-muted/50">
                         <th className="p-3 text-left">Model</th>
                         <th className="p-3 text-left">Engine Type</th>
-                        <th className="p-3 text-left">BLEU Score</th>
-                        <th className="p-3 text-left">COMET Score</th>
-                        <th className="p-3 text-left">TER Score</th>
-                        <th className="p-3 text-left">ChrF Score</th>
+                        <th className="p-3 text-left">BLEU (0–100)</th>
+                        <th className="p-3 text-left">COMET (0–1)</th>
+                        <th className="p-3 text-left">TER (0–100, lower=better)</th>
+                        <th className="p-3 text-left">ChrF (0–100)</th>
                         <th className="p-3 text-left">Total Translations</th>
+                        <th className="p-3 text-left">Reliability</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredLeaderboard.map((item, index) => (
+                      {filteredLeaderboard.map((item, index) => {
+                        const warnedPairs = (item.languagePairs ?? [])
+                          .map(lp => reliabilityData[lp?.toUpperCase()])
+                          .filter(r => r?.reliability_warning);
+                        return (
                         <tr key={index} className="border-b hover:bg-muted/30">
                           <td className="p-3 font-medium">{item.name || item.model}</td>
                           <td className="p-3">{item.engineType}</td>
-                          <td className="p-3">{formatPercentage(item.avgBleu)}</td>
-                          <td className="p-3">{formatPercentage(item.avgComet)}</td>
-                          <td className="p-3">{formatPercentage(item.avgTer)}</td>
-                          <td className="p-3">{formatPercentage(item.avgChrf)}</td>
+                          <td className="p-3">{fmtBleu(item.avgBleu)}</td>
+                          <td className="p-3">{fmtComet(item.avgComet)}</td>
+                          <td className="p-3">{fmtTer(item.avgTer)}</td>
+                          <td className="p-3">{fmtChrf(item.avgChrf)}</td>
                           <td className="p-3">{item.totalTranslations}</td>
+                          <td className="p-3">
+                            {warnedPairs.length > 0 ? (
+                              <span
+                                className="inline-flex items-center gap-1 text-yellow-600 dark:text-yellow-400 text-xs"
+                                title={warnedPairs.map(r => `${r.language_pair}: ${r.warning_reasons.join('; ')}`).join('\n')}
+                              >
+                                <AlertTriangle className="h-3.5 w-3.5" />
+                                {warnedPairs.map(r => r.language_pair).join(', ')}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400 text-xs">
+                                <Check className="h-3.5 w-3.5" /> OK
+                              </span>
+                            )}
+                          </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1940,24 +2284,7 @@ const QualityDashboard: React.FC = () => {
             </Card>
           )}
           
-          {/* Total MQM Score (New Card) */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Total MQM Score</CardTitle>
-              <CardDescription>
-                Overall Quality Estimation Score (Lower is better, weighted errors per string)
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-center p-4">
-                <span className="text-5xl font-bold text-primary">
-                  {dashboardData.annotations.totalMQMScore.toFixed(2)}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Original Severity Distribution - kept for completeness */}
+          {/* Error Severity Distribution */}
           <Card>
             <CardHeader>
               <CardTitle>Error Severity Distribution</CardTitle>
@@ -1980,215 +2307,6 @@ const QualityDashboard: React.FC = () => {
             </CardContent>
           </Card>
 
-          {/* Span Analysis - Kept for completeness */}
-          {dashboardData.annotations.spanAnalysis.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Span Analysis</CardTitle>
-                <CardDescription>Detailed analysis of annotation spans and suggested fixes</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {dashboardData.annotations.spanAnalysis.slice(0, 10).map((item, index) => (
-                    <div key={index} className="p-4 border rounded-lg">
-                      <div className="flex justify-between items-start mb-2">
-                        <div className="text-sm font-medium">Span ID: {item.id}</div>
-                        <Badge variant="outline">{item.category}</Badge>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <span className="text-muted-foreground">Source Span:</span>
-                          <span className="ml-2">{item.sourceSpan.start}-{item.sourceSpan.end}</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Target Span:</span>
-                          <span className="ml-2">{item.targetSpan.start}-{item.targetSpan.end}</span>
-                        </div>
-                      </div>
-                      <div className="mt-2">
-                        <div className="text-sm text-muted-foreground">Suggested Fix:</div>
-                        <div className="text-sm mt-1">{item.suggestedFix}</div>
-                      </div>
-                      <div className="mt-2 flex justify-between items-center">
-                        <span className="text-sm text-muted-foreground">Confidence:</span>
-                        <span className="text-sm font-medium">{formatPercentage(item.confidence)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        {/* Operational Tab */}
-        <TabsContent value="operational" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Processing Times</CardTitle>
-              <CardDescription>Average processing times by model and engine type</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ChartContainer config={processingChartConfig} className="h-[400px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dashboardData.operational.processingTimes}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="model" angle={-45} textAnchor="end" height={100} />
-                    <YAxis />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="avgProcessingTime" fill="var(--color-avgProcessingTime)" name="Avg Processing Time (ms)" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartContainer>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>System Health</CardTitle>
-              <CardDescription>Model availability and performance status</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {dashboardData.operational.systemHealth.length > 0 ? (
-                <div className="space-y-4">
-                  <div className="rounded-md border">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b bg-muted/50">
-                          <th className="p-3 text-left">Model</th>
-                          <th className="p-3 text-left">Status</th>
-                          <th className="p-3 text-left">Last Used</th>
-                          <th className="p-3 text-left">Total Translations</th>
-                          <th className="p-3 text-left">Avg Processing Time</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {dashboardData.operational.systemHealth.map((item, index) => (
-                          <tr key={index} className="border-b hover:bg-muted/30">
-                            <td className="p-3 font-medium flex items-center">
-                              {/* Red/Green Lamp */}
-                              <Circle
-                                className={`h-3 w-3 mr-2 ${
-                                  item.isActive ? 'text-green-500 fill-green-500' : 'text-red-500 fill-red-500'
-                                }`}
-                                fill="currentColor" // Ensures the circle is filled with the color
-                              />
-                              {item.model}
-                            </td>
-                            <td className="p-3">
-                               {item.isActive ? 'Active' : 'Inactive'} {/* Show text status */}
-                            </td>
-                            <td className="p-3">{formatDate(item.lastUsed)}</td>
-                            <td className="p-3">{item.totalTranslations}</td>
-                            <td className="p-3">{formatTime(item.avgProcessingTime)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  No system health data available
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Model Utilization */}
-          {dashboardData.operational.modelUtilization.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Model Utilization</CardTitle>
-                <CardDescription>Model usage patterns and efficiency metrics</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ChartContainer config={utilizationChartConfig} className="h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={dashboardData.operational.modelUtilization}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="model" angle={-45} textAnchor="end" height={100} />
-                      <YAxis domain={[0, 100]} />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Bar dataKey="utilizationRate" fill="var(--color-utilizationRate)" name="Utilization Rate (%)" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Processing Times Details */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Processing Time Details</CardTitle>
-              <CardDescription>Detailed breakdown of processing times by model and word count</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="rounded-md border">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b bg-muted/50">
-                      <th className="p-3 text-left">Model</th>
-                      <th className="p-3 text-left">Engine Type</th>
-                      <th className="p-3 text-left">Word Count Bucket</th>
-                      <th className="p-3 text-left">Avg Processing Time</th>
-                      <th className="p-3 text-left">Count</th>
-                    </tr>
-                  </thead>
-                    <tbody>
-                        {dashboardData.operational.processingTimes.map((item, index) => (
-                        <tr key={index} className="border-b hover:bg-muted/30">
-                            <td className="p-3 font-medium">{item.model}</td>
-                            <td className="p-3">{item.engineType}</td>
-                            <td className="p-3">{item.wordCountBucket}</td>
-                            <td className="p-3">{formatTime(item.avgProcessingTime)}</td>
-                            <td className="p-3">{item.count}</td>
-                        </tr>
-                        ))}
-                    </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Model Utilization Details */}
-          {dashboardData.operational.modelUtilization.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Model Utilization Details</CardTitle>
-                <CardDescription>Detailed breakdown of model usage patterns and efficiency</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="rounded-md border">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b bg-muted/50">
-                        <th className="p-3 text-left">Model</th>
-                        <th className="p-3 text-left">Utilization Rate</th>
-                        <th className="p-3 text-left">Idle Days</th>
-                        <th className="p-3 text-left">Needs Update</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {dashboardData.operational.modelUtilization.map((item, index) => (
-                        <tr key={index} className="border-b hover:bg-muted/30">
-                          <td className="p-3 font-medium">{item.model}</td>
-                          <td className="p-3">{formatPercentage(item.utilizationRate)}</td>
-                          <td className="p-3">{item.idleDays} days</td>
-                          <td className="p-3">
-                            <Badge variant={item.needsUpdate ? 'destructive' : 'default'}>
-                              {item.needsUpdate ? 'Update Required' : 'Up to Date'}
-                            </Badge>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-          )}
         </TabsContent>
 
         {/* TM & Glossary Tab (Restored) */}
@@ -2387,34 +2505,34 @@ const QualityDashboard: React.FC = () => {
 
             <Card>
                 <CardHeader>
-                    <CardTitle>Inter-Rater Agreement</CardTitle>
-                    <CardDescription>Agreement scores between different annotators.</CardDescription>
+                    <CardTitle>Human–LLM Judge Agreement (IAA)</CardTitle>
+                    <CardDescription>
+                      Cohen's κ and Krippendorff's α between human post-editing effort (TER) and LLM judge adequacy.
+                      See the LLM Judge tab for full per-language-pair breakdown.
+                    </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    {dashboardData.multiEngine.interRaterAgreement.length > 0 ? (
-                        <div className="rounded-md border">
-                            <table className="w-full">
-                                <thead>
-                                    <tr className="border-b bg-muted/50">
-                                        <th className="p-3 text-left">Annotator Pair</th>
-                                        <th className="p-3 text-left">Agreement</th>
-                                        <th className="p-3 text-left">Category</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {dashboardData.multiEngine.interRaterAgreement.map((item, index) => (
-                                        <tr key={index} className="border-b hover:bg-muted/30">
-                                            <td className="p-3 font-medium">{item.annotatorPair}</td>
-                                            <td className="p-3">{item.agreement.toFixed(2)}</td>
-                                            <td className="p-3">{item.category}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                    {iaaData && iaaData.n > 0 ? (
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="rounded-lg border p-4">
+                                <p className="text-sm text-muted-foreground mb-1">Cohen's κ</p>
+                                <p className="text-2xl font-bold">
+                                  {iaaData.cohen_kappa != null ? iaaData.cohen_kappa.toFixed(3) : '—'}
+                                </p>
+                                <p className="text-xs text-muted-foreground mt-1">{iaaData.interpretation_kappa}</p>
+                            </div>
+                            <div className="rounded-lg border p-4">
+                                <p className="text-sm text-muted-foreground mb-1">Krippendorff's α</p>
+                                <p className="text-2xl font-bold">
+                                  {iaaData.krippendorff_alpha != null ? iaaData.krippendorff_alpha.toFixed(3) : '—'}
+                                </p>
+                                <p className="text-xs text-muted-foreground mt-1">{iaaData.interpretation_alpha}</p>
+                            </div>
+                            <p className="col-span-2 text-xs text-muted-foreground">n = {iaaData.n} paired segments</p>
                         </div>
                     ) : (
                         <div className="text-center py-8 text-muted-foreground">
-                            No inter-rater agreement data available.
+                            No paired data yet. IAA requires segments with both TER scores and LLM judge evaluations.
                         </div>
                     )}
                 </CardContent>
@@ -2517,47 +2635,170 @@ const QualityDashboard: React.FC = () => {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {llmDisagreements.length > 0 ? (
-                <div className="rounded-md border">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b bg-muted/50">
-                        <th className="p-3 text-left">Pair</th>
-                        <th className="p-3 text-left">Engine</th>
-                        <th className="p-3 text-left w-1/4">Source</th>
-                        <th className="p-3 text-left">Adequacy</th>
-                        <th className="p-3 text-left">Fluency</th>
-                        <th className="p-3 text-left">Disagreement</th>
-                        <th className="p-3 text-left w-1/3">Rationale</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {llmDisagreements.map((row, i) => (
-                        <tr key={i} className="border-b hover:bg-muted/30 align-top">
-                          <td className="p-3">{row.languagePair ?? '—'}</td>
-                          <td className="p-3">{row.engineName ?? 'single'}</td>
-                          <td className="p-3 max-w-xs">
-                            <p className="truncate" title={row.sourceText ?? ''}>{row.sourceText ?? '—'}</p>
-                          </td>
-                          <td className="p-3">{row.adequacyScore.toFixed(1)} / 4</td>
-                          <td className="p-3">{row.fluencyScore.toFixed(1)} / 4</td>
-                          <td className="p-3">
-                            {row.cometDisagreement != null ? (
-                              <Badge variant={row.cometDisagreement > 0.25 ? 'destructive' : 'secondary'}>
-                                {row.cometDisagreement.toFixed(3)}
-                              </Badge>
-                            ) : '—'}
-                          </td>
-                          <td className="p-3 text-muted-foreground">{row.rationale ?? '—'}</td>
+              {filteredLlmDisagreements.length > 0 ? (
+                <>
+                  <div className="rounded-md border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="p-3 text-left">Pair</th>
+                          <th className="p-3 text-left">Engine</th>
+                          <th className="p-3 text-left w-1/4">Source</th>
+                          <th className="p-3 text-left">Adequacy</th>
+                          <th className="p-3 text-left">Fluency</th>
+                          <th className="p-3 text-left">Disagreement</th>
+                          <th className="p-3 text-left w-1/3">Rationale</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {paginatedLlmDisagreements.map((row, i) => (
+                          <tr key={i} className="border-b hover:bg-muted/30 align-top">
+                            <td className="p-3">{row.languagePair ?? '—'}</td>
+                            <td className="p-3">{row.engineName ?? 'single'}</td>
+                            <td className="p-3">
+                              <p className="break-words whitespace-pre-wrap">{row.sourceText ?? '—'}</p>
+                            </td>
+                            <td className="p-3">{row.adequacyScore.toFixed(1)} / 4</td>
+                            <td className="p-3">{row.fluencyScore.toFixed(1)} / 4</td>
+                            <td className="p-3">
+                              {row.cometDisagreement != null ? (
+                                <Badge variant={row.cometDisagreement > 0.25 ? 'destructive' : 'secondary'}>
+                                  {row.cometDisagreement.toFixed(3)}
+                                </Badge>
+                              ) : '—'}
+                            </td>
+                            <td className="p-3 text-muted-foreground">{row.rationale ?? '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {totalPagesDisagreements > 1 && (
+                    <div className="flex items-center justify-between mt-3 text-sm text-muted-foreground">
+                      <span>
+                        {((currentPageDisagreements - 1) * DISAGREEMENTS_PAGE_SIZE) + 1}–{Math.min(currentPageDisagreements * DISAGREEMENTS_PAGE_SIZE, filteredLlmDisagreements.length)} of {filteredLlmDisagreements.length}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          className="px-2 py-1 rounded border disabled:opacity-40 hover:bg-muted"
+                          onClick={() => setCurrentPageDisagreements(p => Math.max(1, p - 1))}
+                          disabled={currentPageDisagreements === 1}
+                        >
+                          ‹ Prev
+                        </button>
+                        <span>Page {currentPageDisagreements} / {totalPagesDisagreements}</span>
+                        <button
+                          className="px-2 py-1 rounded border disabled:opacity-40 hover:bg-muted"
+                          onClick={() => setCurrentPageDisagreements(p => Math.min(totalPagesDisagreements, p + 1))}
+                          disabled={currentPageDisagreements === totalPagesDisagreements}
+                        >
+                          Next ›
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
                   <AlertTriangle className="h-8 w-8 mx-auto mb-2 opacity-40" />
                   <p>No LLM judgments yet. Click "Run on All Approved" to evaluate approved strings.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* IAA Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Human–LLM Judge Agreement (IAA)</CardTitle>
+              <CardDescription>
+                Cohen's κ (categorical) and Krippendorff's α (continuous) between
+                human post-editing effort (TER-derived) and LLM adequacy scores.
+                Single human annotator — "inter-annotator" = human vs. LLM judge.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {iaaData && iaaData.n > 0 ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="rounded-lg border p-4">
+                      <p className="text-sm text-muted-foreground mb-1">Cohen's κ (global)</p>
+                      <p className="text-2xl font-bold">
+                        {iaaData.cohen_kappa != null ? iaaData.cohen_kappa.toFixed(3) : '—'}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">{iaaData.interpretation_kappa}</p>
+                    </div>
+                    <div className="rounded-lg border p-4">
+                      <p className="text-sm text-muted-foreground mb-1">Krippendorff's α (global)</p>
+                      <p className="text-2xl font-bold">
+                        {iaaData.krippendorff_alpha != null ? iaaData.krippendorff_alpha.toFixed(3) : '—'}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">{iaaData.interpretation_alpha}</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">n = {iaaData.n} paired segments</p>
+                  {iaaData.by_language_pair.length > 0 && (
+                    <>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">By Language Pair</p>
+                      <div className="rounded-md border">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b bg-muted/50">
+                              <th className="p-3 text-left">Language Pair</th>
+                              <th className="p-3 text-left">n</th>
+                              <th className="p-3 text-left">Cohen's κ</th>
+                              <th className="p-3 text-left">Krippendorff's α</th>
+                              <th className="p-3 text-left">κ Interpretation</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {iaaData.by_language_pair.map((row, i) => (
+                              <tr key={i} className="border-b hover:bg-muted/30">
+                                <td className="p-3 font-medium">{row.language_pair}</td>
+                                <td className="p-3">{row.n}</td>
+                                <td className="p-3">{row.cohen_kappa != null ? row.cohen_kappa.toFixed(3) : '—'}</td>
+                                <td className="p-3">{row.krippendorff_alpha != null ? row.krippendorff_alpha.toFixed(3) : '—'}</td>
+                                <td className="p-3 text-muted-foreground">{row.interpretation_kappa}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                  {iaaData.by_annotator.length > 0 && (
+                    <>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">By Annotator</p>
+                      <div className="rounded-md border">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b bg-muted/50">
+                              <th className="p-3 text-left">Annotator</th>
+                              <th className="p-3 text-left">n</th>
+                              <th className="p-3 text-left">Cohen's κ</th>
+                              <th className="p-3 text-left">Krippendorff's α</th>
+                              <th className="p-3 text-left">κ Interpretation</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {iaaData.by_annotator.map((row, i) => (
+                              <tr key={i} className="border-b hover:bg-muted/30">
+                                <td className="p-3 font-medium">{row.annotator}</td>
+                                <td className="p-3">{row.n}</td>
+                                <td className="p-3">{row.cohen_kappa != null ? row.cohen_kappa.toFixed(3) : '—'}</td>
+                                <td className="p-3">{row.krippendorff_alpha != null ? row.krippendorff_alpha.toFixed(3) : '—'}</td>
+                                <td className="p-3 text-muted-foreground">{row.interpretation_kappa}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No paired segments yet. IAA requires segments with both TER scores and LLM judge evaluations.</p>
                 </div>
               )}
             </CardContent>
@@ -2697,8 +2938,8 @@ const QualityDashboard: React.FC = () => {
                         <th className="p-3 text-left">Date</th>
                         <th className="p-3 text-left">Language Pair</th>
                         <th className="p-3 text-left">Engine</th>
-                        <th className="p-3 text-left">BLEU ×100</th>
-                        <th className="p-3 text-left">COMET ×100</th>
+                        <th className="p-3 text-left">BLEU</th>
+                        <th className="p-3 text-left">COMET</th>
                         <th className="p-3 text-left">ChrF</th>
                         <th className="p-3 text-left">TER</th>
                         <th className="p-3 text-left">Segments</th>
@@ -2713,8 +2954,8 @@ const QualityDashboard: React.FC = () => {
                             <td className="p-3 text-muted-foreground text-xs">{new Date(s.runDate).toLocaleDateString()}</td>
                             <td className="p-3 font-medium">{s.languagePair}</td>
                             <td className="p-3 text-muted-foreground">{s.engineName ?? 'aggregated'}</td>
-                            <td className="p-3">{s.avgBleu != null ? (s.avgBleu * 100).toFixed(1) : '—'}</td>
-                            <td className="p-3">{s.avgComet != null ? (s.avgComet * 100).toFixed(1) : '—'}</td>
+                            <td className="p-3">{fmtBleu(s.avgBleu)}</td>
+                            <td className="p-3">{fmtComet(s.avgComet)}</td>
                             <td className="p-3">{s.avgChrf != null ? s.avgChrf.toFixed(1) : '—'}</td>
                             <td className="p-3">{s.avgTer != null ? s.avgTer.toFixed(1) : '—'}</td>
                             <td className="p-3">{s.segmentCount}</td>
@@ -2727,6 +2968,512 @@ const QualityDashboard: React.FC = () => {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        {/* ── Eval Quality Tab ────────────────────────────────────────────── */}
+        <TabsContent value="eval-quality" className="space-y-6">
+          <div>
+            <h3 className="text-lg font-semibold">Evaluation Quality</h3>
+            <p className="text-sm text-muted-foreground">
+              Meta-evaluation: how complete and internally consistent is the evaluation data across language pairs?
+            </p>
+          </div>
+
+          {/* Coverage grid */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Evaluation Signal Coverage</CardTitle>
+              <CardDescription>
+                % of segments with each signal present per language pair.
+                Green ≥ 80% · Yellow 40–79% · Red &lt; 40%
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {evalQualityData && evalQualityData.coverage.length > 0 ? (
+                <div className="rounded-md border overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-3 text-left">Language Pair</th>
+                        <th className="p-3 text-left">Total</th>
+                        {(['qe_score', 'post_edit', 'bleu', 'comet', 'ter', 'chrf', 'llm_judge'] as const).map(k => (
+                          <th key={k} className="p-3 text-left whitespace-nowrap">
+                            {k === 'qe_score' ? 'QE Score' : k === 'post_edit' ? 'Post-edit' : k === 'llm_judge' ? 'LLM Judge' : k.toUpperCase()}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {evalQualityData.coverage.map((row, i) => (
+                        <tr key={i} className="border-b hover:bg-muted/30">
+                          <td className="p-3 font-medium">{row.language_pair}</td>
+                          <td className="p-3 text-muted-foreground">{row.total}</td>
+                          {(['qe_score', 'post_edit', 'bleu', 'comet', 'ter', 'chrf', 'llm_judge'] as const).map(k => {
+                            const sig = row.signals[k];
+                            const color = sig.pct >= 80 ? 'bg-green-500/20 text-green-700 dark:text-green-400'
+                                        : sig.pct >= 40 ? 'bg-yellow-500/20 text-yellow-700 dark:text-yellow-400'
+                                        : 'bg-red-500/20 text-red-700 dark:text-red-400';
+                            return (
+                              <td key={k} className="p-3">
+                                <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${color}`}>
+                                  {sig.pct}%
+                                </span>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <AlertTriangle className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                  <p>No segment data available yet.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Per-pair metric correlations */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Metric Correlations by Language Pair</CardTitle>
+              <CardDescription>
+                Pearson r between automatic metrics per pair. High r between COMET and BLEU is expected for high-resource pairs; low r for CJK/low-resource pairs indicates metric divergence.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {evalQualityData && evalQualityData.correlations_by_pair.length > 0 ? (
+                <div className="space-y-4">
+                  {evalQualityData.correlations_by_pair.map((pair, i) => (
+                    <div key={i}>
+                      <p className="text-sm font-medium mb-2">
+                        {pair.language_pair} <span className="text-muted-foreground font-normal">n = {pair.n}</span>
+                      </p>
+                      <div className="rounded-md border">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b bg-muted/50">
+                              <th className="p-2 text-left">Metric 1</th>
+                              <th className="p-2 text-left">Metric 2</th>
+                              <th className="p-2 text-left">r</th>
+                              <th className="p-2 text-left">n</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {pair.correlations.map((c, j) => (
+                              <tr key={j} className="border-b hover:bg-muted/30">
+                                <td className="p-2 font-medium">{c.metric1}</td>
+                                <td className="p-2 font-medium">{c.metric2}</td>
+                                <td className="p-2">
+                                  <span className={`font-mono ${Math.abs(c.r) >= 0.7 ? 'text-green-600 dark:text-green-400' : Math.abs(c.r) >= 0.4 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
+                                    {c.r.toFixed(3)}
+                                  </span>
+                                </td>
+                                <td className="p-2 text-muted-foreground">{c.n}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No post-edited segments with reference metrics yet.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Signal confidence */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Segment Signal Confidence</CardTitle>
+              <CardDescription>
+                Cross-metric agreement per segment: <code>1 − 2σ</code> over normalized QE·BLEU·COMET·TER·ChrF·LLM signals.
+                Green ≥ 70% · Yellow 40–69% · Red &lt; 40% · — = fewer than 2 signals
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {segmentConfidenceData && segmentConfidenceData.scoreable > 0 ? (
+                <>
+                  {/* Summary row */}
+                  <div className="flex gap-6 text-sm">
+                    <span className="text-muted-foreground">Total segments: <span className="font-medium text-foreground">{segmentConfidenceData.total}</span></span>
+                    <span className="text-muted-foreground">Scoreable (≥ 2 signals): <span className="font-medium text-foreground">{segmentConfidenceData.scoreable}</span></span>
+                  </div>
+
+                  {/* Per-pair table */}
+                  <div className="rounded-md border overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="p-3 text-left">Language Pair</th>
+                          <th className="p-3 text-left">Segments</th>
+                          <th className="p-3 text-left">Scoreable</th>
+                          <th className="p-3 text-left">Mean Confidence</th>
+                          <th className="p-3 text-left">Min</th>
+                          <th className="p-3 text-left">Max</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {segmentConfidenceData.by_pair.map((row, i) => {
+                          const mc = row.mean_confidence;
+                          const color = mc === null ? 'text-muted-foreground'
+                            : mc >= 0.7 ? 'text-green-600 dark:text-green-400'
+                            : mc >= 0.4 ? 'text-yellow-600 dark:text-yellow-400'
+                            : 'text-red-600 dark:text-red-400';
+                          return (
+                            <tr key={i} className="border-b hover:bg-muted/30">
+                              <td className="p-3 font-medium">{row.language_pair}</td>
+                              <td className="p-3 text-muted-foreground">{row.count}</td>
+                              <td className="p-3 text-muted-foreground">{row.scoreable}</td>
+                              <td className={`p-3 font-mono font-medium ${color}`}>
+                                {mc !== null ? `${Math.round(mc * 100)}%` : '—'}
+                              </td>
+                              <td className="p-3 font-mono text-muted-foreground">
+                                {row.min_confidence !== null ? `${Math.round(row.min_confidence * 100)}%` : '—'}
+                              </td>
+                              <td className="p-3 font-mono text-muted-foreground">
+                                {row.max_confidence !== null ? `${Math.round(row.max_confidence * 100)}%` : '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Low-confidence triage list */}
+                  {segmentConfidenceData.lowest_confidence.length > 0 && (
+                    <div>
+                      <p className="text-sm font-medium mb-2">
+                        Lowest-Confidence Segments
+                        <span className="ml-2 text-xs font-normal text-muted-foreground">(priority for human review)</span>
+                      </p>
+                      <div className="rounded-md border overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b bg-muted/50">
+                              <th className="p-3 text-left">Pair</th>
+                              <th className="p-3 text-left">Confidence</th>
+                              <th className="p-3 text-left">Signals</th>
+                              <th className="p-3 text-left">Mean Quality</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {segmentConfidenceData.lowest_confidence.map((seg, i) => (
+                              <tr key={i} className="border-b hover:bg-muted/30">
+                                <td className="p-3 text-muted-foreground">{seg.language_pair}</td>
+                                <td className="p-3 font-mono font-medium text-red-600 dark:text-red-400">
+                                  {seg.confidence !== null ? `${Math.round(seg.confidence * 100)}%` : '—'}
+                                </td>
+                                <td className="p-3 text-muted-foreground">{seg.n_signals}</td>
+                                <td className="p-3 font-mono text-muted-foreground">
+                                  {seg.mean_quality !== null ? `${Math.round(seg.mean_quality * 100)}%` : '—'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <AlertTriangle className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                  <p>No segments with 2+ signals yet. Run QE and reference metrics to enable confidence scoring.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Judge calibration */}
+          <Card>
+            <CardHeader>
+              <CardTitle>LLM Judge Calibration</CardTitle>
+              <CardDescription>
+                Pearson r between human post-edit quality (1 − TER) and LLM adequacy score (÷4), per language pair.
+                High r = judge is well-calibrated against human effort. Low r = judge diverges from human assessment.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {evalQualityData && evalQualityData.judge_calibration.length > 0 ? (
+                <div className="rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-3 text-left">Language Pair</th>
+                        <th className="p-3 text-left">n</th>
+                        <th className="p-3 text-left">TER ↔ Adequacy r</th>
+                        <th className="p-3 text-left">Calibration</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {evalQualityData.judge_calibration.map((row, i) => (
+                        <tr key={i} className="border-b hover:bg-muted/30">
+                          <td className="p-3 font-medium">{row.language_pair}</td>
+                          <td className="p-3 text-muted-foreground">{row.n}</td>
+                          <td className="p-3 font-mono">
+                            <span className={Math.abs(row.ter_adequacy_r) >= 0.5 ? 'text-green-600 dark:text-green-400' : Math.abs(row.ter_adequacy_r) >= 0.3 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}>
+                              {row.ter_adequacy_r.toFixed(3)}
+                            </span>
+                          </td>
+                          <td className="p-3 text-muted-foreground">{row.interpretation}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No paired TER + LLM judge data yet.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Benchmark tab ──────────────────────────────────────────────── */}
+        <TabsContent value="benchmark" className="space-y-6">
+          <div>
+            <h3 className="text-lg font-semibold">Controlled Engine Benchmark</h3>
+            <p className="text-sm text-muted-foreground">
+              Run all available MT engines on the same WMT/FLORES reference sentences.
+              Metrics are calculated against professional reference translations — results
+              are directly comparable across engines.
+            </p>
+          </div>
+
+          {/* Runner card */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Run Benchmark</CardTitle>
+              <CardDescription>
+                Translates every sentence in the selected language pair's WMT/FLORES test set
+                using each available engine, then computes BLEU, ChrF, TER, and COMET.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-4 items-end">
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">Language pair</label>
+                  <Select value={benchmarkPair} onValueChange={setBenchmarkPair}>
+                    <SelectTrigger className="w-36">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(['en-fr', 'fr-en', 'en-jp', 'jp-en', 'en-sw', 'sw-en'] as const).map(p => (
+                        <SelectItem key={p} value={p}>{p}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">Label (optional)</label>
+                  <input
+                    className="flex h-9 w-40 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                    placeholder="e.g. baseline"
+                    value={benchmarkNotes}
+                    onChange={e => setBenchmarkNotes(e.target.value)}
+                  />
+                </div>
+                <Button
+                  onClick={async () => {
+                    setBenchmarkRunning(true);
+                    setBenchmarkError(null);
+                    setBenchmarkResult(null);
+                    try {
+                      const params = new URLSearchParams({ language_pair: benchmarkPair });
+                      if (benchmarkNotes) params.set('notes', benchmarkNotes);
+                      const res = await fetch(
+                        `${API_BASE_URL}/api/wmt/run-multi-engine?${params}`,
+                        { method: 'POST' }
+                      );
+                      if (!res.ok) {
+                        const err = await res.json().catch(() => ({ detail: res.statusText }));
+                        throw new Error(err.detail || res.statusText);
+                      }
+                      const data: BenchmarkRunResult = await res.json();
+                      setBenchmarkResult(data);
+                      // Refresh snapshots so the regression tab also updates
+                      fetchSnapshotData();
+                    } catch (err: unknown) {
+                      setBenchmarkError(err instanceof Error ? err.message : 'Unknown error');
+                    } finally {
+                      setBenchmarkRunning(false);
+                    }
+                  }}
+                  disabled={benchmarkRunning}
+                >
+                  {benchmarkRunning ? (
+                    <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Running…</>
+                  ) : (
+                    'Run benchmark'
+                  )}
+                </Button>
+              </div>
+
+              {benchmarkRunning && (
+                <p className="text-sm text-muted-foreground">
+                  Translating with all available engines — this may take 1–3 minutes
+                  depending on which models are loaded.
+                </p>
+              )}
+              {benchmarkError && (
+                <p className="text-sm text-destructive">{benchmarkError}</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Results table */}
+          {benchmarkResult && (
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  Results — {benchmarkResult.language_pair}
+                  {benchmarkResult.notes && (
+                    <span className="ml-2 text-sm font-normal text-muted-foreground">
+                      ({benchmarkResult.notes})
+                    </span>
+                  )}
+                </CardTitle>
+                <CardDescription>
+                  {benchmarkResult.n_sentences} reference sentences ·{' '}
+                  {benchmarkResult.engines_run} engines ·{' '}
+                  {benchmarkResult.comet_available ? 'COMET available' : 'COMET not loaded — install unbabel-comet to enable'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md border overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-3 text-left">Engine</th>
+                        <th className="p-3 text-right">COMET ↑</th>
+                        <th className="p-3 text-right">BLEU ↑</th>
+                        <th className="p-3 text-right">ChrF ↑</th>
+                        <th className="p-3 text-right">TER ↓</th>
+                        <th className="p-3 text-right">Segments</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(() => {
+                        const rows = benchmarkResult.comparison.filter(r => !r.error);
+                        const best = (key: keyof BenchmarkEngineResult, higher = true) => {
+                          const vals = rows.map(r => r[key] as number | null).filter(v => v != null) as number[];
+                          return vals.length ? (higher ? Math.max(...vals) : Math.min(...vals)) : null;
+                        };
+                        const bestComet = best('comet');
+                        const bestBleu  = best('bleu');
+                        const bestChrf  = best('chrf');
+                        const bestTer   = best('ter', false);
+
+                        const ENGINE_LABELS: Record<string, string> = {
+                          opus_fast: 'Helsinki/OPUS',
+                          elan_quality: 'ELAN (specialist)',
+                          nllb_multilingual: 'NLLB-200',
+                          gemini_transcreation: 'Gemini (instructed)',
+                          t5_versatile: 'mT5',
+                        };
+
+                        return rows.map((row, i) => (
+                          <tr key={i} className="border-b hover:bg-muted/30">
+                            <td className="p-3 font-medium">
+                              {ENGINE_LABELS[row.engine] ?? row.engine}
+                            </td>
+                            {(['comet', 'bleu', 'chrf'] as const).map(metric => {
+                              const val = row[metric] as number | null;
+                              const isBest = val !== null && val === (metric === 'comet' ? bestComet : metric === 'bleu' ? bestBleu : bestChrf);
+                              return (
+                                <td key={metric} className="p-3 text-right">
+                                  {val !== null ? (
+                                    <span className={isBest ? 'font-bold text-green-600 dark:text-green-400' : ''}>
+                                      {metric === 'comet' ? val.toFixed(3) : val.toFixed(1)}
+                                    </span>
+                                  ) : <span className="text-muted-foreground">—</span>}
+                                </td>
+                              );
+                            })}
+                            <td className="p-3 text-right">
+                              {row.ter !== null ? (
+                                <span className={row.ter === bestTer ? 'font-bold text-green-600 dark:text-green-400' : ''}>
+                                  {row.ter.toFixed(1)}
+                                </span>
+                              ) : <span className="text-muted-foreground">—</span>}
+                            </td>
+                            <td className="p-3 text-right text-muted-foreground">{row.n_segments}</td>
+                          </tr>
+                        ));
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Bold = best score per metric. COMET is the primary ranking signal (neural metric,
+                  higher correlation with human judgment). BLEU favours token overlap with reference —
+                  instructed LLMs typically score lower here even when producing better translations.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* EvalSnapshot history */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Benchmark History</CardTitle>
+              <CardDescription>
+                All EvalSnapshots from previous benchmark runs. Use the global language pair and
+                engine filters above to narrow results.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {filteredSnapshots.length > 0 ? (
+                <div className="rounded-md border overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="p-3 text-left">Date</th>
+                        <th className="p-3 text-left">Language pair</th>
+                        <th className="p-3 text-left">Engine</th>
+                        <th className="p-3 text-right">COMET</th>
+                        <th className="p-3 text-right">BLEU</th>
+                        <th className="p-3 text-right">ChrF</th>
+                        <th className="p-3 text-right">TER</th>
+                        <th className="p-3 text-right">n</th>
+                        <th className="p-3 text-left">Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredSnapshots.map((s, i) => (
+                        <tr key={i} className="border-b hover:bg-muted/30">
+                          <td className="p-3 text-muted-foreground whitespace-nowrap">
+                            {new Date(s.runDate).toLocaleDateString()}
+                          </td>
+                          <td className="p-3 font-mono text-xs">{s.languagePair}</td>
+                          <td className="p-3">{s.engineName ?? <span className="text-muted-foreground">aggregated</span>}</td>
+                          <td className="p-3 text-right">{fmtComet(s.avgComet)}</td>
+                          <td className="p-3 text-right">{fmtBleu(s.avgBleu)}</td>
+                          <td className="p-3 text-right">{fmtChrf(s.avgChrf)}</td>
+                          <td className="p-3 text-right">{fmtTer(s.avgTer)}</td>
+                          <td className="p-3 text-right text-muted-foreground">{s.segmentCount}</td>
+                          <td className="p-3 text-muted-foreground text-xs">{s.notes ?? ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No benchmark snapshots yet. Run a benchmark above to populate this table.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
       </Tabs>

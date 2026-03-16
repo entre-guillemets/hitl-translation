@@ -259,6 +259,7 @@ HF_HOME=./models
 PYTORCH_TRANSFORMERS_CACHE=./models
 LOG_LEVEL=INFO
 TRANSFORMERS_TRUST_REMOTE_CODE=1
+GEMINI_API_KEY=xxxxxxxx
 ```
 
 Initialize the database:
@@ -340,6 +341,12 @@ sudo apt-get install ffmpeg  # Ubuntu
 python -m prisma db push   # re-apply schema
 python -m prisma generate  # regenerate client after schema edits
 ```
+
+---
+
+## Visual Walkthrough
+
+Stage-by-stage screenshots with annotation: [docs/walkthrough.md](docs/walkthrough.md)
 
 ---
 

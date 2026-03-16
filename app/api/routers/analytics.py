@@ -8,11 +8,20 @@ import difflib
 from collections import defaultdict, Counter
 from typing import Optional, List, Dict, Any
 import sacrebleu
+from scipy import stats as scipy_stats
 
 from app.schemas.quality import QualityRating
 from app.db.base import prisma
 from prisma.enums import AnnotationCategory, AnnotationSeverity, QualityLabel, MTModel
 from app.dependencies import get_health_service
+from app.core.metric_reliability import (
+    get_language_metadata,
+    parse_language_pair,
+    compute_reliability_warning,
+    get_recommended_primary_metric,
+    MIN_RELIABLE_SAMPLE_SIZE,
+)
+from app.utils.lang_pair import normalize_lang_pair, pair_from_db_langs
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/analytics", tags=["Quality Assessment", "Analytics"])
@@ -56,18 +65,14 @@ def calculate_total_mqm_score(annotations_data: List[Dict[str, Any]]) -> float:
     return total_weighted_errors
 
 def calculate_correlation(x_vals, y_vals):
-    if len(x_vals) < 2 or len(y_vals) < 2:
-        return 0.0
-    
-    mean_x = statistics.mean(x_vals)
-    mean_y = statistics.mean(y_vals)
-    
-    numerator = sum((x - mean_x) * (y - mean_y) for x, y in zip(x_vals, y_vals))
-    sum_sq_x = sum((x - mean_x) ** 2 for x in x_vals)
-    sum_sq_y = sum((y - mean_y) ** 2 for y in y_vals)
-    
-    denominator = (sum_sq_x * sum_sq_y) ** 0.5
-    return numerator / denominator if denominator != 0 else 0.0
+    """Returns (r, p_value) via scipy.stats.pearsonr. Returns (0.0, None) if insufficient data."""
+    if len(x_vals) < 2 or len(y_vals) < 2 or len(x_vals) != len(y_vals):
+        return 0.0, None
+    try:
+        r, p = scipy_stats.pearsonr(x_vals, y_vals)
+        return float(r), float(p)
+    except Exception:
+        return 0.0, None
 
 def get_engine_type_from_model(model_name: str) -> str:
     """Map model name (which is a string representation of MTModel enum) to engine type."""
@@ -88,8 +93,14 @@ def get_engine_type_from_model(model_name: str) -> str:
         MTModel.NLLB_MULTILINGUAL.value:    "nllb_multilingual",    # <--- FIXED
         MTModel.PIVOT_ELAN_HELSINKI.value:  "pivot_elan_helsinki",
         MTModel.MT5_MULTILINGUAL.value:     "t5_versatile",
+        MTModel.GEMINI_TRANSCREATION.value: "gemini_transcreation",
     }
-    return engine_mapping.get(model_name, "unknown")
+    # Also handle raw engine_id strings stored before GEMINI_TRANSCREATION was in the enum
+    extra = {
+        "gemini_transcreation": "gemini_transcreation",
+        "gemini-3.1-flash-lite-preview":     "gemini_transcreation",
+    }
+    return engine_mapping.get(model_name) or extra.get(model_name, "unknown")
 
 def calculate_edit_distance(original: str, edited: str) -> float:
     """Calculate normalized edit distance between two strings"""
@@ -335,10 +346,20 @@ async def get_annotations_data(lang_filter: dict):
         logger.info(f"Found {len(all_annotations)} annotations for dashboard")
               
         severity_weights = {"LOW": 1, "MEDIUM": 5, "HIGH": 10, "CRITICAL": 25}
-        
+        _ENGINE_DISPLAY = {
+            "opus_fast": "OPUS Fast",
+            "elan_specialist": "ELAN Specialist",
+            "elan_quality": "ELAN Quality",
+            "mt5_multilingual": "mT5 Multilingual",
+            "opus_enhanced": "OPUS Enhanced",
+            "t5_versatile": "mT5 Versatile",
+            "nllb_multilingual": "NLLB Multilingual",
+            "gemini_transcreation": "Gemini Transcreation",
+            "gemini-3.1-flash-lite-preview": "Gemini Transcreation",
+        }
+
         error_stats = {}
         severity_counts = {"LOW": 0, "MEDIUM": 0, "HIGH": 0, "CRITICAL": 0}
-        
         annotations_for_mqm_calc = []
 
         for annotation in all_annotations:
@@ -347,16 +368,23 @@ async def get_annotations_data(lang_filter: dict):
 
             if annotation_severity_value in severity_counts:
                 severity_counts[annotation_severity_value] += 1
-            
+
             model_name = "unknown"
-            if annotation.translationString and annotation.translationString.translationRequest:
-                if annotation.translationString.translationRequest.mtModel:
-                    model_name = annotation.translationString.translationRequest.mtModel.value if hasattr(annotation.translationString.translationRequest.mtModel, 'value') else str(annotation.translationString.translationRequest.mtModel)
-            
-            if annotation.translationString and annotation.translationString.modelOutputs:
-                if len(annotation.translationString.modelOutputs) > 0:
-                    model_name = annotation.translationString.modelOutputs[0].modelName
-            
+            ts = annotation.translationString
+            if ts:
+                # 1. Best: the engine the reviewer actually selected for this string
+                if getattr(ts, "selectedEngine", None):
+                    raw = ts.selectedEngine
+                    model_name = _ENGINE_DISPLAY.get(raw, raw)
+                # 2. Request-level mtModel — only reliable for single-engine requests
+                # (MULTI_ENGINE jobs have no reliable per-annotation engine without selectedEngine)
+                elif ts.translationRequest and ts.translationRequest.mtModel:
+                    raw_model = ts.translationRequest.mtModel.value if hasattr(ts.translationRequest.mtModel, 'value') else str(ts.translationRequest.mtModel)
+                    # Don't attribute to an arbitrary engine for multi-engine jobs
+                    model_name = raw_model if raw_model != "MULTI_ENGINE" else "unknown"
+                # modelOutputs[0] fallback removed: in multi-engine jobs the first output
+                # is arbitrary and would misattribute the annotation to the wrong engine.
+
             error_type = annotation_category_value 
             key = f"{model_name}_{annotation_category_value}_{error_type}_{annotation_severity_value}"
             
@@ -479,19 +507,37 @@ async def get_multi_engine_data(lang_filter: dict):
             where={"reviewer": {"not": None}}
         )
         
-        inter_rater_dict = {}
+        # Group annotations by reviewer, tracking per-segment coverage
+        reviewer_data: dict = {}
         for annotation in all_annotations_for_inter_rater:
             reviewer = annotation.reviewer
-            if reviewer not in inter_rater_dict:
-                inter_rater_dict[reviewer] = {"count": 0}
-            inter_rater_dict[reviewer]["count"] += 1
-        
+            if reviewer not in reviewer_data:
+                reviewer_data[reviewer] = {"count": 0, "segments": set(), "severities": []}
+            reviewer_data[reviewer]["count"] += 1
+            if annotation.translationStringId:
+                reviewer_data[reviewer]["segments"].add(annotation.translationStringId)
+            sev = annotation.severity.value if hasattr(annotation.severity, "value") else str(annotation.severity)
+            reviewer_data[reviewer]["severities"].append(sev)
+
+        # Check for segments annotated by more than one reviewer (required for real IAA)
+        segment_reviewers: dict = {}
+        for annotation in all_annotations_for_inter_rater:
+            sid = annotation.translationStringId
+            if sid:
+                segment_reviewers.setdefault(sid, set()).add(annotation.reviewer)
+        overlapping_segments = sum(1 for reviewers in segment_reviewers.values() if len(reviewers) > 1)
+
         inter_rater = []
-        for reviewer, data in inter_rater_dict.items():
+        for reviewer, data in reviewer_data.items():
             inter_rater.append({
                 "annotatorPair": f"{reviewer}-system",
-                "agreement": 0.8,
-                "category": "overall"
+                # agreement is None until multiple reviewers annotate overlapping segments
+                "agreement": None,
+                "agreementNote": "IAA requires multiple annotators on the same segments" if overlapping_segments == 0 else None,
+                "annotationCount": data["count"],
+                "segmentsCovered": len(data["segments"]),
+                "overlappingSegments": overlapping_segments,
+                "category": "overall",
             })
         
         return {
@@ -550,12 +596,13 @@ async def get_quality_scores_data(lang_filter: dict):
             metric_pairs.append(("TER", "ChrF", ter_scores, chrf_scores))
 
         for metric1, metric2, scores1, scores2 in metric_pairs:
-            correlation = calculate_correlation(scores1, scores2)
+            r, p = calculate_correlation(scores1, scores2)
             correlations.append({
                 "metric1": metric1,
                 "metric2": metric2,
-                "correlation": correlation,
-                "pValue": 0.05
+                "correlation": r,
+                "pValue": p,
+                "n": len(scores1),
             })
 
         score_distribution = []
@@ -568,8 +615,21 @@ async def get_quality_scores_data(lang_filter: dict):
         if chrf_scores: 
             score_distribution.append({"metric": "ChrF", "scores": chrf_scores, "scoreRange": "0-100"})
 
+        # coverage: fraction of reference-evaluated segments that have all 4 metrics
+        full_coverage_count = sum(
+            1 for m in quality_metrics
+            if m.bleuScore is not None and m.cometScore is not None
+            and m.terScore is not None and m.chrfScore is not None
+        )
+        metric_coverage = full_coverage_count / len(quality_metrics) if quality_metrics else 0.0
+
         evaluation_modes = [
-            {"mode": "Reference-based", "count": len(bleu_scores), "avgScore": statistics.mean(bleu_scores) if bleu_scores else 0, "confidence": 0.95},
+            {
+                "mode": "Reference-based",
+                "count": len(bleu_scores),
+                "avgScore": statistics.mean(bleu_scores) if bleu_scores else 0,
+                "metricCoverage": round(metric_coverage, 4),
+            },
         ]
 
         return {
@@ -795,13 +855,21 @@ async def get_tm_glossary_data(lang_filter: dict):
         term_counts = Counter(term.term for term in glossary_terms)
         top_terms = term_counts.most_common(20)
 
+        # Build a lookup of GlossaryTerm objects for extra fields
+        term_obj_map = {t.term: t for t in glossary_terms}
+
         glossary_usage = []
         for term, count in top_terms:
+            obj = term_obj_map.get(term)
             glossary_usage.append({
                 "term": term,
                 "usageCount": count,
-                "overrideRate": 0.1,  # Placeholder
-                "qualityImpact": 0.05  # Placeholder
+                "domain": obj.domain if obj else None,
+                "lastUsed": obj.lastUsed.isoformat() if obj and obj.lastUsed else None,
+                # overrideRate and qualityImpact require per-segment glossary hit tracking
+                # not yet recorded in the schema — omitted rather than fabricated
+                "overrideRate": None,
+                "qualityImpact": None,
             })
 
         term_overrides = []  # Placeholder
@@ -904,6 +972,15 @@ def extract_model_and_language_info(metric):
         else:
             model_name_extracted = None
 
+    # Normalise raw engine IDs to human-readable display names
+    _DISPLAY_NAME_MAP = {
+        "gemini_transcreation": "Gemini Transcreation",
+        "gemini-3.1-flash-lite-preview":     "Gemini Transcreation",
+        "GEMINI_TRANSCREATION": "Gemini Transcreation",
+    }
+    if model_name_extracted in _DISPLAY_NAME_MAP:
+        model_name_extracted = _DISPLAY_NAME_MAP[model_name_extracted]
+
     # 5. As a last fallback
     if not model_name_extracted:
         model_name_extracted = "Untraceable/Other"
@@ -913,14 +990,13 @@ def extract_model_and_language_info(metric):
             f"Translation String ID: {getattr(metric, 'translationStringId', None)}"
         )
 
-    # Extract language pair info (for dashboards)
+    # Extract language pair info — always return canonical normalized form (e.g. "jp-en")
     if getattr(metric, "translationString", None) and getattr(metric.translationString, "translationRequest", None):
-        source_lang = getattr(metric.translationString.translationRequest, "sourceLanguage", "unknown")
-        target_lang = getattr(metric.translationString, "targetLanguage", "unknown")
-        language_pair = f"{source_lang}-{target_lang}"
+        source_lang = str(getattr(metric.translationString.translationRequest, "sourceLanguage", "unknown"))
+        target_lang = str(getattr(metric.translationString, "targetLanguage", "unknown"))
+        language_pair = pair_from_db_langs(source_lang, target_lang)
     elif getattr(metric, "translationRequestId", None):
-        # Can be enhanced if translationRequest lookup added
-        pass
+        pass  # Can be enhanced if translationRequest lookup added
 
     return model_name_extracted, language_pair
 
@@ -982,8 +1058,8 @@ def group_by_model(quality_metrics, lang_filter):
                 "type": "model",
                 "model": model,
                 "engineType": stats["engineType"],
-                "avgBleu": calculate_average(stats["bleu_scores"]) * 100,
-                "avgComet": calculate_average(stats["comet_scores"]) * 100,
+                "avgBleu": calculate_average(stats["bleu_scores"]),
+                "avgComet": calculate_average(stats["comet_scores"]),
                 "avgTer": calculate_average(stats["ter_scores"]) if stats["ter_scores"] else 0,
                 "avgChrf": calculate_average(stats["chrf_scores"]) if stats["chrf_scores"] else 0,
                 "avgCometKiwi": calculate_average(stats["cometkiwi_scores"]),
@@ -1039,8 +1115,8 @@ def group_by_language_pair(quality_metrics, lang_filter):
                 "type": "language_pair",
                 "model": "N/A",
                 "engineType": "N/A",
-                "avgBleu": calculate_average(stats["bleu_scores"]) * 100,
-                "avgComet": calculate_average(stats["comet_scores"]) * 100,
+                "avgBleu": calculate_average(stats["bleu_scores"]),
+                "avgComet": calculate_average(stats["comet_scores"]),
                 "avgTer": calculate_average(stats["ter_scores"]) if stats["ter_scores"] else 0,
                 "avgChrf": calculate_average(stats["chrf_scores"]) if stats["chrf_scores"] else 0,
                 "avgCometKiwi": calculate_average(stats["cometkiwi_scores"]),
@@ -1087,7 +1163,7 @@ async def get_engine_preference_analytics():
         engine_preferences = []
         for key, data in preferences_grouped.items():
             avg_rating = sum(data["ratings"]) / len(data["ratings"]) if data["ratings"] else 0
-            avg_satisfaction = sum(data["overallSatisfactions"]) / len(data["overallSatisfactions"]) if data["satisfactions"] else 0
+            avg_satisfaction = sum(data["overallSatisfactions"]) / len(data["overallSatisfactions"]) if data["overallSatisfactions"] else 0
             
             engine_preferences.append({
                 "engine": data["selectedEngine"],
@@ -1206,8 +1282,8 @@ async def get_post_edit_metrics(
             if data["count"] > 0: # Only add to chart data if there's at least one valid metric record for the pair
                 bar_chart_data.append({
                     "languagePair": pair,
-                    "avgBleu": sum(data["bleuScores"]) / len(data["bleuScores"]) * 100 if data["bleuScores"] else 0,
-                    "avgComet": sum(data["cometScores"]) / len(data["cometScores"]) * 100 if data["cometScores"] else 0,
+                    "avgBleu": sum(data["bleuScores"]) / len(data["bleuScores"]) if data["bleuScores"] else 0,
+                    "avgComet": sum(data["cometScores"]) / len(data["cometScores"]) if data["cometScores"] else 0,
                     "avgTer": sum(data["terScores"]) / len(data["terScores"]) if data["terScores"] else 0,
                     "avgChrf": sum(data["chrfScores"]) / len(data["chrfScores"]) if data["chrfScores"] else 0, 
                     "count": data["count"]
@@ -1221,45 +1297,23 @@ async def get_post_edit_metrics(
 
         calculated_correlation_matrix = []
         
-        if len(bleu_vals) >= 2 and len(comet_vals) >= 2:
-            calculated_correlation_matrix.append({
-                "metric1": "BLEU", "metric2": "COMET", 
-                "correlation": calculate_correlation(bleu_vals, comet_vals), 
-                "pValue": 0.05
-            })
-        
-        if len(bleu_vals) >= 2 and len(ter_vals) >= 2:
-            calculated_correlation_matrix.append({
-                "metric1": "BLEU", "metric2": "TER", 
-                "correlation": calculate_correlation(bleu_vals, ter_vals), 
-                "pValue": 0.05
-            })
-
-        if len(comet_vals) >= 2 and len(ter_vals) >= 2:
-            calculated_correlation_matrix.append({
-                "metric1": "COMET", "metric2": "TER", 
-                "correlation": calculate_correlation(comet_vals, ter_vals), 
-                "pValue": 0.05
-            })
-       
-        if len(bleu_vals) >= 2 and len(chrf_vals) >= 2:
-            calculated_correlation_matrix.append({
-                "metric1": "BLEU", "metric2": "ChrF", 
-                "correlation": calculate_correlation(bleu_vals, chrf_vals), 
-                "pValue": 0.05
-            })
-        if len(comet_vals) >= 2 and len(chrf_vals) >= 2:
-            calculated_correlation_matrix.append({
-                "metric1": "COMET", "metric2": "ChrF", 
-                "correlation": calculate_correlation(comet_vals, chrf_vals), 
-                "pValue": 0.05
-            })
-        if len(ter_vals) >= 2 and len(chrf_vals) >= 2:
-            calculated_correlation_matrix.append({
-                "metric1": "TER", "metric2": "ChrF", 
-                "correlation": calculate_correlation(ter_vals, chrf_vals), 
-                "pValue": 0.05
-            })
+        _corr_pairs = [
+            ("BLEU", "COMET", bleu_vals, comet_vals),
+            ("BLEU", "TER", bleu_vals, ter_vals),
+            ("COMET", "TER", comet_vals, ter_vals),
+            ("BLEU", "ChrF", bleu_vals, chrf_vals),
+            ("COMET", "ChrF", comet_vals, chrf_vals),
+            ("TER", "ChrF", ter_vals, chrf_vals),
+        ]
+        for _m1, _m2, _x, _y in _corr_pairs:
+            if len(_x) >= 2 and len(_y) >= 2:
+                _r, _p = calculate_correlation(_x, _y)
+                calculated_correlation_matrix.append({
+                    "metric1": _m1, "metric2": _m2,
+                    "correlation": _r,
+                    "pValue": _p,
+                    "n": len(_x),
+                })
 
         logger.info(f"Returning {len(bar_chart_data)} language pairs for post-edit metrics.")
 
@@ -1349,7 +1403,7 @@ async def get_rlhf_analytics():
         preferences = await prisma.enginepreference.find_many()
         
         total_feedback = len(preferences)
-        preference_pairs = sum(1 for p in preferences if p.rating is not None and p.rating >= 4)
+        preference_pairs = sum(1 for p in preferences if p.rating is not None)
         
         feedback_types = {}
         for pref in preferences:
@@ -1448,7 +1502,6 @@ async def get_quality_trends():
         recent_requests = await prisma.translationrequest.find_many(
             include={
                 "translationStrings": {
-                    "include": {"qualityRatings": True}
                 }
             },
             order={"createdAt": "desc"},
@@ -1573,3 +1626,830 @@ async def get_translator_impact_data(language_pair: Optional[str] = Query("all")
         import traceback
         traceback.print_exc()
         return {"comparisons": [], "summary": []}
+
+
+# ---------------------------------------------------------------------------
+# Metric Reliability Analysis
+# ---------------------------------------------------------------------------
+
+@router.get("/metric-reliability/{language_pair}")
+async def metric_reliability(language_pair: str):
+    """
+    Returns per-language-pair metadata about metric reliability.
+
+    Combines static domain knowledge (script type, known metric limitations)
+    with dynamic DB stats (sample size, BLEU variance) to surface a
+    reliability_warning flag and actionable reasons.
+
+    language_pair format: 'JA-EN', 'FR-EN', 'EN-JP', 'SW-EN', etc.
+    """
+    parsed = parse_language_pair(language_pair)
+    if not parsed:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Cannot parse language pair '{language_pair}'. Expected format: 'SRC-TGT' (e.g., 'JA-EN').",
+        )
+    source_lang, target_lang = parsed
+
+    # ------------------------------------------------------------------
+    # Dynamic: pull sample size + BLEU scores from QualityMetrics
+    # Match on targetLanguage containing the target language code (case-insensitive).
+    # QualityMetrics rows are joined via TranslationString.
+    # ------------------------------------------------------------------
+    try:
+        # DB stores language codes as uppercase strings; JP is used for Japanese
+        db_target = target_lang.upper()
+        db_source = source_lang.upper()
+        if db_target == "JA":
+            db_target = "JP"
+        if db_source == "JA":
+            db_source = "JP"
+
+        metrics_rows = await prisma.qualitymetrics.find_many(
+            where={
+                "translationString": {
+                    "targetLanguage": {"contains": db_target},
+                    "translationRequest": {
+                        "sourceLanguage": {"equals": db_source},
+                    },
+                }
+            },
+        )
+
+        bleu_scores = [
+            r.bleuScore for r in metrics_rows if r.bleuScore is not None
+        ]
+        sample_size = len(bleu_scores)
+        bleu_std = statistics.stdev(bleu_scores) if len(bleu_scores) >= 2 else None
+
+    except Exception as e:
+        logger.warning(f"metric_reliability: DB query failed for {language_pair}: {e}")
+        sample_size = 0
+        bleu_std = None
+
+    # ------------------------------------------------------------------
+    # Static metadata
+    # ------------------------------------------------------------------
+    source_meta = get_language_metadata(source_lang)
+    target_meta = get_language_metadata(target_lang)
+
+    reliability_warning, warning_reasons, metric_reliability_warning, statistical_confidence_warning = compute_reliability_warning(
+        source_lang=source_lang,
+        target_lang=target_lang,
+        sample_size=sample_size,
+        bleu_std=bleu_std,
+    )
+
+    # Build per-metric detail from the target language (quality is assessed in target)
+    metric_detail = {}
+    if target_meta:
+        metric_detail = target_meta["metrics"]
+
+    # The "complex" language drives the script and notes display.
+    # If source is non-Latin (CJK, agglutinative), it's the interesting language —
+    # show its script and notes. Otherwise use the target.
+    source_script = source_meta["script"] if source_meta else "unknown"
+    target_script = target_meta["script"] if target_meta else "unknown"
+    primary_is_source = source_script not in ("Latin",)
+
+    return {
+        "language_pair": language_pair.upper().replace("_", "-"),
+        "source_language": {
+            "code": source_lang.upper(),
+            "name": source_meta["language_name"] if source_meta else source_lang.upper(),
+            "script": source_script,
+            "notes": source_meta["notes"] if source_meta else None,
+        },
+        "target_language": {
+            "code": target_lang.upper(),
+            "name": target_meta["language_name"] if target_meta else target_lang.upper(),
+            "script": target_script,
+            "tokenization_strategy": target_meta["tokenization_strategy"] if target_meta else "unknown",
+            "notes": target_meta["notes"] if target_meta else None,
+        },
+        # primary_script / primary_notes: whichever language is the "complex" one in the pair
+        "primary_script": source_script if primary_is_source else target_script,
+        "primary_notes": (source_meta["notes"] if source_meta else None) if primary_is_source else (target_meta["notes"] if target_meta else None),
+        "sample_size": sample_size,
+        "bleu_std": round(bleu_std, 4) if bleu_std is not None else None,
+        "min_reliable_sample_size": MIN_RELIABLE_SAMPLE_SIZE,
+        "reliability_warning": reliability_warning,
+        "metric_reliability_warning": metric_reliability_warning,
+        "statistical_confidence_warning": statistical_confidence_warning,
+        "warning_reasons": warning_reasons,
+        "recommended_primary_metric": get_recommended_primary_metric(source_lang, target_lang),
+        "metrics": metric_detail,
+        "data_source": "real" if sample_size > 0 else "insufficient",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Helper functions for Inter-Annotator Agreement (IAA)
+# ---------------------------------------------------------------------------
+
+_QUALITY_LABELS = ["good", "acceptable", "poor"]
+
+
+def _ter_to_label(ter: float) -> str:
+    if ter <= 0.15:
+        return "good"
+    elif ter <= 0.40:
+        return "acceptable"
+    return "poor"
+
+
+def _adequacy_to_label(adequacy: float) -> str:
+    if adequacy >= 3.0:
+        return "good"
+    elif adequacy >= 1.5:
+        return "acceptable"
+    return "poor"
+
+
+def _cohen_kappa(human_labels: list, llm_labels: list) -> Optional[float]:
+    """3-class Cohen's κ between human quality labels (TER-derived) and LLM labels."""
+    n = len(human_labels)
+    if n == 0:
+        return None
+    label_idx = {lbl: i for i, lbl in enumerate(_QUALITY_LABELS)}
+    C = [[0] * 3 for _ in range(3)]
+    for h, l in zip(human_labels, llm_labels):
+        C[label_idx[h]][label_idx[l]] += 1
+    p_o = sum(C[i][i] for i in range(3)) / n
+    row_sums = [sum(C[i]) for i in range(3)]
+    col_sums = [sum(C[r][c] for r in range(3)) for c in range(3)]
+    p_e = sum(row_sums[i] * col_sums[i] for i in range(3)) / (n * n)
+    if p_e >= 1.0:
+        return 1.0
+    return (p_o - p_e) / (1.0 - p_e)
+
+
+def _krippendorff_alpha(human_scores: list, llm_scores: list) -> Optional[float]:
+    """
+    Krippendorff's α for interval data between two raters.
+    human_scores = 1 - TER (normalized quality, higher is better)
+    llm_scores   = adequacy / 4 (normalized to 0–1)
+    """
+    n = len(human_scores)
+    if n < 2:
+        return None
+    d_o = sum((h - l) ** 2 for h, l in zip(human_scores, llm_scores)) / n
+    all_values = human_scores + llm_scores
+    total = len(all_values)
+    sum_sq_diff = sum(
+        (all_values[j] - all_values[k]) ** 2
+        for j in range(total)
+        for k in range(j + 1, total)
+    )
+    d_e = sum_sq_diff * 2 / (total * (total - 1))
+    if d_e == 0:
+        return 1.0
+    return 1.0 - d_o / d_e
+
+
+def _interpret_kappa(k: Optional[float]) -> str:
+    if k is None:
+        return "No data"
+    if k < 0:
+        return "Poor (worse than chance)"
+    elif k < 0.20:
+        return "Slight"
+    elif k < 0.40:
+        return "Fair"
+    elif k < 0.60:
+        return "Moderate"
+    elif k < 0.80:
+        return "Substantial"
+    return "Almost perfect"
+
+
+def _interpret_alpha(a: Optional[float]) -> str:
+    if a is None:
+        return "No data"
+    if a < 0:
+        return "Poor (systematic disagreement)"
+    elif a < 0.667:
+        return "Tentative (below threshold for reliable conclusions)"
+    elif a < 0.800:
+        return "Acceptable"
+    return "Good reliability"
+
+
+@router.get("/annotator-agreement")
+async def annotator_agreement():
+    """
+    Computes Inter-Annotator Agreement (IAA) between human post-editing effort
+    (TER-derived quality label) and the LLM judge (adequacy-derived quality label).
+
+    Since the project has a single human annotator, 'inter-annotator' here measures
+    human-machine agreement: how often the LLM judge and the human annotator (via TER)
+    assign the same quality category to the same segment.
+
+    Quality discretization:
+      Human (TER):    ≤ 0.15 → good, 0.15–0.40 → acceptable, > 0.40 → poor
+      LLM (adequacy): ≥ 3.0 → good, 1.5–3.0 → acceptable, < 1.5 → poor
+
+    Metrics returned:
+      cohen_kappa:        categorical agreement on quality labels (κ)
+      krippendorff_alpha: continuous agreement on normalised scores (α)
+    """
+    try:
+        if not prisma.is_connected():
+            await prisma.connect()
+
+        qm_rows = await prisma.qualitymetrics.find_many(
+            where={"terScore": {"not": None}},
+            include={
+                "translationString": {
+                    "include": {
+                        "llmJudgments": True,
+                        "translationRequest": True,
+                    }
+                }
+            },
+        )
+    except Exception as e:
+        logger.error(f"annotator_agreement: DB error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    paired: list[dict] = []
+    for qm in qm_rows:
+        if qm.terScore is None:
+            continue
+        ts = qm.translationString
+        if not ts or not ts.llmJudgments:
+            continue
+        for judgment in ts.llmJudgments:
+            if judgment.engineName == qm.engineName:
+                src = ts.translationRequest.sourceLanguage if ts.translationRequest else "UNK"
+                tgt = ts.targetLanguage or "UNK"
+                lp = f"{src}-{tgt}".upper()
+                annotator = ts.annotatorId if ts.annotatorId else "REVIEWER_1"
+                paired.append({
+                    "ter": qm.terScore,
+                    "adequacy": judgment.adequacyScore,
+                    "language_pair": lp,
+                    "annotator": annotator,
+                })
+                break  # one match per QM row is enough
+
+    if not paired:
+        return {
+            "n": 0,
+            "cohen_kappa": None,
+            "krippendorff_alpha": None,
+            "interpretation_kappa": "No paired data available",
+            "interpretation_alpha": "No paired data available",
+            "by_language_pair": [],
+            "by_annotator": [],
+            "data_source": "insufficient",
+            "methodology": _IAA_METHODOLOGY,
+        }
+
+    def _compute_iaa_stats(subset: list[dict]) -> dict:
+        h_labels = [_ter_to_label(p["ter"]) for p in subset]
+        l_labels = [_adequacy_to_label(p["adequacy"]) for p in subset]
+        h_scores = [1.0 - p["ter"] for p in subset]
+        l_scores = [p["adequacy"] / 4.0 for p in subset]
+        kappa = _cohen_kappa(h_labels, l_labels)
+        alpha = _krippendorff_alpha(h_scores, l_scores)
+        return {
+            "n": len(subset),
+            "cohen_kappa": round(kappa, 4) if kappa is not None else None,
+            "krippendorff_alpha": round(alpha, 4) if alpha is not None else None,
+            "interpretation_kappa": _interpret_kappa(kappa),
+            "interpretation_alpha": _interpret_alpha(alpha),
+        }
+
+    global_stats = _compute_iaa_stats(paired)
+
+    # Per-language-pair breakdown
+    by_lp: Dict[str, list] = defaultdict(list)
+    for p in paired:
+        by_lp[p["language_pair"]].append(p)
+
+    by_language_pair = [
+        {"language_pair": lp, **_compute_iaa_stats(lp_pairs)}
+        for lp, lp_pairs in sorted(by_lp.items())
+    ]
+
+    # Per-annotator breakdown
+    by_ann: Dict[str, list] = defaultdict(list)
+    for p in paired:
+        by_ann[p["annotator"]].append(p)
+
+    by_annotator = [
+        {"annotator": ann, **_compute_iaa_stats(ann_pairs)}
+        for ann, ann_pairs in sorted(by_ann.items())
+    ]
+
+    return {
+        **global_stats,
+        "by_language_pair": by_language_pair,
+        "by_annotator": by_annotator,
+        "data_source": "real" if len(paired) >= 10 else "sample",
+        "methodology": _IAA_METHODOLOGY,
+    }
+
+
+_IAA_METHODOLOGY = {
+    "human_signal": "TER (post-editing effort) — lower TER = better quality",
+    "llm_signal": "LLM judge adequacy score (1–4 scale)",
+    "human_normalised": "1 − TER (higher = better, mapped to 0–1)",
+    "llm_normalised": "adequacy / 4 (mapped to 0–1)",
+    "discretization": {
+        "human_good": "TER ≤ 0.15",
+        "human_acceptable": "0.15 < TER ≤ 0.40",
+        "human_poor": "TER > 0.40",
+        "llm_good": "adequacy ≥ 3.0",
+        "llm_acceptable": "1.5 ≤ adequacy < 3.0",
+        "llm_poor": "adequacy < 1.5",
+    },
+    "note": (
+        "Single human annotator — 'inter-annotator' here means "
+        "human (TER-derived) vs. LLM judge agreement on quality category."
+    ),
+}
+
+
+# ---------------------------------------------------------------------------
+# Eval Quality — meta-evaluation endpoint
+# ---------------------------------------------------------------------------
+
+def _interpret_calibration(r: float) -> str:
+    if r >= 0.7:
+        return "Strong"
+    elif r >= 0.5:
+        return "Moderate"
+    elif r >= 0.3:
+        return "Weak"
+    elif r >= 0:
+        return "Minimal"
+    return "Negative"
+
+
+_CORR_METRIC_PAIRS = [
+    ("BLEU",  "COMET", "bleuScore",  "cometScore"),
+    ("BLEU",  "TER",   "bleuScore",  "terScore"),
+    ("BLEU",  "ChrF",  "bleuScore",  "chrfScore"),
+    ("COMET", "TER",   "cometScore", "terScore"),
+    ("COMET", "ChrF",  "cometScore", "chrfScore"),
+    ("TER",   "ChrF",  "terScore",   "chrfScore"),
+]
+
+
+@router.get("/eval-quality")
+async def eval_quality():
+    """
+    Meta-evaluation: how complete and internally consistent is the evaluation data?
+
+    Returns three datasets:
+      coverage          — per language pair, % of segments with each signal
+      correlations_by_pair — per language pair pairwise metric correlations
+      judge_calibration — per language pair Pearson r between (1-TER) and (adequacy/4)
+    """
+    try:
+        if not prisma.is_connected():
+            await prisma.connect()
+
+        # ── 1. Coverage ──────────────────────────────────────────────────────
+        strings = await prisma.translationstring.find_many(
+            include={
+                "translationRequest": True,
+                "qualityMetrics": True,
+                "llmJudgments": True,
+            }
+        )
+
+        cov: Dict[str, dict] = defaultdict(lambda: {
+            "total": 0, "has_qe": 0, "has_post_edit": 0,
+            "has_bleu": 0, "has_comet": 0, "has_ter": 0,
+            "has_chrf": 0, "has_llm_judge": 0,
+        })
+
+        for ts in strings:
+            src = ts.translationRequest.sourceLanguage if ts.translationRequest else "UNK"
+            tgt = ts.targetLanguage or "UNK"
+            lp = f"{src}-{tgt}".upper()
+            c = cov[lp]
+            c["total"] += 1
+
+            if ts.hasReference:
+                c["has_post_edit"] += 1
+
+            qe_found = False
+            for qm in ts.qualityMetrics:
+                if not qm.hasReference and qm.cometScore is not None and not qe_found:
+                    c["has_qe"] += 1
+                    qe_found = True
+            ref_qms = [qm for qm in ts.qualityMetrics if qm.hasReference]
+            if any(qm.bleuScore is not None for qm in ref_qms):
+                c["has_bleu"] += 1
+            if any(qm.cometScore is not None for qm in ref_qms):
+                c["has_comet"] += 1
+            if any(qm.terScore is not None for qm in ref_qms):
+                c["has_ter"] += 1
+            if any(qm.chrfScore is not None for qm in ref_qms):
+                c["has_chrf"] += 1
+            if ts.llmJudgments:
+                c["has_llm_judge"] += 1
+
+        coverage = []
+        for lp, c in sorted(cov.items()):
+            n = c["total"]
+            pct = lambda k: round(c[k] / n * 100, 1) if n > 0 else 0.0
+            coverage.append({
+                "language_pair": lp,
+                "total": n,
+                "signals": {
+                    "qe_score":   {"count": c["has_qe"],         "pct": pct("has_qe")},
+                    "post_edit":  {"count": c["has_post_edit"],  "pct": pct("has_post_edit")},
+                    "bleu":       {"count": c["has_bleu"],       "pct": pct("has_bleu")},
+                    "comet":      {"count": c["has_comet"],      "pct": pct("has_comet")},
+                    "ter":        {"count": c["has_ter"],        "pct": pct("has_ter")},
+                    "chrf":       {"count": c["has_chrf"],       "pct": pct("has_chrf")},
+                    "llm_judge":  {"count": c["has_llm_judge"],  "pct": pct("has_llm_judge")},
+                },
+            })
+
+        # ── 2. Metric correlations by language pair ───────────────────────────
+        ref_metrics = await prisma.qualitymetrics.find_many(
+            where={"hasReference": True},
+            include={"translationString": {"include": {"translationRequest": True}}},
+        )
+
+        corr_by_lp: Dict[str, list] = defaultdict(list)
+        for qm in ref_metrics:
+            ts = qm.translationString
+            if not ts:
+                continue
+            src = ts.translationRequest.sourceLanguage if ts.translationRequest else "UNK"
+            tgt = ts.targetLanguage or "UNK"
+            corr_by_lp[f"{src}-{tgt}".upper()].append(qm)
+
+        correlations_by_pair = []
+        for lp, metrics in sorted(corr_by_lp.items()):
+            pair_corrs = []
+            for label1, label2, field1, field2 in _CORR_METRIC_PAIRS:
+                vals = [
+                    (getattr(m, field1), getattr(m, field2))
+                    for m in metrics
+                    if getattr(m, field1) is not None and getattr(m, field2) is not None
+                ]
+                if len(vals) < 2:
+                    continue
+                x_vals, y_vals = zip(*vals)
+                pair_corrs.append({
+                    "metric1": label1,
+                    "metric2": label2,
+                    "r": round(calculate_correlation(list(x_vals), list(y_vals))[0], 4),
+                    "n": len(vals),
+                })
+            if pair_corrs:
+                correlations_by_pair.append({
+                    "language_pair": lp,
+                    "n": len(metrics),
+                    "correlations": pair_corrs,
+                })
+
+        # ── 3. Judge calibration (TER vs. LLM adequacy per pair) ─────────────
+        qm_rows = await prisma.qualitymetrics.find_many(
+            where={"terScore": {"not": None}},
+            include={"translationString": {"include": {"llmJudgments": True, "translationRequest": True}}},
+        )
+
+        calib_by_lp: Dict[str, list] = defaultdict(list)
+        for qm in qm_rows:
+            if qm.terScore is None:
+                continue
+            ts = qm.translationString
+            if not ts or not ts.llmJudgments:
+                continue
+            for judgment in ts.llmJudgments:
+                if judgment.engineName == qm.engineName:
+                    src = ts.translationRequest.sourceLanguage if ts.translationRequest else "UNK"
+                    tgt = ts.targetLanguage or "UNK"
+                    calib_by_lp[f"{src}-{tgt}".upper()].append(
+                        (1.0 - qm.terScore, judgment.adequacyScore / 4.0)
+                    )
+                    break
+
+        judge_calibration = []
+        for lp, pairs in sorted(calib_by_lp.items()):
+            if len(pairs) < 2:
+                continue
+            h_scores, l_scores = zip(*pairs)
+            r, r_p = calculate_correlation(list(h_scores), list(l_scores))
+            judge_calibration.append({
+                "language_pair": lp,
+                "n": len(pairs),
+                "ter_adequacy_r": round(r, 4),
+                "ter_adequacy_p": round(r_p, 4) if r_p is not None else None,
+                "interpretation": _interpret_calibration(r),
+            })
+
+        return {
+            "coverage": coverage,
+            "correlations_by_pair": correlations_by_pair,
+            "judge_calibration": judge_calibration,
+        }
+
+    except Exception as e:
+        logger.error(f"eval_quality: error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _normalize_signals(qms_no_ref: list, qms_ref: list, llm_judgments: list) -> dict:
+    """
+    Normalize all available metric signals to [0, 1] and return a dict of
+    signal_name → normalized_value.  Returns only signals that are present.
+
+    Normalization:
+      QE (COMETKiwi, no-ref cometScore):  clamp((score + 1) / 2, 0, 1)
+      COMET (ref):                         clamp((score + 1) / 2, 0, 1)
+      BLEU (ref, 0–100):                   score / 100
+      TER  (ref, 0–100+, lower=better):   max(0, 1 − score / 100)
+      ChrF (ref, 0–100):                   score / 100
+      LLM adequacy (1–5):                  (score − 1) / 4
+    """
+    signals: dict = {}
+
+    # QE — use the first no-reference COMETKiwi score found
+    for qm in qms_no_ref:
+        if qm.cometScore is not None:
+            signals["qe"] = max(0.0, min(1.0, (qm.cometScore + 1) / 2))
+            break
+
+    # Reference-based metrics — use the first row that has each score
+    for qm in qms_ref:
+        if "bleu" not in signals and qm.bleuScore is not None:
+            signals["bleu"] = min(1.0, qm.bleuScore / 100)
+        if "comet" not in signals and qm.cometScore is not None:
+            signals["comet"] = max(0.0, min(1.0, (qm.cometScore + 1) / 2))
+        if "ter" not in signals and qm.terScore is not None:
+            signals["ter"] = max(0.0, 1.0 - qm.terScore / 100)
+        if "chrf" not in signals and qm.chrfScore is not None:
+            signals["chrf"] = min(1.0, qm.chrfScore / 100)
+
+    # LLM adequacy — average across all judgments if multiple exist
+    adequacy_vals = [j.adequacyScore for j in llm_judgments if j.adequacyScore is not None]
+    if adequacy_vals:
+        signals["llm_adequacy"] = (statistics.mean(adequacy_vals) - 1) / 4
+
+    return signals
+
+
+def _compute_confidence(signals: dict) -> Optional[float]:
+    """
+    confidence = 1 − 2·σ  where σ is the population std-dev of normalized scores.
+    Requires ≥ 2 signals; returns None otherwise.
+    """
+    vals = list(signals.values())
+    if len(vals) < 2:
+        return None
+    mean = statistics.mean(vals)
+    # population std-dev
+    variance = sum((v - mean) ** 2 for v in vals) / len(vals)
+    std = variance ** 0.5
+    # std ranges 0 (perfect agreement) → 0.5 (max disagreement for 0/1 extremes)
+    return round(max(0.0, 1.0 - 2 * std), 4)
+
+
+@router.get("/segment-confidence")
+async def segment_confidence(job_id: Optional[str] = None):
+    """
+    Cross-metric signal confidence per segment.
+
+    For each segment with ≥ 2 evaluation signals, normalises all available
+    scores to [0, 1] and computes:
+      mean_quality  — the average normalized score across all signals
+      confidence    — 1 − 2·σ  (1 = all metrics agree, 0 = maximum disagreement)
+
+    Optionally filter to a single job with ?job_id=<id>.
+    Returns per-segment rows and per-language-pair aggregates.
+    """
+    try:
+        if not prisma.is_connected():
+            await prisma.connect()
+
+        where_clause = {}
+        if job_id:
+            where_clause = {"translationRequestId": job_id}
+
+        strings = await prisma.translationstring.find_many(
+            where=where_clause,
+            include={
+                "translationRequest": True,
+                "qualityMetrics": True,
+                "llmJudgments": True,
+            },
+            order={"createdAt": "asc"},
+        )
+
+        segments = []
+        pair_buckets: Dict[str, list] = defaultdict(list)
+
+        for ts in strings:
+            src = ts.translationRequest.sourceLanguage if ts.translationRequest else "UNK"
+            tgt = ts.targetLanguage or "UNK"
+            lp = f"{src}-{tgt}".upper()
+
+            qms_no_ref = [qm for qm in ts.qualityMetrics if not qm.hasReference]
+            qms_ref    = [qm for qm in ts.qualityMetrics if qm.hasReference]
+
+            signals = _normalize_signals(qms_no_ref, qms_ref, ts.llmJudgments or [])
+            confidence = _compute_confidence(signals)
+            mean_quality = round(statistics.mean(signals.values()), 4) if signals else None
+
+            row = {
+                "segment_id":    ts.id,
+                "source_text":   ts.sourceText[:120] + "…" if len(ts.sourceText) > 120 else ts.sourceText,
+                "language_pair": lp,
+                "engine":        ts.selectedEngine or "unknown",
+                "signals":       list(signals.keys()),
+                "n_signals":     len(signals),
+                "mean_quality":  mean_quality,
+                "confidence":    confidence,
+                "data_source":   "real" if signals else "insufficient",
+            }
+            segments.append(row)
+            if confidence is not None:
+                pair_buckets[lp].append(confidence)
+
+        # Per-language-pair aggregates
+        by_pair = []
+        for lp, confs in sorted(pair_buckets.items()):
+            by_pair.append({
+                "language_pair":    lp,
+                "n":                len(confs),
+                "mean_confidence":  round(statistics.mean(confs), 4),
+                "low_confidence_n": sum(1 for c in confs if c < 0.4),
+                "low_confidence_pct": round(sum(1 for c in confs if c < 0.4) / len(confs) * 100, 1),
+            })
+
+        # Top 10 lowest-confidence segments (for review triage)
+        scoreable = [s for s in segments if s["confidence"] is not None]
+        lowest = sorted(scoreable, key=lambda s: s["confidence"])[:10]
+
+        return {
+            "segments":    segments,
+            "by_pair":     by_pair,
+            "lowest_confidence": lowest,
+            "total":       len(segments),
+            "scoreable":   len(scoreable),
+            "data_source": "real" if scoreable else "insufficient",
+        }
+
+    except Exception as e:
+        logger.error(f"segment_confidence: error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Benchmark vs HITL comparison
+# ---------------------------------------------------------------------------
+
+@router.get("/benchmark-comparison")
+async def get_benchmark_comparison(
+    language_pair: Optional[str] = Query(None, description="Filter to one canonical pair, e.g. 'jp-en'"),
+):
+    """Compare WMT/FLORES EvalSnapshot scores against aggregated HITL QualityMetrics
+    for the same (engine, language_pair).
+
+    Both sides use the canonical normalized pair key from app/utils/lang_pair.py so
+    that 'jpn-eng', 'JP-EN', 'ja-en' all resolve to 'jp-en' before joining.
+
+    Returns a list of entries, one per (engine, pair), each with:
+      - wmt:  latest EvalSnapshot avg scores (source = WMT or FLORES-200)
+      - hitl: aggregated QualityMetrics avg scores from post-edited HITL jobs
+      - delta: hitl minus wmt (positive = HITL outperforms benchmark)
+    """
+    if not prisma.is_connected():
+        await prisma.connect()
+
+    try:
+        # ── 1. Latest EvalSnapshot per (engine, pair) ────────────────────────
+        all_snaps = await prisma.evalsnapshot.find_many(
+            order={"runDate": "desc"},
+        )
+
+        latest_snap: dict[tuple, object] = {}
+        for s in all_snaps:
+            norm_pair = normalize_lang_pair(s.languagePair)
+            if language_pair and norm_pair != normalize_lang_pair(language_pair):
+                continue
+            key = (s.engineName or "aggregated", norm_pair)
+            if key not in latest_snap:
+                latest_snap[key] = s
+
+        # ── 2. Aggregated HITL QualityMetrics per (engine, pair) ─────────────
+        # Exclude WMT_BENCHMARK requests so the two pools don't overlap.
+        wmt_request_ids_q = await prisma.translationrequest.find_many(
+            where={"requestType": "WMT_BENCHMARK"},
+        )
+        wmt_ids = {r.id for r in wmt_request_ids_q}
+
+        hitl_metrics = await prisma.qualitymetrics.find_many(
+            where={"hasReference": True},
+            include={
+                "translationString": {
+                    "include": {
+                        "translationRequest": True,
+                        "modelOutputs": True,
+                    }
+                }
+            },
+        )
+
+        hitl_by_key: dict[tuple, dict] = {}
+        for m in hitl_metrics:
+            # Skip metrics that belong to WMT benchmark requests
+            req_id = None
+            if getattr(m, "translationString", None) and getattr(m.translationString, "translationRequest", None):
+                req_id = m.translationString.translationRequest.id
+            if req_id in wmt_ids:
+                continue
+
+            engine, raw_pair = extract_model_and_language_info(m)
+            norm_pair = normalize_lang_pair(raw_pair)
+
+            if language_pair and norm_pair != normalize_lang_pair(language_pair):
+                continue
+            if engine in ("Untraceable/Other", "unknown"):
+                continue
+
+            key = (engine, norm_pair)
+            if key not in hitl_by_key:
+                hitl_by_key[key] = {"bleu": [], "comet": [], "chrf": [], "ter": [], "n": 0}
+
+            if m.bleuScore is not None:
+                hitl_by_key[key]["bleu"].append(m.bleuScore)
+            if m.cometScore is not None:
+                hitl_by_key[key]["comet"].append(m.cometScore)
+            if m.chrfScore is not None:
+                hitl_by_key[key]["chrf"].append(m.chrfScore)
+            if m.terScore is not None:
+                hitl_by_key[key]["ter"].append(m.terScore)
+            hitl_by_key[key]["n"] += 1
+
+        def _avg(vals: list) -> Optional[float]:
+            clean = [v for v in vals if v is not None]
+            return round(statistics.mean(clean), 4) if clean else None
+
+        def _delta(hitl_val, wmt_val) -> Optional[float]:
+            if hitl_val is None or wmt_val is None:
+                return None
+            return round(hitl_val - wmt_val, 4)
+
+        # ── 3. Join on (engine, pair) ─────────────────────────────────────────
+        all_keys = set(latest_snap.keys()) | set(hitl_by_key.keys())
+        rows = []
+        for key in sorted(all_keys):
+            engine, norm_pair = key
+            snap = latest_snap.get(key)
+            hitl = hitl_by_key.get(key)
+
+            wmt_scores = {
+                "bleu": snap.avgBleu if snap else None,
+                "comet": snap.avgComet if snap else None,
+                "chrf": snap.avgChrf if snap else None,
+                "ter": snap.avgTer if snap else None,
+                "n": snap.segmentCount if snap else 0,
+                "runDate": snap.runDate.isoformat() if snap else None,
+                "notes": snap.notes if snap else None,
+            } if snap else None
+
+            hitl_scores = {
+                "bleu": _avg(hitl["bleu"]) if hitl else None,
+                "comet": _avg(hitl["comet"]) if hitl else None,
+                "chrf": _avg(hitl["chrf"]) if hitl else None,
+                "ter": _avg(hitl["ter"]) if hitl else None,
+                "n": hitl["n"] if hitl else 0,
+            } if hitl else None
+
+            rows.append({
+                "engine": engine,
+                "languagePair": norm_pair,
+                "wmt": wmt_scores,
+                "hitl": hitl_scores,
+                "delta": {
+                    "bleu":  _delta(hitl_scores["bleu"]  if hitl_scores else None, wmt_scores["bleu"]  if wmt_scores else None),
+                    "comet": _delta(hitl_scores["comet"] if hitl_scores else None, wmt_scores["comet"] if wmt_scores else None),
+                    "chrf":  _delta(hitl_scores["chrf"]  if hitl_scores else None, wmt_scores["chrf"]  if wmt_scores else None),
+                    "ter":   _delta(hitl_scores["ter"]   if hitl_scores else None, wmt_scores["ter"]   if wmt_scores else None),
+                } if wmt_scores and hitl_scores else None,
+            })
+
+        # Sort: pairs with both sides first, then benchmark-only, then HITL-only
+        rows.sort(key=lambda r: (0 if r["wmt"] and r["hitl"] else 1, r["languagePair"], r["engine"]))
+
+        return {
+            "count": len(rows),
+            "languagePairFilter": normalize_lang_pair(language_pair) if language_pair else None,
+            "note": "delta = hitl - wmt; positive means HITL scores exceed benchmark",
+            "rows": rows,
+        }
+
+    except Exception as e:
+        logger.error(f"benchmark_comparison error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

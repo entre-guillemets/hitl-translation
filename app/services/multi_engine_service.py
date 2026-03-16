@@ -14,11 +14,10 @@ class CleanMultiEngineService:
         self.engine_configs = {
             'opus_fast': {
                 'name': 'Helsinki OPUS',
-                'supported_pairs': ['en-fr', 'fr-en', 'en-ja', 'ja-en', 'ja-fr'], # <--- Corrected to 'en-ja', 'ja-en', 'ja-fr'
+                'supported_pairs': ['en-fr', 'fr-en', 'ja-en', 'ja-fr'], # <--- Corrected to 'en-ja', 'ja-en', 'ja-fr'
                 'model_mapping': {
                     'en-fr': 'HELSINKI_EN_FR',    
                     'fr-en': 'HELSINKI_FR_EN',    
-                    'en-ja': 'HELSINKI_EN_JA',    # <--- Corrected to 'en-ja'
                     'ja-en': 'OPUS_JA_EN'          # <--- Corrected to 'ja-en'
                 },
                 'pivot_strategy': {
@@ -43,25 +42,26 @@ class CleanMultiEngineService:
             },
             't5_versatile': {
                 'name': 'mT5 Versatile',
-                'supported_pairs': ['en-ja', 'ja-en', 'en-fr', 'fr-en', 'ja-fr'], # <--- Corrected to 'en-ja', 'ja-en', 'ja-fr'
+                'supported_pairs': [],
                 'model_mapping': {
-                    'en-ja': 'T5_MULTILINGUAL',
-                    'ja-en': 'T5_MULTILINGUAL',
                     'en-fr': 'T5_MULTILINGUAL',
                     'fr-en': 'T5_MULTILINGUAL',
-                    'ja-fr': 'T5_MULTILINGUAL',
                 },
                 'confidence': 0.85,
             },
             'nllb_multilingual': {
                 'name': 'NLLB Multilingual',
-                'supported_pairs': ['en-ja', 'ja-en', 'en-fr', 'fr-en', 'ja-fr'], # <--- Corrected to 'en-ja', 'ja-en', 'ja-fr'
+                # SW pairs added: NLLB-200 covers swh_Latn (Swahili, Latin script).
+                # Only engine available for EN↔SW — no Helsinki model exists.
+                'supported_pairs': ['en-ja', 'ja-en', 'en-fr', 'fr-en', 'ja-fr', 'en-sw', 'sw-en'],
                 'model_mapping': {
                     'en-ja': 'NLLB_200',
                     'ja-en': 'NLLB_200',
                     'en-fr': 'NLLB_200',
                     'fr-en': 'NLLB_200',
                     'ja-fr': 'NLLB_200',
+                    'en-sw': 'NLLB_200',
+                    'sw-en': 'NLLB_200',
                 },
                 'confidence': 0.92,
             }
@@ -99,8 +99,8 @@ class CleanMultiEngineService:
             config = self.engine_configs[engine_id]
             start_time = datetime.now()
 
-            # Route Claude transcreation engine separately
-            if config.get('type') == 'claude':
+            # Route Gemini transcreation engine separately
+            if config.get('type') == 'gemini':
                 translated_text = await self.transcreation_service.transcreate(
                     text, source_lang, target_lang
                 )
@@ -218,8 +218,8 @@ class CleanMultiEngineService:
         available = []
         
         for engine_id, config in self.engine_configs.items():
-            # Claude transcreation: available if the pair has a loaded profile
-            if config.get('type') == 'claude':
+            # Gemini transcreation: available if the pair has a loaded profile
+            if config.get('type') == 'gemini':
                 if pair in config['supported_pairs']:
                     available.append(engine_id)
                 continue
@@ -265,7 +265,7 @@ class CleanMultiEngineService:
             return 'N/A'
 
         if config.get('type') == 'gemini':
-            return 'gemini-2.5-flash'
+            return 'gemini-3.1-flash-lite-preview'
 
         pair = f"{source_lang.lower()}-{target_lang.lower()}"
 

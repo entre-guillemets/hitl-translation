@@ -15,6 +15,7 @@ GET /api/llm-judge/disagreements
 """
 
 import asyncio
+import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -24,6 +25,21 @@ from app.dependencies import get_llm_judge_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/llm-judge", tags=["LLM Judge"])
+
+
+def _parse_engine_results(raw) -> list:
+    """Parse engineResults regardless of whether it is already a list or a
+    JSON-encoded string (Prisma Json fields can be returned as either)."""
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            pass
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -64,15 +80,14 @@ async def evaluate_string(
         if ts.translationRequest else "en"
     )
 
-    # Build (engine_name, hypothesis) pairs — same logic as calculate_metrics_for_string
+    # Build (engine_name, hypothesis) pairs
     candidates: list[tuple] = []
-    engine_results = ts.engineResults
-    if engine_results and isinstance(engine_results, list):
-        for result in engine_results:
-            engine_id = result.get("engine")
-            text = (result.get("text") or "").strip()
-            if engine_id and text and text != reference.strip():
-                candidates.append((engine_id, text))
+    engine_results = _parse_engine_results(ts.engineResults)
+    for result in engine_results:
+        engine_id = result.get("engine")
+        text = (result.get("text") or "").strip()
+        if engine_id and text and text != reference.strip():
+            candidates.append((engine_id, text))
 
     original_mt = (ts.originalTranslation or "").strip()
     if original_mt and original_mt != reference.strip():
@@ -156,6 +171,11 @@ async def evaluate_all_approved(
         where={
             "status": {"in": ["REVIEWED", "APPROVED"]},
             "llmJudgments": {"none": {}},
+            "translationRequest": {
+                "is": {
+                    "requestType": {"not": "WMT_BENCHMARK"}
+                }
+            }
         },
         include={"translationRequest": True},
         take=limit,
@@ -168,12 +188,18 @@ async def evaluate_all_approved(
     errors = []
 
     for ts in strings:
+        # --- Skip condition 1: missing required fields ---
         if not ts.originalTranslation or not ts.translatedText:
+            logger.info(f"SKIP {ts.id}: missing originalTranslation or translatedText")
             skipped += 1
             continue
+
+        # --- Skip condition 2: no human edit was made ---
         if ts.originalTranslation.strip() == ts.translatedText.strip():
+            logger.info(f"SKIP {ts.id}: originalTranslation == translatedText (no edits made)")
             skipped += 1
             continue
+
         reference = ts.translatedText
         source = ts.sourceText
         target_lang = ts.targetLanguage.lower()
@@ -182,22 +208,29 @@ async def evaluate_all_approved(
             if ts.translationRequest else "en"
         )
 
+        # Build candidates — parse engineResults safely whether list or JSON string
         candidates: list[tuple] = []
-        engine_results = ts.engineResults
-        if engine_results and isinstance(engine_results, list):
-            for result in engine_results:
-                engine_id = result.get("engine")
-                text = (result.get("text") or "").strip()
-                if engine_id and text and text != reference.strip():
-                    candidates.append((engine_id, text))
+        engine_results = _parse_engine_results(ts.engineResults)
+        logger.info(f"STRING {ts.id}: engineResults type={type(ts.engineResults).__name__}, parsed count={len(engine_results)}")
+
+        for result in engine_results:
+            engine_id = result.get("engine")
+            text = (result.get("text") or "").strip()
+            if engine_id and text and text != reference.strip():
+                candidates.append((engine_id, text))
+
         original_mt = (ts.originalTranslation or "").strip()
         if original_mt and original_mt != reference.strip():
             if not any(h == original_mt for _, h in candidates):
                 candidates.append((None, original_mt))
 
+        # --- Skip condition 3: no scoreable hypotheses ---
         if not candidates:
+            logger.info(f"SKIP {ts.id}: no candidates built after parsing engineResults and originalTranslation")
             skipped += 1
             continue
+
+        logger.info(f"STRING {ts.id}: {len(candidates)} candidates to evaluate: {[e for e, _ in candidates]}")
 
         existing_metrics = await prisma.qualitymetrics.find_many(
             where={"translationStringId": ts.id},
@@ -230,6 +263,10 @@ async def evaluate_all_approved(
                     }
                 )
                 string_processed += 1
+                logger.info(
+                    f"✅ LLM judge batch [{engine_name or 'single-engine'}] {ts.id}: "
+                    f"adequacy={scores['adequacy']:.1f} fluency={scores['fluency']:.1f}"
+                )
             except Exception as e:
                 logger.error(f"LLM judge error string={ts.id} engine={engine_name}: {e}")
                 errors.append({"id": ts.id, "engine": engine_name, "error": str(e)})

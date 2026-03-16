@@ -435,6 +435,13 @@ async def update_translation_string(string_id: str, update_data: TranslationStri
             "lastModified": datetime.now()
         }
 
+        if update_data.annotatorId:
+            try:
+                from prisma.enums import HumanAnnotator
+                update_payload["annotatorId"] = HumanAnnotator[update_data.annotatorId]
+            except KeyError:
+                pass  # unknown value — leave existing annotatorId unchanged
+
         if original_translation_for_comparison != final_text:
             update_payload["hasReference"] = True
             if existing_string.originalTranslation is None:
@@ -627,6 +634,19 @@ async def create_annotation(string_id: str, annotation_data: AnnotationCreate):
         if not existing_string:
             raise HTTPException(status_code=404, detail="Translation string not found")
 
+        # If selectedEngine is not yet set, backfill from the most recent EnginePreference
+        # for this string so that annotations are attributed to the correct engine.
+        if not existing_string.selectedEngine:
+            ep = await prisma.enginepreference.find_first(
+                where={"translationStringId": string_id},
+                order={"createdAt": "desc"},
+            )
+            if ep and ep.selectedEngine:
+                await prisma.translationstring.update(
+                    where={"id": string_id},
+                    data={"selectedEngine": ep.selectedEngine},
+                )
+
         from prisma.enums import AnnotationCategory, AnnotationSeverity
 
         try:
@@ -668,7 +688,6 @@ async def get_translation_request(request_id: str):
             include={
                 "translationStrings": {
                     "include": {
-                        "qualityRatings": True,
                         "annotations": True
                     }
                 }

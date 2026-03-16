@@ -67,6 +67,7 @@ model TranslationString {
   domainFamiliarity        Int?
   editDistance             Int?
   reviewerExpertise        ReviewerExpertise?
+  annotatorId              HumanAnnotator     @default(REVIEWER_1)
   timeToReview             Int?
   selectedModelCombination String?
   selectedAt               DateTime?
@@ -124,6 +125,7 @@ model Annotation {
   severity            AnnotationSeverity
   comment             String
   reviewer            String?
+  annotatorId         HumanAnnotator     @default(REVIEWER_1)
   textRange           Json?
   isResolved          Boolean            @default(false)
   resolution          String?
@@ -398,6 +400,7 @@ enum SourceLanguage {
   EN
   JP
   FR
+  SW
 }
 
 enum MTModel {
@@ -417,6 +420,7 @@ enum MTModel {
   NLLB_MULTILINGUAL
   PIVOT_ELAN_HELSINKI
   MT5_MULTILINGUAL
+  GEMINI_TRANSCREATION
 }
 
 enum RequestStatus {
@@ -504,6 +508,12 @@ enum ReviewerExpertise {
   PROFESSIONAL
   BILINGUAL
   LEARNER
+}
+
+enum HumanAnnotator {
+  REVIEWER_1
+  REVIEWER_2
+  REVIEWER_3
 }
 
 enum ErrorType {

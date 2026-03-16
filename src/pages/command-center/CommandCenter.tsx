@@ -32,7 +32,7 @@ import {
 } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { AlertTriangle, CheckCircle, Download, Edit, FileDown, Plus, RefreshCw, Search, Trash2, Upload, XCircle } from 'lucide-react';
+import { CheckCircle, Download, Edit, FileDown, Plus, RefreshCw, Search, Trash2, Upload, XCircle } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 // API Configuration
@@ -43,6 +43,7 @@ const languageOptions = [
   { label: 'English', value: 'EN' },
   { label: 'Japanese', value: 'JP' },
   { label: 'French', value: 'FR' },
+  { label: 'Swahili', value: 'SW' },
 ];
 
 // Types (keeping existing ones, adding EditableItem)
@@ -117,16 +118,6 @@ interface DoNotTranslateItem {
   usageCount?: number;
 }
 
-interface OffensiveWord {
-  id: string;
-  word: string;
-  language: string;
-  severity: string;
-  category: string;
-  alternatives?: string[];
-  detectionCount?: number;
-}
-
 interface FuzzyMatch {
   tm_id: string;
   source_text: string;
@@ -138,7 +129,7 @@ interface FuzzyMatch {
   last_used: string;
 }
 
-type EditableItem = TranslationMemory | GlossaryTerm | DoNotTranslateItem | OffensiveWord | null;
+type EditableItem = TranslationMemory | GlossaryTerm | DoNotTranslateItem | null;
 
 export const CommandCenter: React.FC = () => {
   const [jobSearchTerm, setJobSearchTerm] = useState('');
@@ -156,7 +147,6 @@ export const CommandCenter: React.FC = () => {
   const [translationMemories, setTranslationMemories] = useState<TranslationMemory[]>([]);
   const [glossaryTerms, setGlossaryTerms] = useState<GlossaryTerm[]>([]);
   const [doNotTranslateItems, setDoNotTranslateItems] = useState<DoNotTranslateItem[]>([]);
-  const [offensiveWords, setOffensiveWords] = useState<OffensiveWord[]>([]);
 
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -176,10 +166,6 @@ export const CommandCenter: React.FC = () => {
   const [newDNTForm, setNewDNTForm] = useState({
     text: '', category: '', languages: [] as string[], notes: ''
   });
-  const [newOffensiveForm, setNewOffensiveForm] = useState({
-    word: '', language: '', severity: 'medium', category: '', alternatives: ''
-  });
-
   // File upload ref
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -206,12 +192,6 @@ export const CommandCenter: React.FC = () => {
   const [itemsPerPageDNT, setItemsPerPageDNT] = useState(25);
   const itemsPerPageOptionsDNT = [25, 50, 100, 0];
   // --- END PAGINATION STATE FOR DNT TAB ---
-
-  // --- PAGINATION STATE FOR OFFENSIVE WORDS TAB ---
-  const [currentPageOffensive, setCurrentPageOffensive] = useState(1);
-  const [itemsPerPageOffensive, setItemsPerPageOffensive] = useState(25);
-  const itemsPerPageOptionsOffensive = [25, 50, 100, 0];
-  // --- END PAGINATION STATE FOR OFFENSIVE WORDS TAB ---
 
   // Refactored fetchAllData into useCallback for stable dependency
   const fetchAllData = useCallback(async () => {
@@ -265,18 +245,6 @@ export const CommandCenter: React.FC = () => {
       } catch (e) {
         console.log("DNT endpoint not available, using empty data");
         setDoNotTranslateItems([]);
-      }
-
-      try {
-        const offensiveResponse = await fetch(`${API_BASE_URL}/api/offensive-words`);
-        if (offensiveResponse.ok) {
-          const offensiveData = await offensiveResponse.json();
-          console.log('Fetched offensive words:', offensiveData.length);
-          setOffensiveWords(offensiveData);
-        }
-      } catch (e) {
-        console.log("Offensive words endpoint not available, using empty data");
-        setOffensiveWords([]);
       }
 
     } catch (error) {
@@ -380,7 +348,7 @@ export const CommandCenter: React.FC = () => {
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
-            {fuzzyMatches.map((match: FuzzyMatch, index: number) => ( // Explicitly typed match and index
+            {(Array.isArray(fuzzyMatches) ? fuzzyMatches : []).map((match: FuzzyMatch, index: number) => (
               <div key={index} className="p-3 border rounded-md hover:bg-muted/50 transition-colors">
                 <div className="flex justify-between items-center mb-2">
                   <Badge variant="outline" className="text-xs">
@@ -423,20 +391,6 @@ export const CommandCenter: React.FC = () => {
     return (
       <Badge variant={variants[quality as keyof typeof variants] || 'outline'}>
         {quality.charAt(0).toUpperCase() + quality.slice(1)}
-      </Badge>
-    );
-  };
-
-  const getSeverityBadge = (severity: string) => {
-    const variants = {
-      high: 'destructive',
-      medium: 'secondary',
-      low: 'outline'
-    } as const;
-
-    return (
-      <Badge variant={variants[severity as keyof typeof variants] || 'outline'}>
-        {severity.charAt(0).toUpperCase() + severity.slice(1)}
       </Badge>
     );
   };
@@ -491,7 +445,7 @@ export const CommandCenter: React.FC = () => {
     return filteredJobs.slice(startIndex, endIndex);
   }, [filteredJobs, currentPageJobs, itemsPerPageJobs, totalFilteredJobsCount]);
 
-  const filterReferenceData = useCallback(<T extends TranslationMemory | GlossaryTerm | DoNotTranslateItem | OffensiveWord>(data: T[], searchFields: Array<keyof T>) => { // Explicitly typed generic T and searchFields
+  const filterReferenceData = useCallback(<T extends TranslationMemory | GlossaryTerm | DoNotTranslateItem>(data: T[], searchFields: Array<keyof T>) => { // Explicitly typed generic T and searchFields
     if (!searchTerm) return data;
 
     return data.filter(item =>
@@ -504,7 +458,6 @@ export const CommandCenter: React.FC = () => {
   const rawFilteredTranslationMemories = useMemo(() => filterReferenceData(translationMemories, ['sourceText', 'targetText', 'domain']), [translationMemories, filterReferenceData]);
   const rawFilteredGlossaryTerms = useMemo(() => filterReferenceData(glossaryTerms, ['term', 'translation', 'domain']), [glossaryTerms, filterReferenceData]);
   const rawFilteredDoNotTranslateItems = useMemo(() => filterReferenceData(doNotTranslateItems, ['text', 'category']), [doNotTranslateItems, filterReferenceData]);
-  const rawFilteredOffensiveWords = useMemo(() => filterReferenceData(offensiveWords, ['word', 'category']), [offensiveWords, filterReferenceData]);
 
 
   // Pagination calculations for TM tab
@@ -533,15 +486,6 @@ export const CommandCenter: React.FC = () => {
     const endIndex = itemsPerPageDNT === 0 ? totalDNTCount : startIndex + itemsPerPageDNT;
     return rawFilteredDoNotTranslateItems.slice(startIndex, endIndex);
   }, [rawFilteredDoNotTranslateItems, currentPageDNT, itemsPerPageDNT, totalDNTCount]);
-
-  // Pagination calculations for Offensive Words tab
-  const totalOffensiveCount = rawFilteredOffensiveWords.length;
-  const totalPagesOffensive = itemsPerPageOffensive === 0 ? 1 : Math.ceil(totalOffensiveCount / itemsPerPageOffensive);
-  const paginatedOffensiveWords = useMemo(() => {
-    const startIndex = (currentPageOffensive - 1) * itemsPerPageOffensive;
-    const endIndex = itemsPerPageOffensive === 0 ? totalOffensiveCount : startIndex + itemsPerPageOffensive;
-    return rawFilteredOffensiveWords.slice(startIndex, endIndex);
-  }, [rawFilteredOffensiveWords, currentPageOffensive, itemsPerPageOffensive, totalOffensiveCount]);
 
 
   // Add new item functions with UX feedback
@@ -614,29 +558,6 @@ export const CommandCenter: React.FC = () => {
     }
   };
 
-  const addOffensiveWord = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/offensive-words`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newOffensiveForm)
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        setOffensiveWords(prev => [...prev, result.data]);
-        setNewOffensiveForm({ word: '', language: '', severity: 'medium', category: '', alternatives: '' });
-        setIsAddModalOpen(false);
-        showStatus('success', 'Offensive word saved successfully!');
-      } else {
-        showStatus('error', 'Failed to save offensive word');
-      }
-    } catch (error) {
-      console.error('Failed to add offensive word:', error);
-      showStatus('error', 'Failed to save offensive word');
-    }
-  };
-
   // Download CSV template functions with proper data
   const downloadTemplate = (type: string) => {
     let csvContent = '';
@@ -663,12 +584,6 @@ export const CommandCenter: React.FC = () => {
         csvContent += '"iPhone","Brand","EN,FR,JP","Apple product name"\n';
         csvContent += '"McDonald\'s","Brand","EN,FR,JP","Restaurant chain name"\n';
         filename = 'do_not_translate_template.csv';
-        break;
-      case 'offensive-words':
-        csvContent = 'word,language,severity,category,alternatives\n';
-        csvContent += '"inappropriate","EN","high","profanity","unsuitable,improper"\n';
-        csvContent += '"offensive","EN","medium","inappropriate","objectionable,unacceptable"\n';
-        filename = 'offensive_words_template.csv';
         break;
     }
 
@@ -761,9 +676,6 @@ export const CommandCenter: React.FC = () => {
         case 'do-not-translate':
           endpoint = `/api/do-not-translate/${id}`;
           break;
-        case 'offensive-words':
-          endpoint = `/api/offensive-words/${id}`;
-          break;
       }
 
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -781,9 +693,6 @@ export const CommandCenter: React.FC = () => {
             break;
           case 'do-not-translate':
             setDoNotTranslateItems(prev => prev.filter(item => item.id !== id));
-            break;
-          case 'offensive-words':
-            setOffensiveWords(prev => prev.filter(item => item.id !== id));
             break;
         }
         showStatus('success', 'Item deleted successfully!');
@@ -997,67 +906,6 @@ export const CommandCenter: React.FC = () => {
           </div>
         );
 
-      case 'offensive-words':
-        return (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Word</Label>
-                <Input
-                  value={newOffensiveForm.word}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewOffensiveForm({...newOffensiveForm, word: e.target.value})} // Explicitly typed event
-                  placeholder="Enter offensive word"
-                />
-              </div>
-              <div>
-                <Label>Language</Label>
-                <Select value={newOffensiveForm.language} onValueChange={(value: string) => setNewOffensiveForm({...newOffensiveForm, language: value})}> // Explicitly typed value
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select language" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {languageOptions.map((lang: {label: string; value: string}) => ( // Explicitly typed lang
-                      <SelectItem key={lang.value} value={lang.value}>{lang.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Severity</Label>
-                <Select value={newOffensiveForm.severity} onValueChange={(value: string) => setNewOffensiveForm({...newOffensiveForm, severity: value})}> // Explicitly typed value
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="high">High</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="low">Low</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Category</Label>
-                <Input
-                  value={newOffensiveForm.category}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewOffensiveForm({...newOffensiveForm, category: e.target.value})} // Explicitly typed event
-                  placeholder="e.g., profanity, hate speech"
-                />
-              </div>
-            </div>
-            <div>
-              <Label>Alternatives (comma-separated)</Label>
-              <Input
-                value={newOffensiveForm.alternatives}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewOffensiveForm({...newOffensiveForm, alternatives: e.target.value})} // Explicitly typed event
-                placeholder="alternative1, alternative2"
-              />
-            </div>
-            <Button onClick={addOffensiveWord} className="w-full">Add Offensive Word</Button>
-          </div>
-        );
-
       default:
         return null;
     }
@@ -1169,7 +1017,6 @@ export const CommandCenter: React.FC = () => {
               <TabsTrigger value="translation-memories">Translation Memories</TabsTrigger>
               <TabsTrigger value="glossary">Glossary</TabsTrigger>
               <TabsTrigger value="do-not-translate">Do Not Translate</TabsTrigger>
-              <TabsTrigger value="offensive-words">Offensive Words</TabsTrigger>
             </TabsList>
 
             {/* Translation Memories Tab */}
@@ -1465,103 +1312,6 @@ export const CommandCenter: React.FC = () => {
               </div>
             </TabsContent>
 
-            {/* Offensive Words Tab */}
-            <TabsContent value="offensive-words">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Word</TableHead>
-                    <TableHead>Language</TableHead>
-                    <TableHead>Severity</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Alternatives</TableHead>
-                    <TableHead>Detections</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {paginatedOffensiveWords.map((word: OffensiveWord) => ( // Explicitly typed word
-                    <TableRow key={word.id}>
-                      <TableCell className="font-medium">
-                        <div className="flex items-center space-x-2">
-                          <AlertTriangle className="h-4 w-4 text-red-500" />
-                          <span>{word.word}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">
-                          {getLanguageLabel(word.language)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{getSeverityBadge(word.severity)}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{word.category}</Badge>
-                      </TableCell>
-                      <TableCell className="max-w-xs truncate">
-                        {word.alternatives?.join(', ')}
-                      </TableCell>
-                      <TableCell>
-                        <span className="text-xs text-muted-foreground">
-                          {word.detectionCount || 0} times
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex space-x-1">
-                          <Button size="sm" variant="outline">
-                            <Edit className="h-3 w-3" />
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={() => deleteItem(word.id, 'offensive-words')}>
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              {/* Pagination controls for Offensive Words */}
-              <div className="flex justify-between items-center mt-4 text-sm text-muted-foreground">
-                <span>Showing {paginatedOffensiveWords.length} of {totalOffensiveCount} entries</span>
-                <div className="flex items-center space-x-2">
-                  <Label htmlFor="items-per-page-offensive" className="text-sm font-medium">Items per page:</Label>
-                  <Select
-                    value={String(itemsPerPageOffensive)}
-                    onValueChange={(value: string) => { // Explicitly typed value
-                      setItemsPerPageOffensive(Number(value));
-                      setCurrentPageOffensive(1);
-                    }}
-                  >
-                    <SelectTrigger className="w-[100px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {itemsPerPageOptionsOffensive.map((option: number, index: number) => ( // Explicitly typed option and index
-                        <SelectItem key={index} value={String(option)}>
-                          {option === 0 ? 'All' : option}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCurrentPageOffensive(prev => Math.max(1, prev - 1))}
-                    disabled={currentPageOffensive === 1}
-                  >
-                    Previous
-                  </Button>
-                  <span className="text-sm">Page {currentPageOffensive} of {totalPagesOffensive}</span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCurrentPageOffensive(prev => Math.min(totalPagesOffensive, prev + 1))}
-                    disabled={currentPageOffensive === totalPagesOffensive || totalPagesOffensive === 0}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            </TabsContent>
           </Tabs>
         </CardContent>
       </Card>

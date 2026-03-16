@@ -28,9 +28,36 @@ logger = logging.getLogger(__name__)
 # gemini-3.1-flash-lite-preview: 15 RPM, 500 RPD on free tier
 JUDGE_MODEL = "gemini-3.1-flash-lite-preview"
 
-_PROMPT_TEMPLATE = """\
-You are an expert machine translation evaluator.
+# Language-pair-specific evaluation guidance injected when the pair involves
+# a low-resource language where automatic metrics are known to be unreliable.
+# Keyed by ISO 639-1 code (lowercase).
+_LOW_RESOURCE_NOTES: dict[str, str] = {
+    "sw": """\
+NOTE — Low-resource language pair (Swahili):
+- Automatic metrics (BLEU, TER, COMET) are unreliable for Swahili due to \
+agglutinative morphology, 8 noun classes, and sparse training data. \
+Your judgment is the PRIMARY quality signal for this pair, not a supplement to metrics.
+- Pay particular attention to: (1) noun class concord — agreement between nouns and \
+adjectives/verbs must match the noun class prefix (e.g., m-/wa- for people, ki-/vi- \
+for objects); (2) verb aspect and tense markers, which are commonly garbled by MT; \
+(3) dropped or mistranslated subject prefixes, which change meaning significantly.
+- Score CONFIDENCE lower if you are uncertain about Swahili-specific structure. \
+A confidence of 0.5–0.7 is appropriate when evaluating morphological correctness \
+without native-speaker verification.
+""",
+}
 
+
+def _build_low_resource_note(source_lang: str, target_lang: str) -> str:
+    """Return language-pair-specific evaluation guidance, or empty string."""
+    for lang in (source_lang.lower(), target_lang.lower()):
+        if lang in _LOW_RESOURCE_NOTES:
+            return "\n" + _LOW_RESOURCE_NOTES[lang]
+    return ""
+
+
+_PROMPT_TEMPLATE = """\
+You are an expert machine translation evaluator.{low_resource_note}
 Source ({source_lang}): {source}
 Machine translation ({target_lang}): {hypothesis}{reference_block}
 
@@ -112,6 +139,7 @@ class LLMJudgeService:
             source=source,
             hypothesis=hypothesis,
             reference_block=ref_block,
+            low_resource_note=_build_low_resource_note(source_lang, target_lang),
         )
 
         last_exc: Exception = RuntimeError("No attempts made")

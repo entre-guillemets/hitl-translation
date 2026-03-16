@@ -182,8 +182,7 @@ class HumanFeedbackService:
             strings = await prisma.translationstring.find_many(
                 where={"translationRequestId": translation_request_id},
                 include={
-                    "annotations": True,
-                    "qualityRatings": True
+                    "annotations": True
                 }
             )
             

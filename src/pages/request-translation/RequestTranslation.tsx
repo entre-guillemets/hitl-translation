@@ -16,6 +16,7 @@ const languageOptions = [
   { label: 'English', value: 'EN' },
   { label: 'Japanese', value: 'JA' },
   { label: 'French', value: 'FR' },
+  { label: 'Swahili', value: 'SW' },
 ];
 
 
@@ -54,7 +55,17 @@ const LANGUAGE_PAIR_MODELS = {
     { id: 'elan_quality', label: 'ELAN Quality', description: 'FR→EN→JA pivot via ELAN' },
     { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model for various languages' },
     { id: 'gemini_transcreation', label: 'Gemini Transcreation', description: 'Cultural adaptation via Gemini' },
-  ]
+  ],
+  // Swahili: NLLB-200 only. No dedicated Helsinki model. LLM judge is the
+  // primary quality signal — automatic metrics (BLEU/TER) are low-reliability for SW.
+  'EN-SW': [
+    { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB-200 (swh_Latn) — only available model for EN→SW' },
+    { id: 'gemini_transcreation', label: 'Gemini Transcreation', description: 'LLM-based — recommended primary signal for SW' },
+  ],
+  'SW-EN': [
+    { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB-200 (swh_Latn→eng_Latn) — only available model for SW→EN' },
+    { id: 'gemini_transcreation', label: 'Gemini Transcreation', description: 'LLM-based — recommended primary signal for SW' },
+  ],
 };
 
 const requiresSegmentation = (fileType: string): boolean => {

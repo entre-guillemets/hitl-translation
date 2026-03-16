@@ -89,6 +89,7 @@ const languageOptions = [
   { label: 'English', value: 'EN' },
   { label: 'Japanese', value: 'JP' },
   { label: 'French', value: 'FR' },
+  { label: 'Swahili', value: 'SW' },
 ];
 
 const QualityPrediction: React.FC = () => {
