@@ -2644,6 +2644,7 @@ const QualityDashboard: React.FC = () => {
                           <th className="p-3 text-left">Pair</th>
                           <th className="p-3 text-left">Engine</th>
                           <th className="p-3 text-left w-1/4">Source</th>
+                          <th className="p-3 text-left w-1/5">MT</th>
                           <th className="p-3 text-left">Adequacy</th>
                           <th className="p-3 text-left">Fluency</th>
                           <th className="p-3 text-left">Disagreement</th>
@@ -2657,6 +2658,9 @@ const QualityDashboard: React.FC = () => {
                             <td className="p-3">{row.engineName ?? 'single'}</td>
                             <td className="p-3">
                               <p className="break-words whitespace-pre-wrap">{row.sourceText ?? '—'}</p>
+                            </td>
+                            <td className="p-3">
+                              <p className="break-words whitespace-pre-wrap text-muted-foreground">{row.hypothesis ?? '—'}</p>
                             </td>
                             <td className="p-3">{row.adequacyScore.toFixed(1)} / 4</td>
                             <td className="p-3">{row.fluencyScore.toFixed(1)} / 4</td>

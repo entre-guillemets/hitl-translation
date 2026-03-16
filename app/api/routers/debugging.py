@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import statistics
 import json
 import traceback
+import sacrebleu
 
 from app.db.base import prisma
 from app.services.translation_service import translation_service

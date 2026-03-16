@@ -124,6 +124,7 @@ async def evaluate_string(
                     "translationStringId": translation_string_id,
                     "engineName": engine_name,
                     "judgeModel": judge.model,
+                    "hypothesis": hypothesis,
                     "adequacyScore": scores["adequacy"],
                     "fluencyScore": scores["fluency"],
                     "confidenceScore": scores["confidence"],
@@ -252,9 +253,10 @@ async def evaluate_all_approved(
 
                 await prisma.llmjudgment.create(
                     data={
-                        "translationStringId": ts.id,
+                        "translationStringId": translation_string_id,
                         "engineName": engine_name,
                         "judgeModel": judge.model,
+                        "hypothesis": hypothesis,
                         "adequacyScore": scores["adequacy"],
                         "fluencyScore": scores["fluency"],
                         "confidenceScore": scores["confidence"],
@@ -327,13 +329,23 @@ async def get_disagreements(
             src = str(ts.translationRequest.sourceLanguage)
             tgt = ts.targetLanguage.upper()
             lang_pair = f"{src}-{tgt}"
+        hypothesis = None
+        if ts and ts.engineResults:
+            engine_results = ts.engineResults if isinstance(ts.engineResults, list) else json.loads(ts.engineResults) if isinstance(ts.engineResults, str) else []
+            for result in engine_results:
+                if result.get("engine") == j.engineName:
+                    hypothesis = result.get("text")
+                    break
+        # Fall back to originalTranslation if engine not found (single-engine strings)
+        if not hypothesis:
+            hypothesis = ts.originalTranslation if ts else None
 
         results.append({
             "translationStringId": j.translationStringId,
             "engineName": j.engineName,
             "languagePair": lang_pair,
             "sourceText": ts.sourceText if ts else None,
-            "hypothesis": ts.originalTranslation if ts else None,
+            "hypothesis": hypothesis,        
             "humanReference": ts.translatedText if ts else None,
             "adequacyScore": j.adequacyScore,
             "fluencyScore": j.fluencyScore,

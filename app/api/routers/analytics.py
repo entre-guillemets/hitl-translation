@@ -9,6 +9,7 @@ from collections import defaultdict, Counter
 from typing import Optional, List, Dict, Any
 import sacrebleu
 from scipy import stats as scipy_stats
+import math
 
 from app.schemas.quality import QualityRating
 from app.db.base import prisma
@@ -25,6 +26,12 @@ from app.utils.lang_pair import normalize_lang_pair, pair_from_db_langs
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/analytics", tags=["Quality Assessment", "Analytics"])
+
+def safe_float(val):
+    """Convert NaN/Inf to None so JSON encoding doesn't crash."""
+    if val is None or not math.isfinite(val):
+        return None
+    return float(val)
 
 def calculate_chrf(reference: str, hypothesis: str) -> float:
     """Calculate ChrF score between a reference and a hypothesis."""    

@@ -54,7 +54,7 @@ Reference-based metrics calculated against post-edited translations:
 
 All metrics calculated per-segment and aggregated per-job. All statistics (p-values, confidence intervals, correlations) computed via `scipy.stats` — no hardcoded values.
 
-### Stage 6.5 — Agentic Analysis Layer
+### Stage 6.5 — Agentic Analysis Layer - WORK IN PROGRESS
 Runs automatically after Stage 6 completes:
 - **Glossary reuse reporter**: Checks whether MT used correct target terms from the project glossary
 - **DNT compliance checker**: Verifies protected strings were preserved in translation
