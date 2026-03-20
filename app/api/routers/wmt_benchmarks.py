@@ -1032,8 +1032,8 @@ async def run_multi_engine_benchmark(
 
         # Corpus metrics — all returned at natural sacrebleu scale
         is_cjk = target_lang in ("jp", "ja")
-        bleu = sacrebleu.corpus_bleu(valid_hyps, [valid_refs], tokenize="ja-mecab" if is_cjk else "13a").score
-        chrf = sacrebleu.corpus_chrf(valid_hyps, valid_refs).score
+        bleu = sacrebleu.corpus_bleu(valid_hyps, [valid_refs], tokenize="char" if is_cjk else "13a").score
+        chrf = sacrebleu.corpus_chrf(valid_hyps, [valid_refs]).score
         if is_cjk:
             cjk_hyps = [' '.join(list(h)) for h in valid_hyps]
             cjk_refs = [' '.join(list(r)) for r in valid_refs]
@@ -1128,4 +1128,133 @@ async def run_multi_engine_benchmark(
         "comet_available": comet_model is not None,
         "notes": notes,
         "comparison": comparison,
+    }
+
+
+@router.post("/recompute-snapshots")
+async def recompute_snapshots(
+    language_pair: Optional[str] = Query(None, description="Limit to one pair, e.g. en-fr. Omit for all pairs."),
+    notes: Optional[str] = Query(None, description="Label for new snapshots, e.g. 'baseline'"),
+    comet_model=Depends(get_comet_model),
+):
+    """Recompute EvalSnapshots from existing WMT translation strings without re-translating.
+
+    Deletes existing snapshots for the affected (engine, language_pair) combinations,
+    then recomputes corpus BLEU / ChrF / TER / COMET from the stored MT outputs and
+    WMT reference texts.  Use this after a metric bug fix to avoid re-running translations.
+    """
+    if not prisma.is_connected():
+        await prisma.connect()
+
+    # Fetch all WMT translation strings that have a referenceText
+    where: dict = {"referenceType": "WMT", "referenceText": {"not": None}}
+    if language_pair:
+        normalized_lp = normalize_lang_pair(language_pair)
+        src, tgt = normalized_lp.split("-")
+        where["translationRequest"] = {
+            "is": {
+                "sourceLanguage": src.upper(),
+                "targetLanguages": {"has": tgt.upper()},
+            }
+        }
+
+    strings = await prisma.translationstring.find_many(
+        where=where,
+        include={"translationRequest": True},
+    )
+
+    if not strings:
+        return {"success": True, "message": "No WMT strings found matching criteria.", "snapshots_created": 0}
+
+    # Group by (language_pair, engine_name, request_id)
+    from collections import defaultdict
+    groups: dict = defaultdict(list)
+    for s in strings:
+        if not s.translationRequest:
+            continue
+        src_lang = normalize_lang_pair(
+            f"{s.translationRequest.sourceLanguage}-{s.targetLanguage}"
+        ).split("-")[0]
+        tgt_lang = normalize_lang_pair(
+            f"{s.translationRequest.sourceLanguage}-{s.targetLanguage}"
+        ).split("-")[1]
+        lp = f"{src_lang}-{tgt_lang}"
+        engine = getattr(s, "engineName", None) or s.selectedEngine or "unknown"
+        req_id = s.translationRequestId
+        groups[(lp, engine, req_id)].append(s)
+
+    created_snapshots = []
+    for (lp, engine_id, req_id), segs in groups.items():
+        hyps = [s.translatedText or "" for s in segs]
+        refs = [s.referenceText or "" for s in segs]
+
+        valid = [(h, r) for h, r in zip(hyps, refs) if h and r]
+        if not valid:
+            continue
+        valid_hyps, valid_refs = zip(*valid)
+        valid_hyps, valid_refs = list(valid_hyps), list(valid_refs)
+
+        tgt = lp.split("-")[1]
+        is_cjk = tgt in ("jp", "ja")
+
+        try:
+            bleu = sacrebleu.corpus_bleu(valid_hyps, [valid_refs], tokenize="char" if is_cjk else "13a").score
+            chrf = sacrebleu.corpus_chrf(valid_hyps, [valid_refs]).score
+            if is_cjk:
+                cjk_hyps = [" ".join(list(h)) for h in valid_hyps]
+                cjk_refs = [" ".join(list(r)) for r in valid_refs]
+                ter = min(100.0, sacrebleu.corpus_ter(cjk_hyps, [cjk_refs]).score)
+            else:
+                ter = min(100.0, sacrebleu.corpus_ter(valid_hyps, [valid_refs]).score)
+        except Exception as e:
+            logger.warning(f"Metric computation failed for ({lp}, {engine_id}): {e}")
+            continue
+
+        comet_avg: Optional[float] = None
+        if comet_model:
+            try:
+                src_lang = lp.split("-")[0]
+                comet_samples = [
+                    {"src": s.sourceText, "mt": h, "ref": r}
+                    for s, h, r in zip(segs, hyps, refs) if h and r
+                ]
+                scores = comet_predict(comet_model, comet_samples)
+                comet_avg = round(statistics.mean(scores), 4)
+            except Exception as e:
+                logger.warning(f"COMET failed for ({lp}, {engine_id}): {e}")
+
+        # Delete stale snapshot for this (engine, pair, request)
+        await prisma.evalsnapshot.delete_many(
+            where={"engineName": engine_id, "languagePair": lp, "requestId": req_id}
+        )
+
+        snap = await prisma.evalsnapshot.create(
+            data={
+                "requestId": req_id,
+                "languagePair": lp,
+                "engineName": engine_id,
+                "avgBleu": round(bleu, 4),
+                "avgChrf": round(chrf, 4),
+                "avgTer": round(ter, 4),
+                "avgComet": comet_avg,
+                "segmentCount": len(valid_hyps),
+                "notes": notes or "recomputed",
+            }
+        )
+        created_snapshots.append({
+            "language_pair": lp,
+            "engine": engine_id,
+            "bleu": round(bleu, 1),
+            "chrf": round(chrf, 1),
+            "ter": round(ter, 1),
+            "comet": round(comet_avg, 3) if comet_avg else None,
+            "n": len(valid_hyps),
+            "snapshot_id": snap.id,
+        })
+        logger.info(f"Recomputed snapshot ({lp}, {engine_id}): BLEU={bleu:.1f} ChrF={chrf:.1f} TER={ter:.1f}")
+
+    return {
+        "success": True,
+        "snapshots_created": len(created_snapshots),
+        "snapshots": sorted(created_snapshots, key=lambda x: (x["language_pair"], x["engine"])),
     }

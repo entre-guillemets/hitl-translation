@@ -134,9 +134,11 @@ def _cjk_char_tokenize(text: str) -> str:
 def _score_hypothesis(hypothesis: str, reference: str, target_lang: str) -> dict:
     """Calculate BLEU/TER/ChrF for a single hypothesis against a human-edited reference."""
     is_japanese = target_lang in ['jp', 'ja']
-    tokenizer_option = 'ja-mecab' if is_japanese else '13a'
+    # 'ja-mecab' requires MeCab installed; 'char' is built-in and gives equivalent
+    # character-level precision for Japanese. Use 'char' for all CJK targets.
+    tokenizer_option = 'char' if is_japanese else '13a'
     try:
-        bleu = sacrebleu.sentence_bleu(hypothesis, [reference], tokenize=tokenizer_option).score / 100
+        bleu = sacrebleu.sentence_bleu(hypothesis, [reference], tokenize=tokenizer_option).score  # 0–100, consistent with WMT benchmarks
         # TER has no ja-mecab option. Japanese text has no spaces, so the entire sentence is a
         # single whitespace token — TER is always 100% unless strings are identical. Instead,
         # split each character into its own token so TER measures character-level edit rate.

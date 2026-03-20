@@ -995,9 +995,12 @@ const QualityDashboard: React.FC = () => {
   // Controlled tab state (prevents tab resets on data refetch)
   const [activeTab, setActiveTab] = useState<string>('quality');
 
-  // Global multiselect filters — applied to every tab
+  // Global multiselect filters — pending = what's in the dropdowns, selected = what's applied
   const [selectedLanguagePairs, setSelectedLanguagePairs] = useState<string[]>([]);
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
+  const [pendingLanguagePairs, setPendingLanguagePairs] = useState<string[]>([]);
+  const [pendingModels, setPendingModels] = useState<string[]>([]);
+  const hasPendingChanges = pendingLanguagePairs.join() !== selectedLanguagePairs.join() || pendingModels.join() !== selectedModels.join();
 
   // State for chart controls
   const [chartGroupBy, setChartGroupBy] = useState<'model' | 'language_pair'>('model');
@@ -1058,15 +1061,24 @@ const QualityDashboard: React.FC = () => {
   }, [dashboardData, postEditData, translatorImpactData, snapshots, llmDisagreements]);
 
   const availableModels = useMemo(() => {
-    // Map of value → label; configured engines seed it with proper display names
     const models = new Map<string, string>();
     configuredEngines.forEach(e => models.set(e.id, e.name));
-    // Entries from leaderboard/snapshots may use either the engine ID or a display name
+    // Track display names already covered to avoid duplicates when leaderboard/snapshot
+    // entries use display names (e.g. "Gemini Transcreation") instead of IDs.
+    const knownLabels = new Set(models.values());
     dashboardData?.modelPerformance.leaderboard.forEach(e => {
       const name = e.name || e.model;
-      if (name && !models.has(name)) models.set(name, name);
+      if (name && !models.has(name) && !knownLabels.has(name)) {
+        models.set(name, name);
+        knownLabels.add(name);
+      }
     });
-    snapshots.forEach(s => { if (s.engineName && !models.has(s.engineName)) models.set(s.engineName, s.engineName); });
+    snapshots.forEach(s => {
+      if (s.engineName && !models.has(s.engineName) && !knownLabels.has(s.engineName)) {
+        models.set(s.engineName, s.engineName);
+        knownLabels.add(s.engineName);
+      }
+    });
     return Array.from(models.entries())
       .sort((a, b) => a[1].localeCompare(b[1]))
       .map(([id, label]) => ({ label, value: id }));
@@ -1480,7 +1492,7 @@ const QualityDashboard: React.FC = () => {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-9">
+        <TabsList className="grid w-full grid-cols-10">
           <TabsTrigger value="quality">Quality</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="translator-impact">Translator Impact</TabsTrigger>
@@ -1500,8 +1512,8 @@ const QualityDashboard: React.FC = () => {
             <span className="text-sm text-muted-foreground">Language pair</span>
             <MultiSelect
               options={availableLanguagePairs}
-              selected={selectedLanguagePairs}
-              onChange={setSelectedLanguagePairs}
+              selected={pendingLanguagePairs}
+              onChange={setPendingLanguagePairs}
               placeholder="All pairs"
             />
           </div>
@@ -1509,20 +1521,28 @@ const QualityDashboard: React.FC = () => {
             <span className="text-sm text-muted-foreground">Model</span>
             <MultiSelect
               options={availableModels}
-              selected={selectedModels}
-              onChange={setSelectedModels}
+              selected={pendingModels}
+              onChange={setPendingModels}
               placeholder="All models"
             />
           </div>
+          <Button
+            size="sm"
+            className="h-8 text-xs"
+            disabled={!hasPendingChanges}
+            onClick={() => { setSelectedLanguagePairs(pendingLanguagePairs); setSelectedModels(pendingModels); }}
+          >
+            Apply
+          </Button>
           {(selectedLanguagePairs.length > 0 || selectedModels.length > 0) && (
             <Button
               variant="ghost"
               size="sm"
               className="h-8 text-xs"
-              onClick={() => { setSelectedLanguagePairs([]); setSelectedModels([]); }}
+              onClick={() => { setPendingLanguagePairs([]); setPendingModels([]); setSelectedLanguagePairs([]); setSelectedModels([]); }}
             >
               <X className="h-3 w-3 mr-1" />
-              Clear filters
+              Clear
             </Button>
           )}
           {(selectedLanguagePairs.length > 0 || selectedModels.length > 0) && (
@@ -2823,23 +2843,48 @@ const QualityDashboard: React.FC = () => {
             </CardHeader>
             <CardContent>
               {regressionChartData.length > 0 ? (
-                <ChartContainer config={regressionChartConfig} className="h-[380px]">
+                <ChartContainer config={regressionChartConfig} className="w-full h-[420px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={regressionChartData} margin={{ top: 16, right: 24, left: 0, bottom: 60 }}>
+                    <BarChart data={regressionChartData} margin={{ top: 90, right: 16, left: 0, bottom: 8 }}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" angle={-35} textAnchor="end" height={80} interval={0} tick={{ fontSize: 12 }} />
-                      <YAxis domain={['auto', 'auto']} tickFormatter={(v: number) => v.toFixed(0)} width={45} />
+                      <XAxis
+                        dataKey="name"
+                        orientation="top"
+                        angle={-35}
+                        textAnchor="start"
+                        height={85}
+                        interval={0}
+                        tick={{ fontSize: 11 }}
+                      />
+                      <YAxis domain={['auto', 'auto']} tickFormatter={(v: number) => v.toFixed(0)} width={40} />
                       <ChartTooltip
-                        content={<ChartTooltipContent />}
-                        formatter={(value: number, name: string) => {
-                          const labels: Record<string, string> = { bleu: 'BLEU ×100', comet: 'COMET', chrf: 'ChrF', ter: 'TER' };
-                          return [value != null ? value.toFixed(2) : '—', labels[name] ?? name];
+                        content={({ active, payload, label }) => {
+                          if (!active || !payload?.length) return null;
+                          const colors: Record<string, string> = {
+                            bleu: 'var(--color-bleu)',
+                            comet: 'var(--color-comet)',
+                            chrf: 'var(--color-chrf)',
+                            ter: 'var(--color-ter)',
+                          };
+                          const displayNames: Record<string, string> = { bleu: 'BLEU ×100', comet: 'COMET', chrf: 'ChrF', ter: 'TER' };
+                          return (
+                            <div className="rounded-lg border bg-background p-2.5 shadow-md text-xs min-w-[160px]">
+                              <p className="font-semibold mb-1.5 text-foreground">{label}</p>
+                              {payload.map(p => (
+                                <div key={p.dataKey as string} className="flex items-center justify-between gap-4 py-0.5">
+                                  <span className="flex items-center gap-1.5">
+                                    <span className="inline-block w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: colors[p.dataKey as string] ?? p.color }} />
+                                    <span className="text-muted-foreground">{displayNames[p.dataKey as string] ?? p.name}</span>
+                                  </span>
+                                  <span className="font-medium tabular-nums">{p.value != null ? (p.value as number).toFixed(1) : '—'}</span>
+                                </div>
+                              ))}
+                            </div>
+                          );
                         }}
                       />
-                      <Legend />
-                      <Bar dataKey="bleu" name="BLEU ×100" fill="var(--color-bleu)" radius={[3,3,0,0]}>
-                        <LabelList dataKey="bleu" position="top" formatter={(v: number) => v != null ? v.toFixed(0) : ''} style={{ fontSize: 10 }} />
-                      </Bar>
+                      <Legend verticalAlign="bottom" height={28} />
+                      <Bar dataKey="bleu" name="BLEU ×100" fill="var(--color-bleu)" radius={[3,3,0,0]} />
                       <Bar dataKey="comet" name="COMET" fill="var(--color-comet)" radius={[3,3,0,0]} />
                       <Bar dataKey="chrf" name="ChrF" fill="var(--color-chrf)" radius={[3,3,0,0]} />
                       <Bar dataKey="ter" name="TER" fill="var(--color-ter)" radius={[3,3,0,0]} />

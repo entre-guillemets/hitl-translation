@@ -2,6 +2,7 @@ import logging
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from app.services.translation_service import TranslationService
+from app.utils.lang_pair import normalize_lang_code
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,12 @@ class CleanMultiEngineService:
 
         self._is_initialized = True
     
-    @property 
+    @staticmethod
+    def _norm_pair(source_lang: str, target_lang: str) -> str:
+        """Return canonical pair key (e.g. 'jp'→'ja', so 'jp-fr' becomes 'ja-fr')."""
+        return f"{normalize_lang_code(source_lang)}-{normalize_lang_code(target_lang)}"
+
+    @property
     def is_initialized(self):
         """Check if the service has been properly initialized"""
         return self._is_initialized
@@ -111,7 +117,7 @@ class CleanMultiEngineService:
                 )
             else:
                 # Route to appropriate translation method
-                pair = f"{source_lang.lower()}-{target_lang.lower()}"
+                pair = self._norm_pair(source_lang, target_lang)
                 
                 # Get model_to_use (e.g., 'T5_MULTILINGUAL', 'NLLB_200', 'HELSINKI_EN_FR')
                 model_to_use = config['model_mapping'].get(pair)
@@ -121,7 +127,7 @@ class CleanMultiEngineService:
                 # Get the specific prefix or target language tag from translation_service's language_pair_models
                 prefix_or_lang_tag = None
                 # Fetching model_info from translation_service.language_pair_models using UPPERCASE pair for consistency
-                model_info_list = self.translation_service.language_pair_models.get(f"{source_lang.upper()}-{target_lang.upper()}", [])
+                model_info_list = self.translation_service.language_pair_models.get(self._norm_pair(source_lang, target_lang).upper(), [])
                 model_info_from_ts = next(
                     (info for info in model_info_list if info[0] == model_to_use),
                     None
@@ -154,7 +160,7 @@ class CleanMultiEngineService:
         """Determine if this translation needs to use pivot strategy"""
         if 'pivot_strategy' not in config:
             return False
-        pair = f"{source_lang.lower()}-{target_lang.lower()}"
+        pair = self._norm_pair(source_lang, target_lang)
         applies_to = config['pivot_strategy'].get('applies_to', [])
         return pair in applies_to
 
@@ -214,7 +220,7 @@ class CleanMultiEngineService:
 
     def get_available_engines_for_pair(self, source_lang: str, target_lang: str) -> List[str]:
         """Return only engines that can handle this language pair"""
-        pair = f"{source_lang.lower()}-{target_lang.lower()}"
+        pair = self._norm_pair(source_lang, target_lang)
         available = []
         
         for engine_id, config in self.engine_configs.items():
@@ -254,7 +260,7 @@ class CleanMultiEngineService:
         """Check if engine can handle this pair via its configured pivot strategy"""
         if 'pivot_strategy' not in config:
             return False
-        pair = f"{source_lang.lower()}-{target_lang.lower()}"
+        pair = self._norm_pair(source_lang, target_lang)
         applies_to = config['pivot_strategy'].get('applies_to', [])
         return pair in applies_to
 
@@ -267,7 +273,7 @@ class CleanMultiEngineService:
         if config.get('type') == 'gemini':
             return 'gemini-3.1-flash-lite-preview'
 
-        pair = f"{source_lang.lower()}-{target_lang.lower()}"
+        pair = self._norm_pair(source_lang, target_lang)
 
         # Check if pivot was used
         if self._needs_pivot_translation(config, source_lang, target_lang):
