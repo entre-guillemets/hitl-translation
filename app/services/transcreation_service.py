@@ -6,6 +6,7 @@ import asyncio
 
 import yaml
 from google import genai
+from app.utils.lang_pair import normalize_lang_pair
 from google.genai import types
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ class TranscreationService:
             logger.warning(f"Transcreation config directory not found: {config_dir}")
             return
         for yaml_file in config_dir.glob("*.yaml"):
-            pair = yaml_file.stem.lower()
+            pair = normalize_lang_pair(yaml_file.stem)
             try:
                 with open(yaml_file, "r", encoding="utf-8") as f:
                     profile = yaml.safe_load(f)
@@ -56,7 +57,7 @@ class TranscreationService:
         return self._client is not None
 
     def has_profile(self, source_lang: str, target_lang: str) -> bool:
-        pair = f"{source_lang.lower()}-{target_lang.lower()}"
+        pair = normalize_lang_pair(f"{source_lang}-{target_lang}")
         return pair in self._profiles
 
     def supported_pairs(self) -> list[str]:
@@ -66,7 +67,7 @@ class TranscreationService:
         if not self._client:
             raise RuntimeError("Gemini client not initialised — check GEMINI_API_KEY.")
 
-        pair = f"{source_lang.lower()}-{target_lang.lower()}"
+        pair = normalize_lang_pair(f"{source_lang}-{target_lang}")
         profile = self._profiles.get(pair)
         if not profile:
             raise ValueError(f"No transcreation profile for pair '{pair}'.")

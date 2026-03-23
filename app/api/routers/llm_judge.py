@@ -124,7 +124,6 @@ async def evaluate_string(
                     "translationStringId": translation_string_id,
                     "engineName": engine_name,
                     "judgeModel": judge.model,
-                    "hypothesis": hypothesis,
                     "adequacyScore": scores["adequacy"],
                     "fluencyScore": scores["fluency"],
                     "confidenceScore": scores["confidence"],
@@ -253,10 +252,9 @@ async def evaluate_all_approved(
 
                 await prisma.llmjudgment.create(
                     data={
-                        "translationStringId": translation_string_id,
+                        "translationStringId": ts.id,
                         "engineName": engine_name,
                         "judgeModel": judge.model,
-                        "hypothesis": hypothesis,
                         "adequacyScore": scores["adequacy"],
                         "fluencyScore": scores["fluency"],
                         "confidenceScore": scores["confidence"],

@@ -364,11 +364,11 @@ async def create_triple_output_translation_request(
     """Create translation request with exactly 3 outputs per language pair"""
     try:
         engines_per_pair_preference = {
-            'en-ja': ['opus_fast', 't5_versatile', 'nllb_multilingual', 'elan_quality'],
-            'ja-en': ['opus_fast', 'elan_quality', 't5_versatile', 'nllb_multilingual'],
+            'en-jp': ['opus_fast', 't5_versatile', 'nllb_multilingual', 'elan_quality'],
+            'jp-en': ['opus_fast', 'elan_quality', 't5_versatile', 'nllb_multilingual'],
             'en-fr': ['opus_fast', 't5_versatile', 'nllb_multilingual', 'elan_quality'],
             'fr-en': ['opus_fast', 't5_versatile', 'nllb_multilingual', 'elan_quality'],
-            'ja-fr': ['opus_fast', 'elan_quality', 't5_versatile', 'nllb_multilingual']
+            'jp-fr': ['opus_fast', 'elan_quality', 't5_versatile', 'nllb_multilingual']
         }
 
         all_possible_engines = multi_engine_service.get_available_engines_for_pair(

@@ -8,12 +8,12 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "backend": "uvicorn app.main:app --reload --host 0.0.0.0 --port 8001",
+    "backend": "/Users/davidheston/anaconda3/envs/hitl-simple/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8001",
     "dev:full": "concurrently --names \"🚀 FRONTEND,⚡ BACKEND\" --prefix-colors \"cyan.bold,magenta.bold\" \"npm run dev\" \"npm run backend\"",
     "dev:frontend": "vite --host 0.0.0.0",
-    "dev:backend": "uvicorn app.main:app --reload --host 0.0.0.0 --port 8001",
-    "backend:install": "pip install -r requirements.txt",
-    "backend:prod": "uvicorn app.main:app --host 0.0.0.0 --port 8001",
+    "dev:backend": "/Users/davidheston/anaconda3/envs/hitl-simple/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8001",
+    "backend:install": "/Users/davidheston/anaconda3/envs/hitl-simple/bin/pip install -r requirements.txt",
+    "backend:prod": "/Users/davidheston/anaconda3/envs/hitl-simple/bin/uvicorn app.main:app --host 0.0.0.0 --port 8001",
     "setup": "tsx scripts/setup.ts"
   },
   "dependencies": {

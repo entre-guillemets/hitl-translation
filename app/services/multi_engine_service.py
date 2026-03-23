@@ -15,29 +15,29 @@ class CleanMultiEngineService:
         self.engine_configs = {
             'opus_fast': {
                 'name': 'Helsinki OPUS',
-                'supported_pairs': ['en-fr', 'fr-en', 'ja-en', 'ja-fr'], # <--- Corrected to 'en-ja', 'ja-en', 'ja-fr'
+                'supported_pairs': ['en-fr', 'fr-en', 'jp-en', 'jp-fr'],
                 'model_mapping': {
-                    'en-fr': 'HELSINKI_EN_FR',    
-                    'fr-en': 'HELSINKI_FR_EN',    
-                    'ja-en': 'OPUS_JA_EN'          # <--- Corrected to 'ja-en'
+                    'en-fr': 'HELSINKI_EN_FR',
+                    'fr-en': 'HELSINKI_FR_EN',
+                    'jp-en': 'OPUS_JA_EN'
                 },
                 'pivot_strategy': {
                     'pivot_lang': 'en',
                     'via_models': ['OPUS_JA_EN', 'HELSINKI_EN_FR'],
-                    'applies_to': ['ja-fr'] # <--- Corrected to 'ja-fr'
+                    'applies_to': ['jp-fr']
                 },
                 'confidence': 0.80
             },
             'elan_quality': {
                 'name': 'ELAN Specialist',
-                'supported_pairs': ['ja-en'], # <--- Corrected to 'ja-en' 
+                'supported_pairs': ['jp-en'],
                 'model_mapping': {
-                    'ja-en': 'ELAN_JA_EN'  # <--- Corrected to 'ja-en'
+                    'jp-en': 'ELAN_JA_EN'
                 },
                 'pivot_strategy': {
                     'pivot_lang': 'en',
                     'via_models': ['ELAN_JA_EN', 'HELSINKI_EN_FR'],
-                    'applies_to': ['ja-fr']  # <--- Corrected to 'ja-fr'
+                    'applies_to': ['jp-fr']
                 },
                 'confidence': 0.90
             },
@@ -54,13 +54,13 @@ class CleanMultiEngineService:
                 'name': 'NLLB Multilingual',
                 # SW pairs added: NLLB-200 covers swh_Latn (Swahili, Latin script).
                 # Only engine available for EN↔SW — no Helsinki model exists.
-                'supported_pairs': ['en-ja', 'ja-en', 'en-fr', 'fr-en', 'ja-fr', 'en-sw', 'sw-en'],
+                'supported_pairs': ['en-jp', 'jp-en', 'en-fr', 'fr-en', 'jp-fr', 'en-sw', 'sw-en'],
                 'model_mapping': {
-                    'en-ja': 'NLLB_200',
-                    'ja-en': 'NLLB_200',
+                    'en-jp': 'NLLB_200',
+                    'jp-en': 'NLLB_200',
                     'en-fr': 'NLLB_200',
                     'fr-en': 'NLLB_200',
-                    'ja-fr': 'NLLB_200',
+                    'jp-fr': 'NLLB_200',
                     'en-sw': 'NLLB_200',
                     'sw-en': 'NLLB_200',
                 },
@@ -88,7 +88,7 @@ class CleanMultiEngineService:
     
     @staticmethod
     def _norm_pair(source_lang: str, target_lang: str) -> str:
-        """Return canonical pair key (e.g. 'jp'→'ja', so 'jp-fr' becomes 'ja-fr')."""
+        """Return canonical pair key (e.g. 'ja'→'jp', so 'ja-fr' becomes 'jp-fr')."""
         return f"{normalize_lang_code(source_lang)}-{normalize_lang_code(target_lang)}"
 
     @property

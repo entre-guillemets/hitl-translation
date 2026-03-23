@@ -253,8 +253,8 @@ const SegmentationEditor: React.FC<SegmentationEditorProps> = ({
     };
 
     newSegments.splice(segmentIndex + 1, 0, newSegment);
-    
-    setSegments(newSegments);
+    // Renumber sequentially so bounding box labels stay in sync with the right panel
+    setSegments(newSegments.map((s, i) => ({ ...s, id: i + 1 })));
     setSelectedSegments(new Set());
   };
 
@@ -269,9 +269,19 @@ const SegmentationEditor: React.FC<SegmentationEditorProps> = ({
     const firstSegment = selectedSegmentObjects[0];
     const lastSegment = selectedSegmentObjects[selectedSegmentObjects.length - 1];
 
+    // Compute union bounding box across all merged segments that have one
+    const bboxes = selectedSegmentObjects.map(s => s.bbox).filter(Boolean) as NonNullable<SegmentData['bbox']>[];
+    const unionBbox = bboxes.length > 0 ? {
+      x: Math.min(...bboxes.map(b => b.x)),
+      y: Math.min(...bboxes.map(b => b.y)),
+      w: Math.max(...bboxes.map(b => b.x + b.w)) - Math.min(...bboxes.map(b => b.x)),
+      h: Math.max(...bboxes.map(b => b.y + b.h)) - Math.min(...bboxes.map(b => b.y)),
+    } : undefined;
+
     const mergedSegment: SegmentData = {
-      ...firstSegment, 
+      ...firstSegment,
       text: mergedText,
+      bbox: unionBbox,
       timestamp: firstSegment.timestamp && lastSegment.timestamp ? {
         start: firstSegment.timestamp.start,
         end: lastSegment.timestamp.end
@@ -279,17 +289,19 @@ const SegmentationEditor: React.FC<SegmentationEditorProps> = ({
     };
 
     const newSegments = segments.filter(s => !selectedIds.includes(s.id));
-    
+
     const insertionIndex = segments.findIndex(s => s.id === firstSegment.id);
     if (insertionIndex !== -1) {
         newSegments.splice(insertionIndex, 0, mergedSegment);
     } else {
         newSegments.push(mergedSegment);
     }
-    
-    newSegments.sort((a, b) => a.id - b.id); 
 
-    setSegments(newSegments);
+    newSegments.sort((a, b) => a.id - b.id);
+    // Renumber sequentially so bounding box labels stay in sync with the right panel
+    const renumbered = newSegments.map((s, i) => ({ ...s, id: i + 1 }));
+
+    setSegments(renumbered);
     setSelectedSegments(new Set());
   };
 
@@ -386,7 +398,7 @@ const SegmentationEditor: React.FC<SegmentationEditorProps> = ({
               value={editText}
               onChange={(e) => setEditText(e.target.value)}
               onKeyPress={handleKeyPress}
-              className="w-full p-2 border rounded text-sm resize-none"
+              className="w-full p-2 rounded text-sm resize-none bg-transparent border-2 border-blue-500 text-inherit focus:outline-none focus:border-blue-400"
               rows={3}
               autoFocus
             />
