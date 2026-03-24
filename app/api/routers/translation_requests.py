@@ -25,18 +25,22 @@ def map_language_to_prisma_enum(language_code: str) -> str:
     """Convert frontend language codes to Prisma SourceLanguage enum values"""
     language_mapping = {
         "EN": "EN",
-        "JA": "JP",  # Fixed: Changed from "JA" to "JP" to match schema
-        "FR": "FR"
+        "JA": "JP",
+        "JP": "JP",
+        "FR": "FR",
+        "SW": "SW",
     }
     return language_mapping.get(language_code.upper(), language_code)
 
 def normalize_language_for_engines(language_code: str) -> str:
-    """Convert any language code to the format expected by engines (lowercase)"""
+    """Convert any language code to the format expected by engines (lowercase).
+    Japanese must map to 'jp' to match the 'jp-*' keys used in engine configs."""
     language_mapping = {
         "EN": "en",
-        "JA": "ja", 
-        "JP": "ja",
-        "FR": "fr"
+        "JA": "jp",
+        "JP": "jp",
+        "FR": "fr",
+        "SW": "sw",
     }
     return language_mapping.get(language_code.upper(), language_code.lower())
 

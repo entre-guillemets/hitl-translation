@@ -1,12 +1,14 @@
+import json
 import logging
 import os
 import io
 import mimetypes
 import tempfile
+import traceback
 import numpy as np
 import pdfplumber
 from PIL import Image
-from typing import Optional, Callable, List, Dict, Any, Tuple
+from typing import Optional, Callable, List, Dict, Any
 import cv2
 import base64
 
@@ -15,6 +17,7 @@ from app.ocr_engine.manga_ocr import MangaOCREngine
 from app.ocr_engine.tesseract_ocr import TesseractOCREngine
 from app.processors.image_processor import ImageProcessor
 from app.processors.text_processor import TextProcessor
+from app.services.transcreation_service import DEFAULT_MODEL
 
 # Optional imports: Whisper
 try:
@@ -23,6 +26,16 @@ try:
 except Exception:
     whisper = None  # type: ignore
     _HAS_WHISPER = False
+
+# Optional import: Gemini
+try:
+    from google import genai
+    from google.genai import types as genai_types
+    _HAS_GENAI = True
+except Exception:
+    genai = None  # type: ignore
+    genai_types = None  # type: ignore
+    _HAS_GENAI = False
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +48,22 @@ class MultimodalService:
         self.image_processor = ImageProcessor()
         self.text_processor = TextProcessor(llm_cleanup_fn=llm_cleanup_fn)
         self.whisper_model = whisper.load_model("base") if _HAS_WHISPER else None
+
+        # Gemini Vision client for OCR (uses same model/key as transcreation)
+        self._gemini_client = None
+        if _HAS_GENAI:
+            api_key = os.getenv("GEMINI_API_KEY")
+            if api_key:
+                try:
+                    self._gemini_client = genai.Client(
+                        api_key=api_key,
+                        http_options=genai_types.HttpOptions(api_version='v1beta'),
+                    )
+                    logger.info(f"MultimodalService: Gemini Vision OCR enabled ({DEFAULT_MODEL}).")
+                except Exception as e:
+                    logger.warning(f"MultimodalService: Gemini client init failed — falling back to Tesseract. {e}")
+            else:
+                logger.info("MultimodalService: GEMINI_API_KEY not set — using Tesseract OCR only.")
 
     async def extract_text_from_file_with_segmentation(self, file_content: bytes, file_name: str) -> Dict[str, Any]:
         file_type = mimetypes.guess_type(file_name)[0] or "application/octet-stream"
@@ -132,20 +161,78 @@ class MultimodalService:
 
         return result
 
+    async def _gemini_ocr(self, image_array: np.ndarray) -> Optional[List[str]]:
+        """Send the full image to Gemini Vision and return ordered text blocks.
+
+        Returns a list of text strings (one per logical segment, in reading order),
+        or None if Gemini is unavailable or the call fails.
+        """
+        if not self._gemini_client:
+            return None
+        try:
+            pil_img = Image.fromarray(cv2.cvtColor(image_array, cv2.COLOR_BGR2RGB) if len(image_array.shape) == 3 and image_array.shape[2] == 3 else image_array)
+            buf = io.BytesIO()
+            pil_img.save(buf, format="PNG")
+            img_bytes = buf.getvalue()
+
+            prompt = (
+                "Extract all visible text from this image. "
+                "Return a JSON array of text blocks in reading order (top-to-bottom, left-to-right). "
+                "Each element should be one logical text segment — a single line or short paragraph as it visually appears. "
+                "Preserve the original language and characters exactly. "
+                "Do not translate, explain, or add any text outside the JSON array.\n"
+                "Example: [\"First line\", \"Second block\", \"Third segment\"]"
+            )
+
+            response = self._gemini_client.models.generate_content(
+                model=DEFAULT_MODEL,
+                contents=[
+                    genai_types.Content(role="user", parts=[
+                        genai_types.Part(inline_data=genai_types.Blob(mime_type="image/png", data=img_bytes)),
+                        genai_types.Part(text=prompt),
+                    ])
+                ],
+                config=genai_types.GenerateContentConfig(max_output_tokens=2048),
+            )
+
+            raw = response.text.strip()
+            # Strip markdown code fences if present
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            parsed = json.loads(raw.strip())
+            if isinstance(parsed, list) and all(isinstance(t, str) for t in parsed):
+                logger.info(f"Gemini Vision OCR: extracted {len(parsed)} text blocks.")
+                return [t.strip() for t in parsed if t.strip()]
+        except Exception as e:
+            logger.warning(f"Gemini Vision OCR failed — falling back to Tesseract text. {e}")
+        return None
+
     async def _extract_text_with_regions(self, image_array: np.ndarray, detected_lang: str) -> List[Dict[str, Any]]:
-        """Extract text with bounding box information for image segmentation"""
+        """Extract text with bounding box information for image segmentation.
+
+        Bounding boxes come from Tesseract (layout detection).
+        Text content comes from Gemini Vision when available, Tesseract otherwise.
+        """
         segments = []
 
         try:
             import pytesseract
             from pytesseract import Output
 
-            # Get word-level data with bounding boxes
+            # Map detected language to Tesseract lang pack
+            tess_lang_map = {'JA': 'jpn', 'FR': 'fra', 'EN': 'eng'}
+            tess_lang = tess_lang_map.get(detected_lang.upper(), 'eng')
+
+            # Use original image for Tesseract so bbox coordinates match the displayed image.
+            # Preprocessing would change pixel dimensions and invalidate the coordinates.
+            # Text quality doesn't matter here — Gemini handles recognition.
             ocr_data = pytesseract.image_to_data(
                 image_array,
-                lang='jpn' if detected_lang == 'JA' else 'eng',
+                lang=tess_lang,
                 output_type=Output.DICT,
-                config='--psm 6'
+                config='--psm 3'  # auto page segmentation — handles mixed layouts, bullets, underlines
             )
 
             # Group words into text blocks
@@ -158,7 +245,7 @@ class MultimodalService:
                 confidence = int(ocr_data['conf'][i])
                 text = ocr_data['text'][i].strip()
 
-                if confidence > 30 and text:
+                if confidence > 55 and text:
                     x, y, w, h = (
                         ocr_data['left'][i],
                         ocr_data['top'][i],
@@ -204,11 +291,10 @@ class MultimodalService:
 
             # Add the last segment
             if current_block and current_bbox:
-                # ✅ FIX: Same logic for the last segment
                 if detected_lang == 'JA':
-                    segment_text = "".join(current_block)  # No spaces for Japanese
+                    segment_text = "".join(current_block)
                 else:
-                    segment_text = " ".join(current_block)  # Spaces for other languages
+                    segment_text = " ".join(current_block)
 
                 segments.append({
                     "id": segment_id,
@@ -216,6 +302,80 @@ class MultimodalService:
                     "confidence": confidence / 100.0,
                     "bbox": current_bbox
                 })
+
+            # If psm 3 found nothing (e.g. sparse text over a photo), retry with psm 11
+            if not segments:
+                logger.info("psm 3 returned 0 segments — retrying with psm 11 (sparse text).")
+                ocr_data2 = pytesseract.image_to_data(
+                    image_array,
+                    lang=tess_lang,
+                    output_type=Output.DICT,
+                    config='--psm 11',
+                )
+                # Use same line-grouping logic as psm 3 path so word-level tokens are
+                # merged into line-level segments before bbox mapping with Gemini text.
+                psm11_block: list[str] = []
+                psm11_bbox: dict | None = None
+                psm11_conf = 0
+                seg_id = 1
+                for i in range(len(ocr_data2['text'])):
+                    conf2 = int(ocr_data2['conf'][i])
+                    text2 = ocr_data2['text'][i].strip()
+                    if conf2 > 40 and text2:
+                        x, y, w, h = ocr_data2['left'][i], ocr_data2['top'][i], ocr_data2['width'][i], ocr_data2['height'][i]
+                        # New line when y jumps by more than 10px below current bbox
+                        if psm11_block and psm11_bbox and (y - (psm11_bbox['y'] + psm11_bbox['h'])) > 10:
+                            joined = ("".join(psm11_block) if detected_lang == 'JA' else " ".join(psm11_block))
+                            segments.append({"id": seg_id, "text": joined, "confidence": psm11_conf / 100.0, "bbox": psm11_bbox})
+                            seg_id += 1
+                            psm11_block = [text2]
+                            psm11_bbox = {"x": x, "y": y, "w": w, "h": h}
+                        else:
+                            psm11_block.append(text2)
+                            psm11_conf = conf2
+                            if psm11_bbox is None:
+                                psm11_bbox = {"x": x, "y": y, "w": w, "h": h}
+                            else:
+                                right = max(psm11_bbox["x"] + psm11_bbox["w"], x + w)
+                                bottom = max(psm11_bbox["y"] + psm11_bbox["h"], y + h)
+                                psm11_bbox["x"] = min(psm11_bbox["x"], x)
+                                psm11_bbox["y"] = min(psm11_bbox["y"], y)
+                                psm11_bbox["w"] = right - psm11_bbox["x"]
+                                psm11_bbox["h"] = bottom - psm11_bbox["y"]
+                if psm11_block and psm11_bbox:
+                    joined = ("".join(psm11_block) if detected_lang == 'JA' else " ".join(psm11_block))
+                    segments.append({"id": seg_id, "text": joined, "confidence": psm11_conf / 100.0, "bbox": psm11_bbox})
+
+            # Replace Tesseract text with Gemini Vision text (bboxes stay from Tesseract)
+            gemini_texts = await self._gemini_ocr(image_array)
+            img_h, img_w = image_array.shape[:2]
+
+            if gemini_texts and not segments:
+                # Tesseract found nothing but Gemini did — use Gemini text with evenly-spaced placeholder bboxes
+                step = img_h // max(len(gemini_texts), 1)
+                for i, text in enumerate(gemini_texts):
+                    segments.append({
+                        "id": i + 1,
+                        "text": text,
+                        "confidence": 1.0,
+                        "bbox": {"x": 0, "y": i * step, "w": img_w, "h": step},
+                    })
+                logger.info(f"Gemini Vision OCR: Tesseract found nothing — used {len(gemini_texts)} Gemini blocks with placeholder bboxes.")
+            elif gemini_texts and len(gemini_texts) == len(segments):
+                # Perfect count match — substitute text directly, keep Tesseract bboxes
+                for seg, gemini_text in zip(segments, gemini_texts):
+                    seg["text"] = gemini_text
+                    seg["confidence"] = 1.0
+                logger.info(f"Gemini Vision OCR: replaced text in {len(segments)} segments.")
+            elif gemini_texts:
+                # Count mismatch — rebuild from Gemini text, distributing bboxes as best we can
+                bboxes = [s["bbox"] for s in segments]
+                new_segments = []
+                for i, text in enumerate(gemini_texts):
+                    bbox = bboxes[i] if i < len(bboxes) else bboxes[-1]
+                    new_segments.append({"id": i + 1, "text": text, "confidence": 1.0, "bbox": bbox})
+                segments = new_segments
+                logger.info(f"Gemini Vision OCR: count mismatch (tess={len(bboxes)}, gemini={len(gemini_texts)}) — used Gemini text with best-effort bbox mapping.")
 
         except Exception as e:
             logger.error(f"Region extraction failed: {e}")

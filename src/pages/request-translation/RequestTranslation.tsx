@@ -14,19 +14,19 @@ import { API_BASE_URL } from '@/config/api';
 
 const languageOptions = [
   { label: 'English', value: 'EN' },
-  { label: 'Japanese', value: 'JA' },
+  { label: 'Japanese', value: 'JP' },
   { label: 'French', value: 'FR' },
   { label: 'Swahili', value: 'SW' },
 ];
 
 
 const LANGUAGE_PAIR_MODELS = {
-  'EN-JA': [
+  'EN-JP': [
     { id: 'opus_fast', label: 'OPUS Fast', description: 'Fast Helsinki-NLP models' },
     { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model for various languages' },
     { id: 'gemini_transcreation', label: 'Gemini Transcreation', description: 'Cultural adaptation via Gemini' },
   ],
-  'JA-EN': [
+  'JP-EN': [
     { id: 'opus_fast', label: 'OPUS Fast', description: 'Fast Helsinki-NLP models' },
     { id: 'elan_quality', label: 'ELAN Quality', description: 'Japanese specialist model' },
     { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model for various languages' },
@@ -44,15 +44,15 @@ const LANGUAGE_PAIR_MODELS = {
     { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model for various languages' },
     { id: 'gemini_transcreation', label: 'Gemini Transcreation', description: 'Cultural adaptation via Gemini' },
   ],
-  'JA-FR': [
-    { id: 'opus_fast', label: 'OPUS Fast', description: 'JA→EN→FR pivot via OPUS' },
-    { id: 'elan_quality', label: 'ELAN Quality', description: 'JA→EN→FR pivot via ELAN' },
+  'JP-FR': [
+    { id: 'opus_fast', label: 'OPUS Fast', description: 'JP→EN→FR pivot via OPUS' },
+    { id: 'elan_quality', label: 'ELAN Quality', description: 'JP→EN→FR pivot via ELAN' },
     { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model for various languages' },
     { id: 'gemini_transcreation', label: 'Gemini Transcreation', description: 'Cultural adaptation via Gemini' },
   ],
-  'FR-JA': [
-    { id: 'opus_fast', label: 'OPUS Fast', description: 'FR→EN→JA pivot via OPUS' },
-    { id: 'elan_quality', label: 'ELAN Quality', description: 'FR→EN→JA pivot via ELAN' },
+  'FR-JP': [
+    { id: 'opus_fast', label: 'OPUS Fast', description: 'FR→EN→JP pivot via OPUS' },
+    { id: 'elan_quality', label: 'ELAN Quality', description: 'FR→EN→JP pivot via ELAN' },
     { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model for various languages' },
     { id: 'gemini_transcreation', label: 'Gemini Transcreation', description: 'Cultural adaptation via Gemini' },
   ],
@@ -427,9 +427,6 @@ const SegmentationEditor: React.FC<SegmentationEditorProps> = ({
     );
   };
 
-  const getLanguageLabel = (code: string) => 
-    languageOptions.find(l => l.value === code)?.label || code;
-
   const validateLanguagePair = (source: string, targets: string[]) => {
     const supportedPairs = Object.keys(LANGUAGE_PAIR_MODELS);
     return targets.every(target => supportedPairs.includes(`${source}-${target}`));
@@ -626,12 +623,24 @@ const SegmentationEditor: React.FC<SegmentationEditorProps> = ({
               </CardHeader>
               <CardContent className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Source Language Display (Read-only as it's detected) */}
+                      {/* Source Language — editable override if detection is wrong */}
                       <div>
-                          <label className="block text-sm font-medium mb-2">Source Language</label>
-                          <Badge className="w-full justify-center py-2 bg-blue-100 text-blue-800 text-sm font-semibold">
-                              {getLanguageLabel(sourceLanguage)} (Detected)
-                          </Badge>
+                          <label className="block text-sm font-medium mb-2">
+                              Source Language
+                              {sourceLanguage && (
+                                  <span className="ml-2 text-xs text-muted-foreground font-normal">(auto-detected)</span>
+                              )}
+                          </label>
+                          <select
+                              value={sourceLanguage}
+                              onChange={(e) => setSourceLanguage(e.target.value)}
+                              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+                          >
+                              {!sourceLanguage && <option value="">Select language...</option>}
+                              {languageOptions.map(opt => (
+                                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                          </select>
                       </div>
                       
                       {/* Target Languages Selection (Editable) */}
@@ -835,7 +844,7 @@ export const RequestTranslation: React.FC = () => {
   }, [availableModels, selectedEngines.length]);
 
   const countWords = (text: string, sourceLanguage?: string): number => {
-    const isJapanese = sourceLanguage === 'JA' || /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(text);
+    const isJapanese = sourceLanguage === 'JP' || /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(text);
     
     if (isJapanese) {
       const cleanText = text.replace(/[\s.,!?。！？、]/g, '');
@@ -877,8 +886,9 @@ export const RequestTranslation: React.FC = () => {
       if (result.success && result.segments && result.segments.length > 0) {
         setSegmentationData(result);
         
-        // Only set source language here (detected)
-        setSourceLanguage(result.detectedLanguage);
+        // Only set source language if it's a supported language
+        const detectedSupported = languageOptions.find(l => l.value === result.detectedLanguage);
+        setSourceLanguage(detectedSupported ? result.detectedLanguage : '');
         
         setWordCount(result.wordCount);
         setShowSegmentationEditor(true);
@@ -1314,15 +1324,15 @@ export const RequestTranslation: React.FC = () => {
                       <span className="text-blue-600 ml-1">Calculating...</span>
                     ) : (
                       <span className="ml-1 font-semibold text-green-600">
-                        {wordCount.toLocaleString()} {sourceLanguage === 'JA' ? 'characters' : 'words'}
+                        {wordCount.toLocaleString()} {sourceLanguage === 'JP' ? 'characters' : 'words'}
                       </span>
                     )}
                   </p>
                 )}
                 {file && wordCount > 0 && targetLanguages.length > 0 && (
-                  <p><strong>Total {sourceLanguage === 'JA' ? 'Characters' : 'Words'} to Translate:</strong> 
+                  <p><strong>Total {sourceLanguage === 'JP' ? 'Characters' : 'Words'} to Translate:</strong> 
                     <span className="ml-1 font-semibold text-blue-600">
-                      {(wordCount * targetLanguages.length * (useMultiEngine ? selectedEngines.length : 1)).toLocaleString()} {sourceLanguage === 'JA' ? 'characters' : 'words'}
+                      {(wordCount * targetLanguages.length * (useMultiEngine ? selectedEngines.length : 1)).toLocaleString()} {sourceLanguage === 'JP' ? 'characters' : 'words'}
                     </span>
                   </p>
                 )}
