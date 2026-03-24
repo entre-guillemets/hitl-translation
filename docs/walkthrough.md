@@ -169,14 +169,23 @@ Per-language-pair leaderboard comparing MT engine scores across BLEU, TER, COMET
 ### Evaluation Quality Tab (WORK IN PROGRESS)
 
 The Evaluation Quality tab surfaces the reliability of the evaluation layer itself — not just how well the MT performed, but how much to trust the scores.
+<img width="1503" height="795" alt="Screenshot 2026-03-24 at 10 04 56" src="https://github.com/user-attachments/assets/2c876123-6a91-4806-94ac-f7b9f3187bdd" />
+
 
 **Segment Signal Confidence** — cross-metric agreement score computed as `1 − 2σ` over the four normalized metric signals (BLEU, TER, ChrF, COMET) per segment. High σ means the metrics disagree with each other: one says the translation is good, another says it's poor. Low σ means they agree. Segments with low confidence are surfaced in a triage list for priority human review, since automated scores alone are unreliable for them.
 
 Per-language-pair confidence table shows mean, min, and max confidence scores so you can see which language pairs have the most internally consistent evaluation signal.
 
+
 **Metric Correlation Matrix** — pairwise Pearson correlations (computed via `scipy.stats`) between BLEU, TER, ChrF, and COMET across all post-edited segments. High correlation between two metrics suggests redundant signal; low correlation suggests they're capturing different phenomena. In practice, ChrF and COMET tend to correlate more closely than BLEU and COMET for Japanese, which is one of the reasons ChrF is included alongside BLEU.
 
+
+
 **LLM Judge Calibration** — plots LLM judge adequacy scores against actual post-edit effort (TER) to measure how well the judge predicts human effort. If adequacy and TER are negatively correlated (high adequacy → low edit effort), the judge is well-calibrated. Significant disagreements are surfaced as high-cometDisagreement segments (threshold: >0.25).
+<img width="1505" height="811" alt="Screenshot 2026-03-24 at 10 02 44" src="https://github.com/user-attachments/assets/832bc242-fef6-40b4-9630-9c2dd398217c" />
+
+<img width="1505" height="810" alt="Screenshot 2026-03-24 at 10 02 58" src="https://github.com/user-attachments/assets/d4fea3d3-cd1a-44f5-9c41-2e91f5cf4632" />
+
 
 <!-- Screenshot: Eval Quality tab — Segment Signal Confidence card with per-language-pair table -->
 <!-- docs/screenshots/stage8-segment-confidence.png -->
