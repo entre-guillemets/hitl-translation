@@ -542,14 +542,20 @@ async def select_preferred_engine(string_id: str, selection_data: EngineSelectio
         if existing_string.targetLanguage.upper() == 'JP':
             final_translated_text = detokenize_japanese(final_translated_text)
 
+        # Only set originalTranslation on first selection — preserve it as the
+        # MT baseline so downstream metrics (LLM judge, translator impact) can
+        # compare the chosen engine output against any subsequent human edit.
+        update_data: dict = {
+            "translatedText": final_translated_text,
+            "selectedEngine": selection_data.engine,
+            "status": "REVIEWED",
+        }
+        if existing_string.originalTranslation is None:
+            update_data["originalTranslation"] = final_translated_text
+
         updated_string = await prisma.translationstring.update(
             where={"id": string_id},
-            data={
-                "translatedText": final_translated_text,
-                "originalTranslation": final_translated_text,
-                "selectedEngine": selection_data.engine,
-                "status": "REVIEWED"
-            }
+            data=update_data,
         )
 
         return {"success": True, "selectedEngine": selection_data.engine, "updatedString": updated_string}

@@ -189,14 +189,8 @@ async def evaluate_all_approved(
 
     for ts in strings:
         # --- Skip condition 1: missing required fields ---
-        if not ts.originalTranslation or not ts.translatedText:
-            logger.info(f"SKIP {ts.id}: missing originalTranslation or translatedText")
-            skipped += 1
-            continue
-
-        # --- Skip condition 2: no human edit was made ---
-        if ts.originalTranslation.strip() == ts.translatedText.strip():
-            logger.info(f"SKIP {ts.id}: originalTranslation == translatedText (no edits made)")
+        if not ts.translatedText:
+            logger.info(f"SKIP {ts.id}: missing translatedText")
             skipped += 1
             continue
 
