@@ -54,6 +54,9 @@ Reference-based metrics calculated against post-edited translations:
 
 All metrics calculated per-segment and aggregated per-job. All statistics (p-values, confidence intervals, correlations) computed via `scipy.stats` — no hardcoded values.
 
+### Stage 6b — LLM-as-Judge Calibration
+After QA metrics are calculated, Gemini evaluates each MT hypothesis against the source and human post-edit as a calibration layer. Per-engine scores: adequacy (0–1), fluency (0–1), confidence (0–1), and a natural-language rationale. COMET disagreement (`|comet_normalized − adequacy_normalized|`) is stored per judgment; values >0.25 indicate meaningful disagreement between the embedding-based metric and the LLM judge. The disagreements endpoint ranks segments by this score for targeted human review. Batch evaluation throttles at ~12 RPM to stay within Gemini free-tier limits.
+
 ### Stage 6.5 — Agentic Analysis Layer - WORK IN PROGRESS
 Runs automatically after Stage 6 completes:
 - **Glossary reuse reporter**: Checks whether MT used correct target terms from the project glossary
@@ -76,8 +79,8 @@ All resources feed back into Stage 4 QE scoring and Stage 5 translation.
 - QE score vs. actual post-edit effort correlation
 - Glossary reuse rates and DNT compliance rates
 - Metric correlation matrices (BLEU/TER/COMET/ChrF)
-- **Segment Signal Confidence**: Cross-metric agreement score (`1 − 2σ` over normalized signals) — surfaces low-confidence segments for priority human review
-- **Evaluation Quality tab**: Signal coverage per language pair, metric correlations by pair, LLM judge calibration against human effort
+- **Segment Signal Confidence**: Cross-metric agreement score (`1 − 2σ` over normalized metric signals) — surfaces low-confidence segments where BLEU/TER/ChrF/COMET disagree for priority human review
+- **Evaluation Quality tab**: Per-language-pair signal coverage, pairwise metric correlation matrix (via `scipy.stats`), LLM judge calibration (adequacy vs. TER) with high-disagreement segment triage
 - Data source badges on every widget distinguishing live data from sample/fallback data
 
 ---
@@ -107,7 +110,7 @@ This platform uses BLEU + TER + ChrF + COMET + COMETKiwi. The combination is int
 | English | Production | Native speaker |
 | Japanese | Production | Native speaker (Manga OCR specialized support) |
 | French | Production | Near-native speaker |
-| Swahili | In development | LLM-as-judge via Claude; inter-judge consistency testing across Claude/GPT-4/Gemini as validity proxy |
+| Swahili | Active (transcreation config live) | LLM-as-judge via Gemini; inter-judge consistency testing across Claude/GPT-4/Gemini as validity proxy for low-resource pairs |
 
 The EN/JA/FR scope is a methodological choice: the author can serve as a qualified human annotator for all three, enabling genuine HITL evaluation. Swahili is the selected low-resource target: NLLB-200 provides translation coverage, and LLM-as-judge evaluation will explicitly document where automated evaluation degrades for low-resource pairs.
 
@@ -303,6 +306,12 @@ Full interactive documentation at `http://localhost:8001/docs`.
 
 ### Quality Estimation (Stage 4)
 - `POST /api/quality-estimation` — run COMETKiwi QE on segments
+
+### LLM-as-Judge (Stage 6b)
+- `POST /api/llm-judge/evaluate/{id}` — evaluate all engine outputs for one string (Gemini)
+- `POST /api/llm-judge/evaluate-all-approved` — batch evaluate all approved/reviewed strings without a judgment yet
+- `GET /api/llm-judge/disagreements` — segments ranked by COMET vs LLM-judge disagreement score
+- `GET /api/llm-judge/summary` — aggregate adequacy/fluency/disagreement stats per language pair
 
 ### Analytics (Stage 8)
 - `GET /api/analytics/model-performance` — leaderboard data

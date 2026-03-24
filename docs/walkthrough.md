@@ -78,13 +78,48 @@ Multiple MT engines run in parallel on confirmed segments. The post-editing inte
 
 ## Stage 6 — QA Metrics
 
-Reference-based metrics (BLEU, TER, COMET, ChrF) calculated against post-edited translations. All metrics computed per-segment and aggregated per-job. All statistics (p-values, confidence intervals, correlations) computed via `scipy.stats`.
-
+Reference-based metrics calculated against post-edited translations. All four metrics are computed per-segment and aggregated per-job. All statistics (p-values, confidence intervals, correlations) use `scipy.stats` — no hardcoded values.
 
 <img width="1499" height="802" alt="Screenshot 2026-03-16 at 22 11 50" src="https://github.com/user-attachments/assets/d9936708-faa1-44f6-8c3a-41c936ecfd1f" />
 
-<!-- Screenshot: QA metrics view showing per-segment and aggregated scores -->
-<!-- docs/screenshots/stage6-qa-metrics.png -->
+### What each metric measures
+
+| Metric | Range | What it tells you |
+|--------|-------|-------------------|
+| **BLEU** | 0–100 | n-gram precision against the human reference. Good for benchmarking the same engine over time. Known weakness: doesn't capture paraphrase or morphological variation — systematically underscores Japanese (no word boundaries) and French inflected forms. |
+| **TER** | 0–1 (lower = better) | Edit distance between MT output and the post-edited reference, normalized by reference length. In this pipeline TER directly measures post-editing effort: TER 0.1 = few changes needed; TER 0.9 = nearly fully rewritten. |
+| **ChrF** | 0–1 | Character-level F-score over character n-grams. More robust than BLEU for Japanese (bypasses tokenization entirely) and French morphology. Better low-sample proxy for human judgment than BLEU. |
+| **COMET** | 0–1 (typically 0.5–0.9) | Learned metric using multilingual XLM-R embeddings. Highest correlation with human judgment for EN/JA/FR. Scores are not directly comparable across model versions of COMET itself. |
+
+The combination is intentional: BLEU and TER are fast and interpretable benchmarks; ChrF handles the script and morphology properties of Japanese and French that BLEU misses; COMET provides the highest-signal learned evaluation. COMETKiwi (Stage 4) is a separate reference-free category — it enables pre-review triage before any human reference exists.
+
+<!-- Screenshot: QA metrics view showing per-segment scores with BLEU/TER/ChrF/COMET columns -->
+<!-- docs/screenshots/stage6-qa-metrics-table.png -->
+
+<!-- Screenshot: Per-segment score detail with aggregated job totals -->
+<!-- docs/screenshots/stage6-qa-metrics-aggregated.png -->
+
+---
+
+## Stage 6b — LLM-as-Judge Calibration
+
+After QA metrics are calculated, Gemini evaluates each MT hypothesis against both the source and the human post-edit. This is a calibration layer, not a replacement for the reference-based metrics — the goal is to detect segments where the embedding-based and LLM-based signals disagree.
+
+For each engine output, the judge produces:
+- **Adequacy** (0–1): is the meaning of the source preserved?
+- **Fluency** (0–1): is the output natural in the target language?
+- **Confidence** (0–1): how certain is the judge of its own scores?
+- **Rationale**: short natural-language explanation
+
+**COMET disagreement** is computed as `|comet_normalized − adequacy_normalized|` where both are scaled to [0, 1]. Values above 0.25 indicate the embedding-based metric and the LLM judge disagree meaningfully — a signal worth investigating. The Disagreements view in Stage 8 ranks segments by this score for targeted human review.
+
+Batch evaluation throttles to ~12 requests/minute to stay under the Gemini free-tier limit (15 RPM). Strings with status `REVIEWED` or `APPROVED` are eligible; WMT benchmark jobs are excluded.
+
+<!-- Screenshot: LLM judge scores panel showing adequacy/fluency/confidence per engine with rationale text -->
+<!-- docs/screenshots/stage6b-llm-judge-scores.png -->
+
+<!-- Screenshot: COMET disagreement value displayed alongside COMET score for a segment -->
+<!-- docs/screenshots/stage6b-comet-disagreement.png -->
 
 ---
 
@@ -133,15 +168,24 @@ Per-language-pair leaderboard comparing MT engine scores across BLEU, TER, COMET
 
 ### Evaluation Quality Tab (WORK IN PROGRESS)
 
-Segment Signal Confidence: cross-metric agreement score (`1 − 2σ` over normalized signals). Per-language-pair confidence table with mean/min/max. Lowest-confidence segment triage list for priority human review.
+The Evaluation Quality tab surfaces the reliability of the evaluation layer itself — not just how well the MT performed, but how much to trust the scores.
 
+**Segment Signal Confidence** — cross-metric agreement score computed as `1 − 2σ` over the four normalized metric signals (BLEU, TER, ChrF, COMET) per segment. High σ means the metrics disagree with each other: one says the translation is good, another says it's poor. Low σ means they agree. Segments with low confidence are surfaced in a triage list for priority human review, since automated scores alone are unreliable for them.
 
+Per-language-pair confidence table shows mean, min, and max confidence scores so you can see which language pairs have the most internally consistent evaluation signal.
 
-<!-- Screenshot: Eval Quality tab — Segment Signal Confidence card (key methodological screen) -->
+**Metric Correlation Matrix** — pairwise Pearson correlations (computed via `scipy.stats`) between BLEU, TER, ChrF, and COMET across all post-edited segments. High correlation between two metrics suggests redundant signal; low correlation suggests they're capturing different phenomena. In practice, ChrF and COMET tend to correlate more closely than BLEU and COMET for Japanese, which is one of the reasons ChrF is included alongside BLEU.
+
+**LLM Judge Calibration** — plots LLM judge adequacy scores against actual post-edit effort (TER) to measure how well the judge predicts human effort. If adequacy and TER are negatively correlated (high adequacy → low edit effort), the judge is well-calibrated. Significant disagreements are surfaced as high-cometDisagreement segments (threshold: >0.25).
+
+<!-- Screenshot: Eval Quality tab — Segment Signal Confidence card with per-language-pair table -->
 <!-- docs/screenshots/stage8-segment-confidence.png -->
 
-<!-- Screenshot: Metric correlation matrix (BLEU/TER/COMET/ChrF) -->
+<!-- Screenshot: Metric correlation matrix heatmap (BLEU/TER/ChrF/COMET) -->
 <!-- docs/screenshots/stage8-metric-correlations.png -->
+
+<!-- Screenshot: LLM judge calibration chart — adequacy vs TER scatter with disagreement highlights -->
+<!-- docs/screenshots/stage8-judge-calibration.png -->
 
 ---
 
