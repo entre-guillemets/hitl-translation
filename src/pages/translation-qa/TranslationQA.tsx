@@ -385,6 +385,8 @@ const BulkReviewOverlay: React.FC<{
   onAnnotationAdd: (annotation: any) => void;
   selectedRequest: TranslationRequest | null;
   stringConfidence?: { confidence: number | null; n_signals: number; mean_quality: number | null };
+  onRefine: (stringId: string) => void;
+  refineState: Record<string, RefineState>;
 }> = ({
   selectedString,
   editedText,
@@ -405,6 +407,8 @@ const BulkReviewOverlay: React.FC<{
   onAnnotationAdd,
   selectedRequest,
   stringConfidence,
+  onRefine,
+  refineState,
 }) => {
   const engineResults = selectedString.engineResults || [];
   const fuzzyMatches = selectedString.fuzzyMatches || [];
@@ -667,12 +671,59 @@ const BulkReviewOverlay: React.FC<{
           </Card>
         </div>
 
+        {/* Agent SSE stream panel — shown when refinement is active or complete */}
+        {selectedRequest?.advertiserProfileId && refineState[selectedString.id]?.events.length > 0 && (
+          <div className="px-6 pb-2">
+            <div className="rounded border border-purple-500/30 bg-black/80 p-3 text-xs font-mono space-y-1 max-h-40 overflow-y-auto">
+              {refineState[selectedString.id].events.map((ev, i) => {
+                if (ev.type === 'narrate') {
+                  return <div key={i} className="text-purple-300"><span className="text-purple-500 mr-1">▶</span>{ev.message}</div>;
+                }
+                if (ev.type === 'iteration') {
+                  return (
+                    <div key={i} className="border border-purple-700/40 rounded p-2 space-y-1 bg-purple-950/30">
+                      <div className="text-purple-200 font-semibold">Attempt {ev.attempt}/2</div>
+                      <div className="text-yellow-400">
+                        Brand voice: {ev.brand_voice_before?.toFixed(1)} → {ev.brand_voice_after?.toFixed(1)}/5.0
+                        {ev.brand_voice_after !== undefined && ev.brand_voice_before !== undefined
+                          && ev.brand_voice_after > ev.brand_voice_before
+                          ? <span className="text-green-400 ml-1">▲</span>
+                          : <span className="text-red-400 ml-1">▼</span>}
+                      </div>
+                      <div className="text-blue-300 italic truncate">{ev.text}</div>
+                    </div>
+                  );
+                }
+                if (ev.type === 'done') {
+                  return <div key={i} className="text-green-400 font-semibold">✓ {ev.message} Final score: {ev.final_score?.toFixed(1)}/5.0{ev.was_improved ? ' — translation updated.' : ' — no improvement.'}</div>;
+                }
+                if (ev.type === 'error') {
+                  return <div key={i} className="text-red-400">✗ {ev.message}</div>;
+                }
+                return null;
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="flex justify-between items-center p-6 border-t bg-muted/30">
           <Button onClick={onPrevious} disabled={currentIndex === 0} variant="outline">
             <ChevronLeft className="w-4 h-4 mr-2" />
             Previous
           </Button>
           <div className="flex gap-2">
+            {selectedRequest?.advertiserProfileId && (
+              <Button
+                variant="outline"
+                className="border-purple-500 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950"
+                onClick={() => onRefine(selectedString.id)}
+                disabled={refineState[selectedString.id]?.streaming}
+              >
+                {refineState[selectedString.id]?.streaming
+                  ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Refining…</>
+                  : <><Wand2 className="w-4 h-4 mr-2" />Refine with AI</>}
+              </Button>
+            )}
             <Button onClick={handleUpdate} variant={saveFeedback ? 'default' : 'outline'}>
               {saveFeedback ? <><CheckCircle className="w-4 h-4 mr-2" />Saved!</> : 'Update Translation'}
             </Button>
@@ -1522,6 +1573,8 @@ export const TranslationQA: React.FC = () => {
             onAnnotationAdd={handleAnnotationAdd}
             selectedRequest={selectedRequest}
             stringConfidence={selectedString ? segmentConfidence[selectedString.id] : undefined}
+            onRefine={handleRefine}
+            refineState={refineState}
           />
         );
       })()}
