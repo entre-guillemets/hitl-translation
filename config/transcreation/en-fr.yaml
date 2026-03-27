@@ -1,6 +1,4 @@
 name: "EN→FR Transcreation"
-# Overrides the default model. Uses claude-sonnet-4-6 by default.
-# model: "claude-opus-4-6"
 
 system_prompt: |
   You are a transcreation specialist adapting English content into French for a general consumer audience.

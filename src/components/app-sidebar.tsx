@@ -15,7 +15,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
 } from '@/components/ui/sidebar';
-import { BarChart3, CheckSquare, ChevronRight, FileText } from 'lucide-react';
+import { BarChart3, Building2, CheckSquare, ChevronRight, FileText } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ModeToggle } from './mode-toggle';
@@ -155,6 +155,30 @@ export const AppSidebar: React.FC = () => {
                         <SidebarMenuSubButton asChild isActive={location.pathname === '/command-center'}>
                           <Link to="/command-center">
                             <span>Command Center</span>
+                          </Link>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                    </SidebarMenuSub>
+                  </CollapsibleContent>
+                </SidebarMenuItem>
+              </Collapsible>
+
+              {/* Advertising Section */}
+              <Collapsible defaultOpen className="group/collapsible">
+                <SidebarMenuItem>
+                  <CollapsibleTrigger asChild>
+                    <SidebarMenuButton tooltip="Advertising">
+                      <Building2 />
+                      <span>Advertising</span>
+                      <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                    </SidebarMenuButton>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <SidebarMenuSub>
+                      <SidebarMenuSubItem>
+                        <SidebarMenuSubButton asChild isActive={location.pathname === '/advertiser-profiles'}>
+                          <Link to="/advertiser-profiles">
+                            <span>Advertiser Profiles</span>
                           </Link>
                         </SidebarMenuSubButton>
                       </SidebarMenuSubItem>

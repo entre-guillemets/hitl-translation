@@ -17,8 +17,10 @@ GET /api/llm-judge/disagreements
 import asyncio
 import json
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from app.db.base import prisma
 from app.dependencies import get_llm_judge_service
@@ -411,3 +413,107 @@ async def get_judge_summary():
 
     summary.sort(key=lambda x: x["avgCometDisagreement"] or 0, reverse=True)
     return {"languagePairs": summary, "totalJudgments": len(judgments)}
+
+
+# ---------------------------------------------------------------------------
+# Brand voice + cultural fitness evaluation
+# ---------------------------------------------------------------------------
+
+class BrandVoiceEvalRequest(BaseModel):
+    advertiserProfileId: str
+
+
+@router.post("/evaluate-brand-voice/{translation_string_id}")
+async def evaluate_brand_voice(
+    translation_string_id: str,
+    body: BrandVoiceEvalRequest,
+    judge=Depends(get_llm_judge_service),
+):
+    """Score a translation string against an AdvertiserProfile.
+
+    Writes brandVoiceScore and culturalFitnessScore back to the existing
+    LLMJudgment row for this string (creates one if none exists yet).
+    """
+    if not judge.available:
+        raise HTTPException(status_code=503, detail="LLM judge not available — check GEMINI_API_KEY.")
+
+    if not prisma.is_connected():
+        await prisma.connect()
+
+    ts = await prisma.translationstring.find_unique(
+        where={"id": translation_string_id},
+        include={"translationRequest": True},
+    )
+    if not ts:
+        raise HTTPException(status_code=404, detail="Translation string not found.")
+
+    profile = await prisma.advertiserprofile.find_unique(
+        where={"id": body.advertiserProfileId}
+    )
+    if not profile:
+        raise HTTPException(status_code=404, detail="Advertiser profile not found.")
+
+    source_lang = (
+        str(ts.translationRequest.sourceLanguage).lower()
+        if ts.translationRequest else "en"
+    )
+    target_lang = ts.targetLanguage.lower()
+    hypothesis = ts.translatedText
+
+    scores = await judge.evaluate_brand_voice(
+        source=ts.sourceText,
+        hypothesis=hypothesis,
+        source_lang=source_lang,
+        target_lang=target_lang,
+        brand_name=profile.brandName,
+        brand_tone=str(profile.brandTone),
+        register=str(profile.adRegister),
+        target_markets=list(profile.targetMarkets or []),
+        key_terms=list(profile.keyTerms or []),
+        taboo_terms=list(profile.tabooTerms or []),
+        policy_notes=profile.policyNotes,
+    )
+
+    # Upsert: update existing judgment row or create a minimal one
+    existing = await prisma.llmjudgment.find_first(
+        where={"translationStringId": translation_string_id, "engineName": None}
+    )
+    if existing:
+        await prisma.llmjudgment.update(
+            where={"id": existing.id},
+            data={
+                "brandVoiceScore": scores["brand_voice"],
+                "culturalFitnessScore": scores["cultural_fitness"],
+                "rationale": scores["rationale"],
+            },
+        )
+    else:
+        await prisma.llmjudgment.create(
+            data={
+                "translationStringId": translation_string_id,
+                "judgeModel": judge.model,
+                "adequacyScore": 0.0,
+                "fluencyScore": 0.0,
+                "confidenceScore": 0.0,
+                "rationale": scores["rationale"],
+                "brandVoiceScore": scores["brand_voice"],
+                "culturalFitnessScore": scores["cultural_fitness"],
+            }
+        )
+
+    logger.info(
+        f"Brand voice eval [{profile.brandName}] {translation_string_id}: "
+        f"brand_voice={scores['brand_voice']} cultural_fitness={scores['cultural_fitness']} "
+        f"taboo={scores['taboo_violation']} key_term_missing={scores['key_term_missing']}"
+    )
+
+    return {
+        "translationStringId": translation_string_id,
+        "advertiserProfileId": body.advertiserProfileId,
+        "brandName": profile.brandName,
+        "brandVoiceScore": scores["brand_voice"],
+        "culturalFitnessScore": scores["cultural_fitness"],
+        "tabooViolation": scores["taboo_violation"],
+        "keyTermMissing": scores["key_term_missing"],
+        "rationale": scores["rationale"],
+    }

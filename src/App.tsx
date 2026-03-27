@@ -6,6 +6,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { ThemeProvider } from './components/theme-provider';
 import { SidebarInset, SidebarProvider, SidebarTrigger, useSidebar } from './components/ui/sidebar';
 import './index.css';
+import { AdvertiserProfiles } from './pages/advertiser-profiles/AdvertiserProfiles';
 import { CommandCenter } from './pages/command-center/CommandCenter';
 import QualityDashboard from './pages/quality-dashboard/QualityDashboard';
 import QualityPrediction from './pages/quality-prediction/QualityPrediction';
@@ -41,6 +42,7 @@ function AppContent() {
               <Route path="/quality-dashboard" element={<QualityDashboard />} />
               <Route path="/rlhf" element={<RLHFDashboard />} />
               <Route path="/command-center" element={<CommandCenter />} />
+              <Route path="/advertiser-profiles" element={<AdvertiserProfiles />} />
             </Routes>
           </ErrorBoundary>
           <Toaster />
