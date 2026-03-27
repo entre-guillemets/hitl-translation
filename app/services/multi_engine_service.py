@@ -96,8 +96,20 @@ class CleanMultiEngineService:
         """Check if the service has been properly initialized"""
         return self._is_initialized
         
-    async def translate_with_engine(self, text: str, source_lang: str, target_lang: str, engine_id: str) -> Dict:
-        """Translate using a specific engine with clean routing"""
+    async def translate_with_engine(
+        self,
+        text: str,
+        source_lang: str,
+        target_lang: str,
+        engine_id: str,
+        brand_profile=None,
+    ) -> Dict:
+        """Translate using a specific engine with clean routing.
+
+        brand_profile: optional AdvertiserProfile ORM object. When provided and
+        the engine is gemini_transcreation, uses a dynamic brand-voice system
+        prompt instead of the static YAML config.
+        """
         try:
             if engine_id not in self.engine_configs:
                 return {'engine': engine_id, 'error': 'Engine not found'}
@@ -107,9 +119,14 @@ class CleanMultiEngineService:
 
             # Route Gemini transcreation engine separately
             if config.get('type') == 'gemini':
-                translated_text = await self.transcreation_service.transcreate(
-                    text, source_lang, target_lang
-                )
+                if brand_profile is not None:
+                    translated_text = await self.transcreation_service.transcreate_with_profile(
+                        text, source_lang, target_lang, brand_profile
+                    )
+                else:
+                    translated_text = await self.transcreation_service.transcreate(
+                        text, source_lang, target_lang
+                    )
             # Check if we need pivot translation
             elif self._needs_pivot_translation(config, source_lang, target_lang):
                 translated_text = await self._translate_with_pivot(
@@ -292,8 +309,19 @@ class CleanMultiEngineService:
 
         return 'UNKNOWN_MODEL_ROUTING'
 
-    async def translate_multi_engine(self, text: str, source_lang: str, target_lang: str, engines: List[str] = None) -> List[Dict]:
-        """Clean multi-engine translation with proper routing"""
+    async def translate_multi_engine(
+        self,
+        text: str,
+        source_lang: str,
+        target_lang: str,
+        engines: List[str] = None,
+        brand_profile=None,
+    ) -> List[Dict]:
+        """Clean multi-engine translation with proper routing.
+
+        brand_profile: optional AdvertiserProfile ORM object forwarded to the
+        Gemini engine only — local seq2seq models are not affected.
+        """
         if engines is None:
             engines = self.get_available_engines_for_pair(source_lang, target_lang)
 
@@ -306,7 +334,7 @@ class CleanMultiEngineService:
 
         tasks = []
         for engine in valid_engines:
-            task = self.translate_with_engine(text, source_lang, target_lang, engine)
+            task = self.translate_with_engine(text, source_lang, target_lang, engine, brand_profile=brand_profile)
             tasks.append(task)
 
         import asyncio

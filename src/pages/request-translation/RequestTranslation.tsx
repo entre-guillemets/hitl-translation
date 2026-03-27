@@ -808,6 +808,9 @@ export const RequestTranslation: React.FC = () => {
   const [useMultiEngine, setUseMultiEngine] = useState(false);
   const [selectedEngines, setSelectedEngines] = useState<string[]>([]);
 
+  const [advertiserProfileId, setAdvertiserProfileId] = useState<string>('');
+  const [advertiserProfiles, setAdvertiserProfiles] = useState<{id: string; brandName: string; brandTone: string}[]>([]);
+
   const [showSegmentationEditor, setShowSegmentationEditor] = useState(false);
   const [segmentationData, setSegmentationData] = useState<any>(null);
 
@@ -842,6 +845,13 @@ export const RequestTranslation: React.FC = () => {
       setSelectedEngines(defaultSelection);
     }
   }, [availableModels, selectedEngines.length]);
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/advertiser-profiles`)
+      .then(r => r.ok ? r.json() : { profiles: [] })
+      .then(data => setAdvertiserProfiles(data.profiles ?? []))
+      .catch(() => {});
+  }, []);
 
   const countWords = (text: string, sourceLanguage?: string): number => {
     const isJapanese = sourceLanguage === 'JP' || /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(text);
@@ -963,10 +973,14 @@ export const RequestTranslation: React.FC = () => {
   const handleSegmentationSave = async (segmentationPayload: any) => {
     setIsSubmitting(true);
     try {
+      const enrichedPayload = advertiserProfileId
+        ? { ...segmentationPayload, advertiserProfileId }
+        : segmentationPayload;
+
       const response = await fetch(`${API_BASE_URL}/api/translation-requests/segmentation/${segmentationData.segmentationId}/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(segmentationPayload),
+        body: JSON.stringify(enrichedPayload),
       });
 
       if (!response.ok) throw new Error('Failed to save segmentation.');
@@ -1072,6 +1086,9 @@ export const RequestTranslation: React.FC = () => {
         formData.append('sourceLanguage', sourceLanguage);
         targetLanguages.forEach(lang => formData.append('targetLanguages', lang));
       }
+      if (advertiserProfileId) {
+        formData.append('advertiserProfileId', advertiserProfileId);
+      }
 
       console.log('Submitting file to:', endpoint);
       
@@ -1099,8 +1116,9 @@ export const RequestTranslation: React.FC = () => {
         setSubmitStatus('idle');
         setUseMultiEngine(false);
         setSelectedEngines([]);
+        setAdvertiserProfileId('');
       }, 2000);
-      
+
     } catch (error) {
       console.error('Error submitting translation request:', error);
       setSubmitStatus('error');
@@ -1254,7 +1272,45 @@ export const RequestTranslation: React.FC = () => {
               )}
             </div>
           )}
-          
+
+          {/* Advertiser Brand Profile */}
+          {sourceLanguage && targetLanguages.length > 0 && (
+            <div className="space-y-2 p-4 border rounded-lg bg-purple-50 dark:bg-purple-900/20">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Advertiser Brand Profile</label>
+                <Badge variant="outline" className="text-xs">Optional</Badge>
+              </div>
+              <Select value={advertiserProfileId} onValueChange={setAdvertiserProfileId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="No profile — use default YAML config" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">No profile — use default YAML config</SelectItem>
+                  {advertiserProfiles.map(p => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.brandName} <span className="text-muted-foreground text-xs ml-1">({p.brandTone.toLowerCase()})</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {advertiserProfileId && useMultiEngine && !selectedEngines.includes('gemini_transcreation') && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Brand voice-guided generation requires Gemini Transcreation. The selected profile will still be used to evaluate output quality for all engines.
+                </p>
+              )}
+              {advertiserProfileId && !useMultiEngine && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Brand voice-guided generation requires Gemini Transcreation (multi-model mode). The profile will be used for evaluation only in single-engine mode.
+                </p>
+              )}
+              {advertiserProfileId && useMultiEngine && selectedEngines.includes('gemini_transcreation') && (
+                <p className="text-xs text-green-600 dark:text-green-400">
+                  Gemini Transcreation will use this profile's brand voice and register to guide generation.
+                </p>
+              )}
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium mb-2">Upload File</label>
             <div 
