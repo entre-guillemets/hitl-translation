@@ -1280,15 +1280,18 @@ export const RequestTranslation: React.FC = () => {
                 <label className="text-sm font-medium">Advertiser Brand Profile</label>
                 <Badge variant="outline" className="text-xs">Optional</Badge>
               </div>
-              <Select value={advertiserProfileId} onValueChange={setAdvertiserProfileId}>
+              <Select
+                value={advertiserProfileId || '__none__'}
+                onValueChange={v => setAdvertiserProfileId(v === '__none__' ? '' : v)}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="No profile — use default YAML config" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">No profile — use default YAML config</SelectItem>
+                  <SelectItem value="__none__">No profile — use default YAML config</SelectItem>
                   {advertiserProfiles.map(p => (
                     <SelectItem key={p.id} value={p.id}>
-                      {p.brandName} <span className="text-muted-foreground text-xs ml-1">({p.brandTone.toLowerCase()})</span>
+                      {p.brandName} ({p.brandTone.toLowerCase()})
                     </SelectItem>
                   ))}
                 </SelectContent>
