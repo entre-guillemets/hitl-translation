@@ -157,6 +157,64 @@ class TranscreationService:
         logger.info(f"TranscreationService [profile={profile.brandName}]: received {len(result)} chars for '{pair}'.")
         return result
 
+    async def transcreate_with_corrective_feedback(
+        self,
+        text: str,
+        source_lang: str,
+        target_lang: str,
+        profile,
+        feedback: str,
+        prior_translation: str,
+    ) -> str:
+        """Re-transcreate using a corrective feedback turn.
+
+        Builds the same few-shot context as transcreate_with_profile, then
+        appends the prior translation as a model turn followed by a user
+        correction turn so Gemini can incorporate the feedback on the next try.
+        """
+        if not self._client:
+            raise RuntimeError("Gemini client not initialised — check GEMINI_API_KEY.")
+
+        pair = normalize_lang_pair(f"{source_lang}-{target_lang}")
+        yaml_profile = self._profiles.get(pair)
+
+        system_prompt = self._build_profile_system_prompt(profile, source_lang, target_lang)
+        golden_records = (yaml_profile or {}).get("golden_records") or []
+        model = (yaml_profile or {}).get("model", DEFAULT_MODEL)
+
+        contents: list[types.Content] = []
+        for record in golden_records:
+            src = record.get("source", "").strip()
+            tgt = record.get("target", "").strip()
+            if src and tgt:
+                contents.append(types.Content(role="user", parts=[types.Part(text=src)]))
+                contents.append(types.Content(role="model", parts=[types.Part(text=tgt)]))
+
+        # Original source → prior model output → corrective user turn
+        contents.append(types.Content(role="user", parts=[types.Part(text=text.strip())]))
+        contents.append(types.Content(role="model", parts=[types.Part(text=prior_translation.strip())]))
+        contents.append(types.Content(
+            role="user",
+            parts=[types.Part(text=f"That translation needs improvement. {feedback} Please provide a revised version.")],
+        ))
+
+        logger.info(
+            f"TranscreationService [profile={profile.brandName}]: corrective feedback call "
+            f"to {model} for '{pair}' ({len(text)} chars)"
+        )
+        await asyncio.sleep(4)
+        response = self._client.models.generate_content(
+            model=model,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                max_output_tokens=1024,
+            ),
+        )
+        result = response.text.strip()
+        logger.info(f"TranscreationService [profile={profile.brandName}]: corrective result {len(result)} chars for '{pair}'.")
+        return result
+
     async def transcreate(self, text: str, source_lang: str, target_lang: str) -> str:
         if not self._client:
             raise RuntimeError("Gemini client not initialised — check GEMINI_API_KEY.")

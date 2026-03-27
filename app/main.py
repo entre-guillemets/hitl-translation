@@ -21,6 +21,7 @@ from app.api.routers import (
     benchmarks,
     admin,
     advertiser_profiles,
+    agent,
 )
 
 from app.services.fuzzy_matching_service import FuzzyMatchingService
@@ -69,6 +70,7 @@ app.include_router(llm_judge.router)
 app.include_router(benchmarks.router)
 app.include_router(admin.router)
 app.include_router(advertiser_profiles.router)
+app.include_router(agent.router)
 
 # Database startup/shutdown events
 @app.on_event("startup")

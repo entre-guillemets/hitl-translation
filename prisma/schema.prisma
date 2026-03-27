@@ -315,6 +315,9 @@ model LLMJudgment {
   cometDisagreement   Float?
   brandVoiceScore     Float?   // 0–5: how well output preserves advertiser brand voice
   culturalFitnessScore Float?  // 0–5: cultural appropriateness for target market
+  wasRefined           Boolean  @default(false)  // true if agent refinement loop ran on this string
+  refinementAttempts   Int?                       // number of refinement iterations performed
+  agentIterations      Json?                      // [{attempt, feedback, brand_voice_before, brand_voice_after, text}]
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
   translationString   TranslationString @relation(fields: [translationStringId], references: [id], onDelete: Cascade)

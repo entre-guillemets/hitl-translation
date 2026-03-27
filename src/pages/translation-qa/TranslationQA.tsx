@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { BarChart3, CheckCircle, ChevronLeft, ChevronRight, Copy, MessageSquare, PartyPopper, X, XCircle } from 'lucide-react';
+import { BarChart3, CheckCircle, ChevronLeft, ChevronRight, Copy, Loader2, MessageSquare, PartyPopper, Wand2, X, XCircle } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 
 const API_BASE_URL = 'http://localhost:8001';
@@ -59,10 +59,34 @@ interface TranslationRequest {
   fileName: string;
   status: string;
   translationStrings: TranslationString[];
-  qualityMetrics: any[];
+  qualityMetrics: QualityMetrics[];
   requestDate: string;
   wordCount: number;
   requestType?: string;
+  advertiserProfileId?: string;
+}
+
+interface AgentEvent {
+  type: 'narrate' | 'iteration' | 'done' | 'error';
+  message?: string;
+  attempt?: number;
+  brand_voice_before?: number;
+  brand_voice_after?: number;
+  cultural_fitness_after?: number;
+  feedback?: string;
+  text?: string;
+  final_score?: number;
+  iterations?: number;
+  was_improved?: boolean;
+  final_text?: string;
+}
+
+interface RefineState {
+  streaming: boolean;
+  events: AgentEvent[];
+  done: boolean;
+  finalScore?: number;
+  wasImproved?: boolean;
 }
 
 interface EngineResult {
@@ -692,6 +716,53 @@ export const TranslationQA: React.FC = () => {
   const handleAnnotatorChange = (value: string) => {
     setAnnotatorId(value);
     localStorage.setItem('hitl_annotatorId', value);
+  };
+
+  const [refineState, setRefineState] = useState<Record<string, RefineState>>({});
+
+  const handleRefine = (stringId: string) => {
+    setRefineState(prev => ({
+      ...prev,
+      [stringId]: { streaming: true, events: [], done: false },
+    }));
+
+    const es = new EventSource(`${API_BASE_URL}/api/agent/refine-stream/${stringId}`);
+
+    es.onmessage = (e) => {
+      try {
+        const event: AgentEvent = JSON.parse(e.data);
+        setRefineState(prev => {
+          const current = prev[stringId] ?? { streaming: true, events: [], done: false };
+          return {
+            ...prev,
+            [stringId]: {
+              ...current,
+              events: [...current.events, event],
+              streaming: event.type !== 'done' && event.type !== 'error',
+              done: event.type === 'done' || event.type === 'error',
+              ...(event.type === 'done' ? {
+                finalScore: event.final_score,
+                wasImproved: event.was_improved,
+              } : {}),
+            },
+          };
+        });
+        if (event.type === 'done' || event.type === 'error') {
+          es.close();
+          if (event.type === 'done' && event.was_improved) {
+            fetchTranslationRequests();
+          }
+        }
+      } catch { /* ignore parse errors */ }
+    };
+
+    es.onerror = () => {
+      setRefineState(prev => ({
+        ...prev,
+        [stringId]: { ...(prev[stringId] ?? { events: [] }), streaming: false, done: true },
+      }));
+      es.close();
+    };
   };
 
   const [analytics, setAnalytics] = useState({
@@ -1340,7 +1411,78 @@ export const TranslationQA: React.FC = () => {
                             </Badge>
                           )}
                           {getConfidenceBadge(string.id)}
+                          {refineState[string.id]?.done && refineState[string.id]?.wasImproved && (
+                            <Badge className="text-xs bg-purple-600 text-white hover:bg-purple-600">
+                              ✨ REFINED
+                            </Badge>
+                          )}
+                          {selectedRequest?.advertiserProfileId && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 px-2 text-xs ml-auto border-purple-500 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRefine(string.id);
+                              }}
+                              disabled={refineState[string.id]?.streaming}
+                            >
+                              {refineState[string.id]?.streaming
+                                ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Refining…</>
+                                : <><Wand2 className="w-3 h-3 mr-1" />Refine</>
+                              }
+                            </Button>
+                          )}
                         </div>
+
+                        {/* SSE stream panel */}
+                        {refineState[string.id]?.events.length > 0 && (
+                          <div
+                            className="mt-2 rounded border border-purple-500/30 bg-black/80 p-3 text-xs font-mono space-y-1 max-h-48 overflow-y-auto"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {refineState[string.id].events.map((ev, i) => {
+                              if (ev.type === 'narrate') {
+                                return (
+                                  <div key={i} className="text-purple-300">
+                                    <span className="text-purple-500 mr-1">▶</span>{ev.message}
+                                  </div>
+                                );
+                              }
+                              if (ev.type === 'iteration') {
+                                return (
+                                  <div key={i} className="border border-purple-700/40 rounded p-2 space-y-1 bg-purple-950/30">
+                                    <div className="text-purple-200 font-semibold">Attempt {ev.attempt}/2</div>
+                                    <div className="text-yellow-400">
+                                      Brand voice: {ev.brand_voice_before?.toFixed(1)} → {ev.brand_voice_after?.toFixed(1)}/5.0
+                                      {ev.brand_voice_after !== undefined && ev.brand_voice_before !== undefined && ev.brand_voice_after > ev.brand_voice_before
+                                        ? <span className="text-green-400 ml-1">▲</span>
+                                        : <span className="text-red-400 ml-1">▼</span>
+                                      }
+                                    </div>
+                                    <div className="text-blue-300 italic truncate">{ev.text}</div>
+                                  </div>
+                                );
+                              }
+                              if (ev.type === 'done') {
+                                return (
+                                  <div key={i} className="text-green-400 font-semibold">
+                                    ✓ {ev.message} Final score: {ev.final_score?.toFixed(1)}/5.0
+                                    {ev.was_improved ? ' — translation updated.' : ' — no improvement.'}
+                                  </div>
+                                );
+                              }
+                              if (ev.type === 'error') {
+                                return (
+                                  <div key={i} className="text-red-400">
+                                    ✗ {ev.message}
+                                  </div>
+                                );
+                              }
+                              return null;
+                            })}
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
