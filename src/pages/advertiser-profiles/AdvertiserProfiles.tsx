@@ -31,7 +31,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Building2, ChevronDown, ChevronRight, Edit, Plus, Trash2, Users } from "lucide-react";
 import React, { useEffect, useState } from "react";
-import type { Persona, PersonaCreate } from "../../services/api";
+import type { Persona, PersonaCreate, PersonaUpdate } from "../../services/api";
 import { personaCrudService } from "../../services/api";
 import toast from "react-hot-toast";
 
@@ -124,6 +124,11 @@ const PersonaPanel: React.FC<{ profileId: string }> = ({ profileId }) => {
   const [form, setForm] = useState<PersonaCreate>({ ...BLANK_PERSONA, advertiserProfileId: profileId });
   const [prioritiesRaw, setPrioritiesRaw] = useState("");
   const [saving, setSaving] = useState(false);
+  const [editingPersona, setEditingPersona] = useState<Persona | null>(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editForm, setEditForm] = useState<PersonaUpdate>({});
+  const [editPrioritiesRaw, setEditPrioritiesRaw] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
 
   const load = async () => {
     const data = await personaCrudService.list(profileId);
@@ -169,6 +174,42 @@ const PersonaPanel: React.FC<{ profileId: string }> = ({ profileId }) => {
     }
   };
 
+  const handleEditOpen = (p: Persona) => {
+    setEditingPersona(p);
+    setEditForm({
+      name: p.name,
+      psychographicDescription: p.psychographicDescription,
+      messagingPriorities: p.messagingPriorities,
+      toneOverride: p.toneOverride,
+      registerOverride: p.registerOverride,
+    });
+    setEditPrioritiesRaw(p.messagingPriorities.join(", "));
+    setEditDialogOpen(true);
+  };
+
+  const handleUpdate = async () => {
+    if (!editingPersona) return;
+    if (!editForm.name?.trim() || !editForm.psychographicDescription?.trim()) {
+      toast.error("Name and description are required.");
+      return;
+    }
+    setEditSaving(true);
+    try {
+      await personaCrudService.update(editingPersona.id, {
+        ...editForm,
+        messagingPriorities: editPrioritiesRaw.split(",").map(s => s.trim()).filter(Boolean),
+      });
+      toast.success(`Persona "${editForm.name}" updated.`);
+      setEditDialogOpen(false);
+      setEditingPersona(null);
+      load();
+    } catch {
+      toast.error("Failed to update persona.");
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   return (
     <div className="border-t pt-3 mt-3">
       <button
@@ -201,14 +242,24 @@ const PersonaPanel: React.FC<{ profileId: string }> = ({ profileId }) => {
                   </div>
                 )}
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="shrink-0 text-destructive hover:text-destructive h-7 w-7"
-                onClick={() => handleDelete(p.id, p.name)}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
+              <div className="flex shrink-0 gap-0.5">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => handleEditOpen(p)}
+                >
+                  <Edit className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-destructive hover:text-destructive h-7 w-7"
+                  onClick={() => handleDelete(p.id, p.name)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             </div>
           ))}
 
@@ -285,6 +336,80 @@ const PersonaPanel: React.FC<{ profileId: string }> = ({ profileId }) => {
                   <Button variant="outline" size="sm" onClick={() => setDialogOpen(false)}>Cancel</Button>
                   <Button size="sm" onClick={handleCreate} disabled={saving}>
                     {saving ? "Saving…" : "Add Persona"}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Edit Persona Dialog */}
+          <Dialog open={editDialogOpen} onOpenChange={open => { setEditDialogOpen(open); if (!open) setEditingPersona(null); }}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Edit Persona</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 pt-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Persona Name</Label>
+                  <Input
+                    placeholder="e.g. Upgrader, Switcher, General"
+                    value={editForm.name ?? ""}
+                    onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Psychographic Description</Label>
+                  <Textarea
+                    placeholder="Who is this person and what motivates them?"
+                    rows={3}
+                    value={editForm.psychographicDescription ?? ""}
+                    onChange={e => setEditForm(f => ({ ...f, psychographicDescription: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Messaging Priorities <span className="text-muted-foreground font-normal">(comma-separated)</span></Label>
+                  <Input
+                    placeholder="emphasize ROI, address switching cost"
+                    value={editPrioritiesRaw}
+                    onChange={e => setEditPrioritiesRaw(e.target.value)}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Tone Override <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                    <Select
+                      value={editForm.toneOverride ?? "__none__"}
+                      onValueChange={v => setEditForm(f => ({ ...f, toneOverride: v === "__none__" ? null : v }))}
+                    >
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Use profile default" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Profile default</SelectItem>
+                        {(Object.keys(BRAND_TONE_LABELS) as BrandTone[]).map(t => (
+                          <SelectItem key={t} value={t}>{BRAND_TONE_LABELS[t]}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Register Override <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                    <Select
+                      value={editForm.registerOverride ?? "__none__"}
+                      onValueChange={v => setEditForm(f => ({ ...f, registerOverride: v === "__none__" ? null : v }))}
+                    >
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Use profile default" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Profile default</SelectItem>
+                        {(Object.keys(REGISTER_LABELS) as AdRegister[]).map(r => (
+                          <SelectItem key={r} value={r}>{REGISTER_LABELS[r]}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 pt-1">
+                  <Button variant="outline" size="sm" onClick={() => { setEditDialogOpen(false); setEditingPersona(null); }}>Cancel</Button>
+                  <Button size="sm" onClick={handleUpdate} disabled={editSaving}>
+                    {editSaving ? "Saving…" : "Save Changes"}
                   </Button>
                 </div>
               </div>
