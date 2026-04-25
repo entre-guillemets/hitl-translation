@@ -407,11 +407,15 @@ async def predict_translation_quality(
         for translation_string in translation_request.translationStrings:
             src_lang = translation_string.translationRequest.sourceLanguage.lower() if translation_string.translationRequest else 'en'
             tgt_lang = translation_string.targetLanguage.lower()
-            
+
+            # Score original MT output — not the post-edit. originalTranslation is
+            # frozen on first selection; fall back only if it was never set.
+            mt = translation_string.originalTranslation or translation_string.translatedText
+
             # COMETKiwi is reference-free — no ref field needed
             batch_data.append({
                 "src": translation_string.sourceText,
-                "mt": translation_string.translatedText,
+                "mt": mt,
             })
             string_ids.append(translation_string.id)
 
@@ -605,8 +609,11 @@ async def process_all_pending_quality_assessments(cometkiwi_model=Depends(get_co
         
         for translation_string in pending_strings:
             src = translation_string.sourceText
-            mt = translation_string.translatedText
-            
+            # Always score the original MT output, not the post-edit.
+            # originalTranslation is frozen on first selection; fall back to
+            # translatedText only for strings that were never post-edited.
+            mt = translation_string.originalTranslation or translation_string.translatedText
+
             if not src or not src.strip() or not mt or not mt.strip():
                 logger.warning(f"Skipping string {translation_string.id}: Missing source or translation text.")
                 continue

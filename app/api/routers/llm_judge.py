@@ -220,11 +220,15 @@ async def evaluate_all_approved(
             if not any(h == original_mt for _, h in candidates):
                 candidates.append((None, original_mt))
 
-        # --- Skip condition 3: no scoreable hypotheses ---
+        # If no engine-specific candidates, treat translatedText as a single hypothesis.
+        # This handles seed strings and single-engine submissions that have no engineResults.
         if not candidates:
-            logger.info(f"SKIP {ts.id}: no candidates built after parsing engineResults and originalTranslation")
-            skipped += 1
-            continue
+            if reference.strip():
+                candidates.append((None, reference.strip()))
+            else:
+                logger.info(f"SKIP {ts.id}: no candidates and no translatedText")
+                skipped += 1
+                continue
 
         logger.info(f"STRING {ts.id}: {len(candidates)} candidates to evaluate: {[e for e, _ in candidates]}")
 
@@ -291,7 +295,8 @@ async def evaluate_all_approved(
 
 @router.get("/disagreements")
 async def get_disagreements(
-    limit: int = Query(50, ge=1, le=500),
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     min_disagreement: float = Query(0.0, ge=0.0, le=1.0),
 ):
     """Return segments with highest COMET vs LLM-judge disagreement.
@@ -311,8 +316,9 @@ async def get_disagreements(
                 "include": {"translationRequest": True}
             }
         },
-        order={"cometDisagreement": "desc"},
+        order={"createdAt": "desc"},
         take=limit,
+        skip=offset,
     )
 
     results = []
@@ -330,9 +336,9 @@ async def get_disagreements(
                 if result.get("engine") == j.engineName:
                     hypothesis = result.get("text")
                     break
-        # Fall back to originalTranslation if engine not found (single-engine strings)
-        if not hypothesis:
-            hypothesis = ts.originalTranslation if ts else None
+        # Fall back to originalTranslation, then translatedText for seed/single-engine strings
+        if not hypothesis and ts:
+            hypothesis = ts.originalTranslation or ts.translatedText
 
         results.append({
             "translationStringId": j.translationStringId,

@@ -50,11 +50,19 @@ Multi-engine MT with parallel model outputs and a full post-editing interface:
 - Run Helsinki-NLP (OPUS), ELAN, mT5, NLLB-200, or Gemini on confirmed segments
 - Side-by-side engine output comparison
 - Inline translation editing
-- Annotation categories: mistranslation, fluency, terminology, omission, other
+- Annotation categories: mistranslation, fluency, terminology, omission, other; plus advertising-specific categories: brand voice deviation, cultural misstep, policy flag, missed transcreation, register mismatch
 - Annotation severity: minor, major, critical
 - Engine preference tracking (which engine the reviewer selected and why)
 - Translation Memory (TM) fuzzy match suggestions per segment
 - Bulk Review Mode with per-string signal confidence badges and completion tracking
+
+### Stage 5b — Advertiser Profiles & Persona Transcreation
+Brand governance layer for advertising-domain localization:
+- **Advertiser Profiles**: register brand tone (Authoritative / Playful / Luxury / Approachable / Technical / Bold), register (Formal / Informal / Neutral), key terms, taboo terms, target markets, and policy notes once per advertiser — enforced automatically on every subsequent request
+- **Persona fan-out**: define audience segments (Upgrader, Switcher, General, etc.) with psychographic descriptions, messaging priorities, and per-persona tone/register overrides. The system generates one transcreation per persona in a sequential loop, scoring each for brand voice alignment (0–5) and cultural fitness (0–5) via Gemini
+- **Corrective refinement**: outputs below the 3.0/5.0 brand voice threshold trigger up to two corrective feedback passes before surfacing for human review
+- **Differentiation scoring**: pairwise cosine similarity across persona outputs (character trigram vectors) ensures variants are meaningfully distinct, not synonymous
+- **Brand voice evaluation**: batch Gemini scoring with taboo-term detection and key-term coverage checking; high-disagreement strings flagged for human review
 
 ### Stage 6 — QA Metrics
 Reference-based metrics calculated against post-edited translations:

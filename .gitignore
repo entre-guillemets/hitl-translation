@@ -72,3 +72,4 @@ out/
 
 # macOS
 .DS_Store
+db-backups/
