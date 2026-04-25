@@ -17,8 +17,10 @@ GET /api/llm-judge/disagreements
 import asyncio
 import json
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from app.db.base import prisma
 from app.dependencies import get_llm_judge_service
@@ -218,11 +220,15 @@ async def evaluate_all_approved(
             if not any(h == original_mt for _, h in candidates):
                 candidates.append((None, original_mt))
 
-        # --- Skip condition 3: no scoreable hypotheses ---
+        # If no engine-specific candidates, treat translatedText as a single hypothesis.
+        # This handles seed strings and single-engine submissions that have no engineResults.
         if not candidates:
-            logger.info(f"SKIP {ts.id}: no candidates built after parsing engineResults and originalTranslation")
-            skipped += 1
-            continue
+            if reference.strip():
+                candidates.append((None, reference.strip()))
+            else:
+                logger.info(f"SKIP {ts.id}: no candidates and no translatedText")
+                skipped += 1
+                continue
 
         logger.info(f"STRING {ts.id}: {len(candidates)} candidates to evaluate: {[e for e, _ in candidates]}")
 
@@ -289,7 +295,8 @@ async def evaluate_all_approved(
 
 @router.get("/disagreements")
 async def get_disagreements(
-    limit: int = Query(50, ge=1, le=500),
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     min_disagreement: float = Query(0.0, ge=0.0, le=1.0),
 ):
     """Return segments with highest COMET vs LLM-judge disagreement.
@@ -309,8 +316,9 @@ async def get_disagreements(
                 "include": {"translationRequest": True}
             }
         },
-        order={"cometDisagreement": "desc"},
+        order={"createdAt": "desc"},
         take=limit,
+        skip=offset,
     )
 
     results = []
@@ -328,9 +336,9 @@ async def get_disagreements(
                 if result.get("engine") == j.engineName:
                     hypothesis = result.get("text")
                     break
-        # Fall back to originalTranslation if engine not found (single-engine strings)
-        if not hypothesis:
-            hypothesis = ts.originalTranslation if ts else None
+        # Fall back to originalTranslation, then translatedText for seed/single-engine strings
+        if not hypothesis and ts:
+            hypothesis = ts.originalTranslation or ts.translatedText
 
         results.append({
             "translationStringId": j.translationStringId,
@@ -411,3 +419,238 @@ async def get_judge_summary():
 
     summary.sort(key=lambda x: x["avgCometDisagreement"] or 0, reverse=True)
     return {"languagePairs": summary, "totalJudgments": len(judgments)}
+
+
+# ---------------------------------------------------------------------------
+# Brand voice + cultural fitness evaluation
+# ---------------------------------------------------------------------------
+
+class BrandVoiceEvalRequest(BaseModel):
+    advertiserProfileId: str
+
+
+# ---------------------------------------------------------------------------
+# Batch brand voice evaluation
+# ---------------------------------------------------------------------------
+
+@router.post("/evaluate-all-brand-voice")
+async def evaluate_all_brand_voice(
+    limit: int = Query(20, ge=1, le=100, description="Max strings to evaluate per run"),
+    judge=Depends(get_llm_judge_service),
+):
+    """Batch-score all translation strings whose request has an AdvertiserProfile.
+
+    Skips strings that already have a brandVoiceScore. Throttled to stay within
+    Gemini free-tier rate limits (~12 RPM).
+    """
+    if not judge.available:
+        raise HTTPException(status_code=503, detail="LLM judge not available — check GEMINI_API_KEY.")
+
+    if not prisma.is_connected():
+        await prisma.connect()
+
+    # Find strings linked to a request that has an advertiserProfileId,
+    # where the existing LLMJudgment (if any) has no brandVoiceScore yet.
+    strings = await prisma.translationstring.find_many(
+        where={
+            "translatedText": {"not": ""},
+            "translationRequest": {
+                "is": {"advertiserProfileId": {"not": None}}
+            },
+        },
+        include={
+            "translationRequest": True,
+            "llmJudgments": True,
+        },
+        take=limit * 3,  # fetch extra so we can filter already-scored ones
+    )
+
+    # Filter out strings already scored for brand voice
+    unscored = [
+        ts for ts in strings
+        if not any(
+            j.brandVoiceScore is not None
+            for j in (ts.llmJudgments or [])
+        )
+    ][:limit]
+
+    logger.info(f"Brand voice batch: {len(unscored)} strings to evaluate (limit={limit})")
+
+    processed, skipped, errors = 0, 0, []
+
+    for ts in unscored:
+        profile_id = ts.translationRequest.advertiserProfileId if ts.translationRequest else None
+        if not profile_id:
+            skipped += 1
+            continue
+
+        profile = await prisma.advertiserprofile.find_unique(where={"id": profile_id})
+        if not profile:
+            skipped += 1
+            continue
+
+        source_lang = (
+            str(ts.translationRequest.sourceLanguage).lower()
+            if ts.translationRequest else "en"
+        )
+        target_lang = ts.targetLanguage.lower()
+
+        try:
+            scores = await judge.evaluate_brand_voice(
+                source=ts.sourceText,
+                hypothesis=ts.translatedText,
+                source_lang=source_lang,
+                target_lang=target_lang,
+                brand_name=profile.brandName,
+                brand_tone=str(profile.brandTone),
+                register=str(profile.adRegister),
+                target_markets=list(profile.targetMarkets or []),
+                key_terms=list(profile.keyTerms or []),
+                taboo_terms=list(profile.tabooTerms or []),
+                policy_notes=profile.policyNotes,
+            )
+
+            # Upsert into LLMJudgment
+            existing = await prisma.llmjudgment.find_first(
+                where={"translationStringId": ts.id, "engineName": None}
+            )
+            if existing:
+                await prisma.llmjudgment.update(
+                    where={"id": existing.id},
+                    data={
+                        "brandVoiceScore": scores["brand_voice"],
+                        "culturalFitnessScore": scores["cultural_fitness"],
+                        "rationale": scores["rationale"],
+                    },
+                )
+            else:
+                await prisma.llmjudgment.create(
+                    data={
+                        "translationStringId": ts.id,
+                        "judgeModel": judge.model,
+                        "adequacyScore": 0.0,
+                        "fluencyScore": 0.0,
+                        "confidenceScore": 0.0,
+                        "rationale": scores["rationale"],
+                        "brandVoiceScore": scores["brand_voice"],
+                        "culturalFitnessScore": scores["cultural_fitness"],
+                    }
+                )
+
+            processed += 1
+            logger.info(
+                f"✅ Brand voice [{profile.brandName}] {ts.id[:8]}… "
+                f"bv={scores['brand_voice']} cf={scores['cultural_fitness']} "
+                f"taboo={scores['taboo_violation']} key_term_missing={scores['key_term_missing']}"
+            )
+
+        except Exception as e:
+            logger.error(f"Brand voice eval error string={ts.id}: {e}")
+            errors.append({"id": ts.id, "error": str(e)})
+        finally:
+            await asyncio.sleep(5)  # ~12 RPM — under Gemini free-tier limit
+
+    return {
+        "success": True,
+        "processed": processed,
+        "skipped": skipped,
+        "total": len(unscored),
+        "errors": errors or None,
+        "message": f"Brand voice evaluated {processed} strings (skipped {skipped})",
+    }
+
+
+@router.post("/evaluate-brand-voice/{translation_string_id}")
+async def evaluate_brand_voice(
+    translation_string_id: str,
+    body: BrandVoiceEvalRequest,
+    judge=Depends(get_llm_judge_service),
+):
+    """Score a translation string against an AdvertiserProfile.
+
+    Writes brandVoiceScore and culturalFitnessScore back to the existing
+    LLMJudgment row for this string (creates one if none exists yet).
+    """
+    if not judge.available:
+        raise HTTPException(status_code=503, detail="LLM judge not available — check GEMINI_API_KEY.")
+
+    if not prisma.is_connected():
+        await prisma.connect()
+
+    ts = await prisma.translationstring.find_unique(
+        where={"id": translation_string_id},
+        include={"translationRequest": True},
+    )
+    if not ts:
+        raise HTTPException(status_code=404, detail="Translation string not found.")
+
+    profile = await prisma.advertiserprofile.find_unique(
+        where={"id": body.advertiserProfileId}
+    )
+    if not profile:
+        raise HTTPException(status_code=404, detail="Advertiser profile not found.")
+
+    source_lang = (
+        str(ts.translationRequest.sourceLanguage).lower()
+        if ts.translationRequest else "en"
+    )
+    target_lang = ts.targetLanguage.lower()
+    hypothesis = ts.translatedText
+
+    scores = await judge.evaluate_brand_voice(
+        source=ts.sourceText,
+        hypothesis=hypothesis,
+        source_lang=source_lang,
+        target_lang=target_lang,
+        brand_name=profile.brandName,
+        brand_tone=str(profile.brandTone),
+        register=str(profile.adRegister),
+        target_markets=list(profile.targetMarkets or []),
+        key_terms=list(profile.keyTerms or []),
+        taboo_terms=list(profile.tabooTerms or []),
+        policy_notes=profile.policyNotes,
+    )
+
+    # Upsert: update existing judgment row or create a minimal one
+    existing = await prisma.llmjudgment.find_first(
+        where={"translationStringId": translation_string_id, "engineName": None}
+    )
+    if existing:
+        await prisma.llmjudgment.update(
+            where={"id": existing.id},
+            data={
+                "brandVoiceScore": scores["brand_voice"],
+                "culturalFitnessScore": scores["cultural_fitness"],
+                "rationale": scores["rationale"],
+            },
+        )
+    else:
+        await prisma.llmjudgment.create(
+            data={
+                "translationStringId": translation_string_id,
+                "judgeModel": judge.model,
+                "adequacyScore": 0.0,
+                "fluencyScore": 0.0,
+                "confidenceScore": 0.0,
+                "rationale": scores["rationale"],
+                "brandVoiceScore": scores["brand_voice"],
+                "culturalFitnessScore": scores["cultural_fitness"],
+            }
+        )
+
+    logger.info(
+        f"Brand voice eval [{profile.brandName}] {translation_string_id}: "
+        f"brand_voice={scores['brand_voice']} cultural_fitness={scores['cultural_fitness']} "
+        f"taboo={scores['taboo_violation']} key_term_missing={scores['key_term_missing']}"
+    )
+
+    return {
+        "translationStringId": translation_string_id,
+        "advertiserProfileId": body.advertiserProfileId,
+        "brandName": profile.brandName,
+        "brandVoiceScore": scores["brand_voice"],
+        "culturalFitnessScore": scores["cultural_fitness"],
+        "tabooViolation": scores["taboo_violation"],
+        "keyTermMissing": scores["key_term_missing"],
+        "rationale": scores["rationale"],
+    }

@@ -32,7 +32,9 @@ model TranslationRequest {
   // ===============================================
   segmentationSessionId String?             @unique // Ensure only one request per session
   segmentationSession   SegmentationSession? @relation(fields: [segmentationSessionId], references: [id])
-  originalSegments      Json?   
+  originalSegments      Json?
+  advertiserProfileId   String?
+  advertiserProfile     AdvertiserProfile?  @relation(fields: [advertiserProfileId], references: [id])
   translationStrings    TranslationString[]
 
   @@index([status]) // 💡 Performance index on frequently filtered column
@@ -79,6 +81,7 @@ model TranslationString {
   modelOutputs             ModelOutput[]
   qualityMetrics           QualityMetrics[]
   llmJudgments             LLMJudgment[]
+  personaTranscreations    PersonaTranscreation[]
   translationRequest       TranslationRequest @relation(fields: [translationRequestId], references: [id], onDelete: Cascade)
 
   @@index([status]) // 💡 Performance index on frequently filtered column
@@ -156,6 +159,7 @@ model TranslationMemory {
   originalRequestId String?
   approvedBy        String?
   usageCount        Int           @default(0)
+  personaId         String?       // null = profile-level TM; non-null = persona-scoped
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
@@ -311,6 +315,11 @@ model LLMJudgment {
   confidenceScore     Float
   rationale           String?
   cometDisagreement   Float?
+  brandVoiceScore     Float?   // 0–5: how well output preserves advertiser brand voice
+  culturalFitnessScore Float?  // 0–5: cultural appropriateness for target market
+  wasRefined           Boolean  @default(false)  // true if agent refinement loop ran on this string
+  refinementAttempts   Int?                       // number of refinement iterations performed
+  agentIterations      Json?                      // [{attempt, feedback, brand_voice_before, brand_voice_after, text}]
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
   translationString   TranslationString @relation(fields: [translationStringId], references: [id], onDelete: Cascade)
@@ -389,11 +398,82 @@ model SystemConfig {
   @@map("system_config")
 }
 // ----------------------------------------------------------------------
+model AdvertiserProfile {
+  id            String            @id @default(cuid())
+  brandName     String
+  brandTone     BrandTone
+  adRegister    AdRegister  @map("register")
+  targetMarkets String[]          // e.g. ["JP", "FR"]
+  keyTerms      String[]          // terms that MUST appear / be preserved
+  tabooTerms    String[]          // terms to avoid in target copy
+  policyNotes   String?           // free-text policy constraints
+  isActive      Boolean           @default(true)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  translationRequests TranslationRequest[]
+  personas            Persona[]
+
+  @@index([brandName])
+  @@map("advertiser_profiles")
+}
+// ----------------------------------------------------------------------
+model Persona {
+  id                      String                 @id @default(cuid())
+  name                    String                 // e.g. "Upgrader", "Switcher", "General"
+  psychographicDescription String                // who this person is and what motivates them
+  messagingPriorities     String[]               // e.g. ["emphasize ROI", "address switching cost"]
+  toneOverride            BrandTone?             // optional: overrides AdvertiserProfile.brandTone
+  registerOverride        AdRegister?            // optional: overrides AdvertiserProfile.adRegister
+  advertiserProfileId     String
+  advertiserProfile       AdvertiserProfile      @relation(fields: [advertiserProfileId], references: [id], onDelete: Cascade)
+  personaTranscreations   PersonaTranscreation[]
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+
+  @@index([advertiserProfileId])
+  @@map("personas")
+}
+// ----------------------------------------------------------------------
+model PersonaTranscreation {
+  id                   String                    @id @default(cuid())
+  translationStringId  String
+  translationString    TranslationString         @relation(fields: [translationStringId], references: [id], onDelete: Cascade)
+  personaId            String
+  persona              Persona                   @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  targetLanguage       String
+  outputText           String?                   // null until first attempt completes
+  status               PersonaTranscreationStatus @default(PENDING)
+  brandVoiceScore      Float?                    // 0-5
+  culturalFitnessScore Float?                    // 0-5
+  tabooViolation       Boolean?
+  keyTermMissing       Boolean?
+  differentiationScore Float?                    // avg pairwise cosine similarity vs other personas (lower = more distinct)
+  refinementAttempts   Int                       @default(0)
+  agentIterations      Json?                     // [{attempt, feedback, brand_voice_before, brand_voice_after, cultural_fitness_after, text}]
+  rationale            String?
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+
+  @@index([translationStringId])
+  @@index([personaId])
+  @@map("persona_transcreations")
+}
+// ----------------------------------------------------------------------
 enum RequestType {
   SINGLE_ENGINE
   MULTI_ENGINE
   WMT_BENCHMARK
   PIVOT_TRANSLATION
+  PERSONA_TRANSCREATION
+}
+
+enum PersonaTranscreationStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  NEEDS_REVIEW
+  FAILED
 }
 
 enum SourceLanguage {
@@ -485,15 +565,21 @@ enum QualityLabel {
 }
 
 enum AnnotationCategory {
-  ACCURACY          
-  FLUENCY           
-  TERMINOLOGY       
-  GRAMMAR           
-  WORD_CHOICE       
-  CONTEXT           
-  STYLE             
-  LOCALE_CONVENTION 
-  OTHER             
+  ACCURACY
+  FLUENCY
+  TERMINOLOGY
+  GRAMMAR
+  WORD_CHOICE
+  CONTEXT
+  STYLE
+  LOCALE_CONVENTION
+  OTHER
+  // Advertising-specific categories
+  BRAND_VOICE_DEVIATION   // output doesn't match registered brand tone
+  CULTURAL_MISSTEP        // culturally inappropriate for target market
+  POLICY_FLAG             // potential compliance / Amazon Ads policy issue
+  MISSED_TRANSCREATION    // literal when cultural adaptation was needed
+  REGISTER_MISMATCH       // wrong formality level for audience
 }
 
 enum ApprovalType {
@@ -577,4 +663,19 @@ enum FeedbackType {
   QUALITY_RATING
   PREFERENCE_COMPARISON
   ANNOTATION
+}
+
+enum BrandTone {
+  AUTHORITATIVE
+  PLAYFUL
+  LUXURY
+  APPROACHABLE
+  TECHNICAL
+  BOLD
+}
+
+enum AdRegister {
+  FORMAL
+  INFORMAL
+  NEUTRAL
 }

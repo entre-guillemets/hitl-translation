@@ -7,10 +7,13 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { MultiSelect } from '@/components/ui/multi-select';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, Merge, Pause, Play, Save, Split } from 'lucide-react';
+import { ArrowLeft, Merge, Pause, Play, Save, Split, Users } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
+import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '@/config/api';
+import type { Persona } from '../../services/api';
+import { personaCrudService } from '../../services/api';
 
 const languageOptions = [
   { label: 'English', value: 'EN' },
@@ -808,6 +811,13 @@ export const RequestTranslation: React.FC = () => {
   const [useMultiEngine, setUseMultiEngine] = useState(false);
   const [selectedEngines, setSelectedEngines] = useState<string[]>([]);
 
+  const [advertiserProfileId, setAdvertiserProfileId] = useState<string>('');
+  const [advertiserProfiles, setAdvertiserProfiles] = useState<{id: string; brandName: string; brandTone: string}[]>([]);
+  const [personaMode, setPersonaMode] = useState(false);
+  const [availablePersonas, setAvailablePersonas] = useState<Persona[]>([]);
+  const [selectedPersonaIds, setSelectedPersonaIds] = useState<string[]>([]);
+  const navigate = useNavigate();
+
   const [showSegmentationEditor, setShowSegmentationEditor] = useState(false);
   const [segmentationData, setSegmentationData] = useState<any>(null);
 
@@ -842,6 +852,26 @@ export const RequestTranslation: React.FC = () => {
       setSelectedEngines(defaultSelection);
     }
   }, [availableModels, selectedEngines.length]);
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/advertiser-profiles`)
+      .then(r => r.ok ? r.json() : { profiles: [] })
+      .then(data => setAdvertiserProfiles(data.profiles ?? []))
+      .catch(() => {});
+  }, []);
+
+  // Load personas when an advertiser profile is selected
+  useEffect(() => {
+    if (!advertiserProfileId) {
+      setAvailablePersonas([]);
+      setSelectedPersonaIds([]);
+      setPersonaMode(false);
+      return;
+    }
+    personaCrudService.list(advertiserProfileId)
+      .then(setAvailablePersonas)
+      .catch(() => setAvailablePersonas([]));
+  }, [advertiserProfileId]);
 
   const countWords = (text: string, sourceLanguage?: string): number => {
     const isJapanese = sourceLanguage === 'JP' || /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(text);
@@ -963,10 +993,14 @@ export const RequestTranslation: React.FC = () => {
   const handleSegmentationSave = async (segmentationPayload: any) => {
     setIsSubmitting(true);
     try {
+      const enrichedPayload = advertiserProfileId
+        ? { ...segmentationPayload, advertiserProfileId }
+        : segmentationPayload;
+
       const response = await fetch(`${API_BASE_URL}/api/translation-requests/segmentation/${segmentationData.segmentationId}/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(segmentationPayload),
+        body: JSON.stringify(enrichedPayload),
       });
 
       if (!response.ok) throw new Error('Failed to save segmentation.');
@@ -1072,6 +1106,9 @@ export const RequestTranslation: React.FC = () => {
         formData.append('sourceLanguage', sourceLanguage);
         targetLanguages.forEach(lang => formData.append('targetLanguages', lang));
       }
+      if (advertiserProfileId) {
+        formData.append('advertiserProfileId', advertiserProfileId);
+      }
 
       console.log('Submitting file to:', endpoint);
       
@@ -1088,9 +1125,21 @@ export const RequestTranslation: React.FC = () => {
       
       const result = await response.json();
       setSubmitStatus('success');
-      
-      console.log('Translation request created:', result);
-      
+
+      // If persona mode, navigate directly to Persona Transcreation with context
+      if (personaMode && selectedPersonaIds.length >= 2 && result.translationStrings?.length > 0) {
+        const firstString = result.translationStrings[0];
+        navigate('/persona-transcreation', {
+          state: {
+            translationStringId: firstString.id,
+            personaIds: selectedPersonaIds,
+            targetLanguage: firstString.targetLanguage?.toLowerCase() ?? targetLanguages[0]?.toLowerCase(),
+            advertiserProfileId,
+          },
+        });
+        return;
+      }
+
       setTimeout(() => {
         setSourceLanguage('');
         setTargetLanguages([]);
@@ -1099,8 +1148,11 @@ export const RequestTranslation: React.FC = () => {
         setSubmitStatus('idle');
         setUseMultiEngine(false);
         setSelectedEngines([]);
+        setAdvertiserProfileId('');
+        setPersonaMode(false);
+        setSelectedPersonaIds([]);
       }, 2000);
-      
+
     } catch (error) {
       console.error('Error submitting translation request:', error);
       setSubmitStatus('error');
@@ -1254,7 +1306,104 @@ export const RequestTranslation: React.FC = () => {
               )}
             </div>
           )}
-          
+
+          {/* Advertiser Brand Profile */}
+          {sourceLanguage && targetLanguages.length > 0 && (
+            <div className="space-y-2 p-4 border rounded-lg bg-purple-50 dark:bg-purple-900/20">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Advertiser Brand Profile</label>
+                <Badge variant="outline" className="text-xs">Optional</Badge>
+              </div>
+              <Select
+                value={advertiserProfileId || '__none__'}
+                onValueChange={v => setAdvertiserProfileId(v === '__none__' ? '' : v)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="No profile — use default YAML config" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">No profile — use default YAML config</SelectItem>
+                  {advertiserProfiles.map(p => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.brandName} ({p.brandTone.toLowerCase()})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {advertiserProfileId && useMultiEngine && !selectedEngines.includes('gemini_transcreation') && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Brand voice-guided generation requires Gemini Transcreation. The selected profile will still be used to evaluate output quality for all engines.
+                </p>
+              )}
+              {advertiserProfileId && !useMultiEngine && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Brand voice-guided generation requires Gemini Transcreation (multi-model mode). The profile will be used for evaluation only in single-engine mode.
+                </p>
+              )}
+              {advertiserProfileId && useMultiEngine && selectedEngines.includes('gemini_transcreation') && (
+                <p className="text-xs text-green-600 dark:text-green-400">
+                  Gemini Transcreation will use this profile's brand voice and register to guide generation.
+                </p>
+              )}
+
+              {/* Persona mode — only shown when profile has personas */}
+              {advertiserProfileId && availablePersonas.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-purple-200 dark:border-purple-700 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="persona-mode"
+                      checked={personaMode}
+                      onCheckedChange={v => {
+                        setPersonaMode(!!v);
+                        if (!v) setSelectedPersonaIds([]);
+                      }}
+                    />
+                    <label htmlFor="persona-mode" className="text-sm font-medium flex items-center gap-1.5 cursor-pointer">
+                      <Users className="h-3.5 w-3.5" />
+                      Persona Transcreation mode
+                    </label>
+                  </div>
+                  {personaMode && (
+                    <>
+                      <p className="text-xs text-muted-foreground">
+                        Select 2+ personas to generate audience-segmented transcreations after submission.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {availablePersonas.map(p => {
+                          const selected = selectedPersonaIds.includes(p.id);
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => setSelectedPersonaIds(prev =>
+                                prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id]
+                              )}
+                              className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                                selected
+                                  ? 'border-purple-500 bg-purple-500/20 text-purple-300'
+                                  : 'border-border text-muted-foreground hover:border-purple-400'
+                              }`}
+                            >
+                              {p.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {personaMode && selectedPersonaIds.length > 0 && selectedPersonaIds.length < 2 && (
+                        <p className="text-xs text-amber-500">Select at least 2 personas for differentiation scoring.</p>
+                      )}
+                      {personaMode && selectedPersonaIds.length >= 2 && (
+                        <p className="text-xs text-green-600 dark:text-green-400">
+                          After submission, you'll be taken directly to the Persona Transcreation page.
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium mb-2">Upload File</label>
             <div 

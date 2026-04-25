@@ -994,6 +994,7 @@ const QualityDashboard: React.FC = () => {
 
   // Controlled tab state (prevents tab resets on data refetch)
   const [activeTab, setActiveTab] = useState<string>('quality');
+  const [evalMode, setEvalMode] = useState<'translation' | 'multi-agent'>('translation');
 
   // Global multiselect filters — pending = what's in the dropdowns, selected = what's applied
   const [selectedLanguagePairs, setSelectedLanguagePairs] = useState<string[]>([]);
@@ -1028,7 +1029,7 @@ const QualityDashboard: React.FC = () => {
   const [evalQualityData, setEvalQualityData] = useState<EvalQualityData | null>(null);
   const [segmentConfidenceData, setSegmentConfidenceData] = useState<SegmentConfidenceData | null>(null);
   const [currentPageDisagreements, setCurrentPageDisagreements] = useState(1);
-  const DISAGREEMENTS_PAGE_SIZE = 25;
+  const [disagreementsPageSize, setDisagreementsPageSize] = useState(25);
 
   // Filter states for Detailed Engine Preferences
   const [preferencesEngineFilter, setPreferencesEngineFilter] = useState<string>('all');
@@ -1150,11 +1151,11 @@ const QualityDashboard: React.FC = () => {
   [llmDisagreements, selectedLanguagePairs]);
 
   const paginatedLlmDisagreements = useMemo(() => {
-    const start = (currentPageDisagreements - 1) * DISAGREEMENTS_PAGE_SIZE;
-    return filteredLlmDisagreements.slice(start, start + DISAGREEMENTS_PAGE_SIZE);
-  }, [filteredLlmDisagreements, currentPageDisagreements]);
+    const start = (currentPageDisagreements - 1) * disagreementsPageSize;
+    return filteredLlmDisagreements.slice(start, start + disagreementsPageSize);
+  }, [filteredLlmDisagreements, currentPageDisagreements, disagreementsPageSize]);
 
-  const totalPagesDisagreements = Math.max(1, Math.ceil(filteredLlmDisagreements.length / DISAGREEMENTS_PAGE_SIZE));
+  const totalPagesDisagreements = Math.max(1, Math.ceil(filteredLlmDisagreements.length / disagreementsPageSize));
 
   // ── Translator Impact pagination (uses filtered comparisons) ─────────────
   const paginatedTranslatorComparisons = useMemo(() => {
@@ -1285,7 +1286,7 @@ const QualityDashboard: React.FC = () => {
     try {
       const [summaryRes, disagreementsRes, iaaRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/llm-judge/summary`),
-        fetch(`${API_BASE_URL}/api/llm-judge/disagreements?limit=50`),
+        fetch(`${API_BASE_URL}/api/llm-judge/disagreements?limit=200`),
         fetch(`${API_BASE_URL}/api/analytics/annotator-agreement`),
       ]);
       if (summaryRes.ok) setLlmJudgeSummary(await summaryRes.json());
@@ -1504,6 +1505,32 @@ const QualityDashboard: React.FC = () => {
           <TabsTrigger value="eval-quality">Eval Quality</TabsTrigger>
           <TabsTrigger value="benchmark">Benchmark</TabsTrigger>
         </TabsList>
+
+        {/* ── Evaluation mode toggle ─────────────────────────────────────── */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">Eval mode:</span>
+          <div className="flex rounded-md border overflow-hidden text-xs">
+            <button
+              type="button"
+              onClick={() => setEvalMode("translation")}
+              className={`px-3 py-1.5 transition-colors ${evalMode === "translation" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+            >
+              Translation Evals
+            </button>
+            <button
+              type="button"
+              onClick={() => setEvalMode("multi-agent")}
+              className={`px-3 py-1.5 border-l transition-colors ${evalMode === "multi-agent" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+            >
+              Multi-Agent Evals
+            </button>
+          </div>
+          {evalMode === "multi-agent" && (
+            <span className="text-xs text-muted-foreground">
+              Showing brand voice / cultural fitness scores. BLEU/TER are not shown — surface metrics penalise intentional creative adaptation.
+            </span>
+          )}
+        </div>
 
         {/* ── Global filters bar ─────────────────────────────────────────── */}
         <div className="flex flex-wrap items-center gap-3 px-3 py-2.5 rounded-lg border bg-muted/30">
@@ -2697,30 +2724,40 @@ const QualityDashboard: React.FC = () => {
                       </tbody>
                     </table>
                   </div>
-                  {totalPagesDisagreements > 1 && (
-                    <div className="flex items-center justify-between mt-3 text-sm text-muted-foreground">
-                      <span>
-                        {((currentPageDisagreements - 1) * DISAGREEMENTS_PAGE_SIZE) + 1}–{Math.min(currentPageDisagreements * DISAGREEMENTS_PAGE_SIZE, filteredLlmDisagreements.length)} of {filteredLlmDisagreements.length}
-                      </span>
-                      <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-between mt-3 text-sm text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <span>Rows per page:</span>
+                      {[10, 25, 100].map(size => (
                         <button
-                          className="px-2 py-1 rounded border disabled:opacity-40 hover:bg-muted"
-                          onClick={() => setCurrentPageDisagreements(p => Math.max(1, p - 1))}
-                          disabled={currentPageDisagreements === 1}
+                          key={size}
+                          className={`px-2 py-1 rounded border hover:bg-muted ${disagreementsPageSize === size ? 'bg-muted font-medium text-foreground' : ''}`}
+                          onClick={() => { setDisagreementsPageSize(size); setCurrentPageDisagreements(1); }}
                         >
-                          ‹ Prev
+                          {size}
                         </button>
-                        <span>Page {currentPageDisagreements} / {totalPagesDisagreements}</span>
-                        <button
-                          className="px-2 py-1 rounded border disabled:opacity-40 hover:bg-muted"
-                          onClick={() => setCurrentPageDisagreements(p => Math.min(totalPagesDisagreements, p + 1))}
-                          disabled={currentPageDisagreements === totalPagesDisagreements}
-                        >
-                          Next ›
-                        </button>
-                      </div>
+                      ))}
                     </div>
-                  )}
+                    <div className="flex items-center gap-2">
+                      <span>
+                        {filteredLlmDisagreements.length === 0 ? '0' : `${((currentPageDisagreements - 1) * disagreementsPageSize) + 1}–${Math.min(currentPageDisagreements * disagreementsPageSize, filteredLlmDisagreements.length)}`} of {filteredLlmDisagreements.length}
+                      </span>
+                      <button
+                        className="px-2 py-1 rounded border disabled:opacity-40 hover:bg-muted"
+                        onClick={() => setCurrentPageDisagreements(p => Math.max(1, p - 1))}
+                        disabled={currentPageDisagreements === 1}
+                      >
+                        ‹ Prev
+                      </button>
+                      <span>Page {currentPageDisagreements} / {totalPagesDisagreements}</span>
+                      <button
+                        className="px-2 py-1 rounded border disabled:opacity-40 hover:bg-muted"
+                        onClick={() => setCurrentPageDisagreements(p => Math.min(totalPagesDisagreements, p + 1))}
+                        disabled={currentPageDisagreements === totalPagesDisagreements}
+                      >
+                        Next ›
+                      </button>
+                    </div>
+                  </div>
                 </>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
