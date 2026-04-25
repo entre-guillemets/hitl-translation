@@ -182,6 +182,13 @@ export const AppSidebar: React.FC = () => {
                           </Link>
                         </SidebarMenuSubButton>
                       </SidebarMenuSubItem>
+                      <SidebarMenuSubItem>
+                        <SidebarMenuSubButton asChild isActive={location.pathname === '/persona-transcreation'}>
+                          <Link to="/persona-transcreation">
+                            <span>Persona Transcreation</span>
+                          </Link>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
                     </SidebarMenuSub>
                   </CollapsibleContent>
                 </SidebarMenuItem>

@@ -68,7 +68,7 @@ class CleanMultiEngineService:
             }
         }
 
-        # Register Claude transcreation engine for whichever pairs have a loaded profile
+        # Register Gemini transcreation engine for whichever pairs have a loaded profile
         if transcreation_service and transcreation_service.is_available():
             supported = transcreation_service.supported_pairs()
             if supported:

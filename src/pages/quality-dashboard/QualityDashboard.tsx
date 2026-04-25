@@ -994,6 +994,7 @@ const QualityDashboard: React.FC = () => {
 
   // Controlled tab state (prevents tab resets on data refetch)
   const [activeTab, setActiveTab] = useState<string>('quality');
+  const [evalMode, setEvalMode] = useState<'translation' | 'multi-agent'>('translation');
 
   // Global multiselect filters — pending = what's in the dropdowns, selected = what's applied
   const [selectedLanguagePairs, setSelectedLanguagePairs] = useState<string[]>([]);
@@ -1504,6 +1505,32 @@ const QualityDashboard: React.FC = () => {
           <TabsTrigger value="eval-quality">Eval Quality</TabsTrigger>
           <TabsTrigger value="benchmark">Benchmark</TabsTrigger>
         </TabsList>
+
+        {/* ── Evaluation mode toggle ─────────────────────────────────────── */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">Eval mode:</span>
+          <div className="flex rounded-md border overflow-hidden text-xs">
+            <button
+              type="button"
+              onClick={() => setEvalMode("translation")}
+              className={`px-3 py-1.5 transition-colors ${evalMode === "translation" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+            >
+              Translation Evals
+            </button>
+            <button
+              type="button"
+              onClick={() => setEvalMode("multi-agent")}
+              className={`px-3 py-1.5 border-l transition-colors ${evalMode === "multi-agent" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+            >
+              Multi-Agent Evals
+            </button>
+          </div>
+          {evalMode === "multi-agent" && (
+            <span className="text-xs text-muted-foreground">
+              Showing brand voice / cultural fitness scores. BLEU/TER are not shown — surface metrics penalise intentional creative adaptation.
+            </span>
+          )}
+        </div>
 
         {/* ── Global filters bar ─────────────────────────────────────────── */}
         <div className="flex flex-wrap items-center gap-3 px-3 py-2.5 rounded-lg border bg-muted/30">

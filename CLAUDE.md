@@ -51,7 +51,7 @@ changing evaluation logic, metric selection, or pipeline sequencing.
 | OPUS_TC_BIG_EN_FR | Helsinki-NLP/opus-mt-tc-big-en-fr | EN→FR (large) |
 | T5_BASE | google-t5/t5-base | multilingual |
 | NLLB_200 | facebook/nllb-200-distilled-600M | 200 languages |
-| GEMINI | Google Gemini API | transcreation |
+| GEMINI | Google Gemini API (`gemini-3.1-flash-lite-preview` for SW pairs) | transcreation |
 
 COMET, COMETKiwi, Manga OCR, and Whisper are managed via HuggingFace cache.
 

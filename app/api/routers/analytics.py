@@ -1248,11 +1248,11 @@ async def get_post_edit_metrics(
                     target_lang = metric.translationRequest.targetLanguages[0] if metric.translationRequest.targetLanguages else "unknown"
 
 
-                pair = f"{source_lang}-{target_lang}"
-                
-                if language_pair != "all" and pair.lower() != language_pair.lower():
+                pair = pair_from_db_langs(str(source_lang), str(target_lang))
+
+                if language_pair != "all" and pair != normalize_lang_pair(language_pair):
                     continue
-                
+
                 if pair not in language_pair_metrics:
                     language_pair_metrics[pair] = {
                         "languagePair": pair,

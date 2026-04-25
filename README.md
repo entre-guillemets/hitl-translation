@@ -1,10 +1,21 @@
-# MT Evals — Human-in-the-Loop Machine Translation Evaluation Platform
+# MT Evals — Agentic Multilingual Localization Platform
 
 A research-grade, full-stack platform for professional MT quality assurance across English, Japanese, and French. MT Evals implements an 8-stage HITL evaluation pipeline covering multimodal source ingestion, pre-translation review, quality estimation, human post-editing with error annotation, automated QA metrics, and multi-dimensional insights dashboards.
 
 ![Quality Dashboard Screenshot](https://github.com/user-attachments/assets/c6b88707-f57e-441f-a6d0-7efdb87c86b4)
 
 This is not a demo or proof-of-concept. The platform is used for genuine multilingual MT evaluation where the author serves as the qualified human annotator for all three production languages — a deliberate methodological choice that enables authentic HITL evaluation rather than synthetic ground truth.
+
+**Stage-by-stage visual walkthrough with screenshots:** [docs/walkthrough.md](docs/walkthrough.md)
+
+---
+
+## How This Maps to Production-Scale Localization Infrastructure
+
+- **Pre-review triage as cost control** (Stage 4): COMETKiwi scores every segment reference-free before any human time is allocated. High-confidence segments advance automatically; low-confidence segments surface for priority review. This is the mechanism that makes HITL economically viable at volume — reviewer attention is a finite, expensive resource.
+- **Brand governance as a shared service** (Advertiser Profiles + Stage 5): Tone, register, key terms, taboo terms, and policy constraints are registered once per advertiser and enforced automatically across every request. The persona fan-out layer generates audience-specific variants with a measurable differentiation score — ensuring outputs are meaningfully distinct across segments, not just synonymous.
+- **Quality accountability with longitudinal signal** (Stage 6): BLEU, TER, ChrF, and COMET are computed per-segment and aggregated per-job, building a model leaderboard over time. TER directly measures post-editing effort — the metric that closes the loop between MT output quality and actual human cost.
+- **Calibration against human judgment** (Stage 6b): An LLM-as-judge layer evaluates each hypothesis against source and post-edit independently of the embedding-based metrics. Segments where COMET and the LLM judge disagree by more than 0.25 are automatically flagged — surfacing the cases where automated metrics are unreliable and human review is non-negotiable.
 
 ---
 
@@ -57,8 +68,8 @@ All metrics calculated per-segment and aggregated per-job. All statistics (p-val
 ### Stage 6b — LLM-as-Judge Calibration
 After QA metrics are calculated, Gemini evaluates each MT hypothesis against the source and human post-edit as a calibration layer. Per-engine scores: adequacy (0–1), fluency (0–1), confidence (0–1), and a natural-language rationale. COMET disagreement (`|comet_normalized − adequacy_normalized|`) is stored per judgment; values >0.25 indicate meaningful disagreement between the embedding-based metric and the LLM judge. The disagreements endpoint ranks segments by this score for targeted human review. Batch evaluation throttles at ~12 RPM to stay within Gemini free-tier limits.
 
-### Stage 6.5 — Agentic Analysis Layer - WORK IN PROGRESS
-Runs automatically after Stage 6 completes:
+### Stage 6.5 — Agentic Analysis Layer *(in active development)*
+The data model and API endpoints are in place; this layer runs automatically after Stage 6 completes.
 - **Glossary reuse reporter**: Checks whether MT used correct target terms from the project glossary
 - **DNT compliance checker**: Verifies protected strings were preserved in translation
 - **TM leverage calculator**: Fuzzy match percentage against existing TM
@@ -350,12 +361,6 @@ sudo apt-get install ffmpeg  # Ubuntu
 python -m prisma db push   # re-apply schema
 python -m prisma generate  # regenerate client after schema edits
 ```
-
----
-
-## Visual Walkthrough
-
-Stage-by-stage screenshots with annotation: [docs/walkthrough.md](docs/walkthrough.md)
 
 ---
 

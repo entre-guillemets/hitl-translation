@@ -29,8 +29,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { Building2, Edit, Plus, Trash2 } from "lucide-react";
+import { Building2, ChevronDown, ChevronRight, Edit, Plus, Trash2, Users } from "lucide-react";
 import React, { useEffect, useState } from "react";
+import type { Persona, PersonaCreate } from "../../services/api";
+import { personaCrudService } from "../../services/api";
 import toast from "react-hot-toast";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8001";
@@ -99,6 +101,199 @@ const BLANK_FORM = {
   keyTerms: "",
   tabooTerms: "",
   policyNotes: "",
+};
+
+// ---------------------------------------------------------------------------
+// Persona Panel — collapsible sub-section per profile card
+// ---------------------------------------------------------------------------
+
+const BLANK_PERSONA: PersonaCreate = {
+  advertiserProfileId: "",
+  name: "",
+  psychographicDescription: "",
+  messagingPriorities: [],
+  toneOverride: null,
+  registerOverride: null,
+};
+
+const PersonaPanel: React.FC<{ profileId: string }> = ({ profileId }) => {
+  const [expanded, setExpanded] = useState(false);
+  const [personas, setPersonas] = useState<Persona[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [form, setForm] = useState<PersonaCreate>({ ...BLANK_PERSONA, advertiserProfileId: profileId });
+  const [prioritiesRaw, setPrioritiesRaw] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    const data = await personaCrudService.list(profileId);
+    setPersonas(data);
+    setLoaded(true);
+  };
+
+  useEffect(() => {
+    if (expanded && !loaded) load();
+  }, [expanded]);
+
+  const handleCreate = async () => {
+    if (!form.name.trim() || !form.psychographicDescription.trim()) {
+      toast.error("Name and description are required.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await personaCrudService.create({
+        ...form,
+        messagingPriorities: prioritiesRaw.split(",").map(s => s.trim()).filter(Boolean),
+      });
+      toast.success(`Persona "${form.name}" created.`);
+      setDialogOpen(false);
+      setForm({ ...BLANK_PERSONA, advertiserProfileId: profileId });
+      setPrioritiesRaw("");
+      load();
+    } catch {
+      toast.error("Failed to create persona.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`Delete persona "${name}"? This will remove all associated transcreations.`)) return;
+    try {
+      await personaCrudService.delete(id);
+      toast.success(`Persona "${name}" deleted.`);
+      load();
+    } catch {
+      toast.error("Failed to delete persona.");
+    }
+  };
+
+  return (
+    <div className="border-t pt-3 mt-3">
+      <button
+        type="button"
+        onClick={() => setExpanded(e => !e)}
+        className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors w-full"
+      >
+        {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        <Users className="h-3.5 w-3.5" />
+        Personas {loaded ? `(${personas.length})` : ""}
+      </button>
+
+      {expanded && (
+        <div className="mt-3 space-y-2">
+          {personas.length === 0 && (
+            <p className="text-xs text-muted-foreground">No personas yet. Add one to enable persona transcreation.</p>
+          )}
+          {personas.map(p => (
+            <div key={p.id} className="flex items-start justify-between gap-2 rounded-md border bg-muted/20 px-3 py-2">
+              <div className="min-w-0">
+                <p className="text-xs font-medium truncate">{p.name}</p>
+                <p className="text-xs text-muted-foreground leading-snug mt-0.5 line-clamp-2">
+                  {p.psychographicDescription}
+                </p>
+                {p.messagingPriorities.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {p.messagingPriorities.map(mp => (
+                      <Badge key={mp} variant="secondary" className="text-xs px-1.5 py-0">{mp}</Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="shrink-0 text-destructive hover:text-destructive h-7 w-7"
+                onClick={() => handleDelete(p.id, p.name)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ))}
+
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7 mt-1">
+                <Plus className="h-3.5 w-3.5" />
+                Add Persona
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Add Persona</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 pt-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Persona Name</Label>
+                  <Input
+                    placeholder="e.g. Upgrader, Switcher, General"
+                    value={form.name}
+                    onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Psychographic Description</Label>
+                  <Textarea
+                    placeholder="Who is this person and what motivates them?"
+                    rows={3}
+                    value={form.psychographicDescription}
+                    onChange={e => setForm(f => ({ ...f, psychographicDescription: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Messaging Priorities <span className="text-muted-foreground font-normal">(comma-separated)</span></Label>
+                  <Input
+                    placeholder="emphasize ROI, address switching cost"
+                    value={prioritiesRaw}
+                    onChange={e => setPrioritiesRaw(e.target.value)}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Tone Override <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                    <Select
+                      value={form.toneOverride ?? "__none__"}
+                      onValueChange={v => setForm(f => ({ ...f, toneOverride: v === "__none__" ? null : v }))}
+                    >
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Use profile default" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Profile default</SelectItem>
+                        {(Object.keys(BRAND_TONE_LABELS) as BrandTone[]).map(t => (
+                          <SelectItem key={t} value={t}>{BRAND_TONE_LABELS[t]}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Register Override <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                    <Select
+                      value={form.registerOverride ?? "__none__"}
+                      onValueChange={v => setForm(f => ({ ...f, registerOverride: v === "__none__" ? null : v }))}
+                    >
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Use profile default" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Profile default</SelectItem>
+                        {(Object.keys(REGISTER_LABELS) as AdRegister[]).map(r => (
+                          <SelectItem key={r} value={r}>{REGISTER_LABELS[r]}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 pt-1">
+                  <Button variant="outline" size="sm" onClick={() => setDialogOpen(false)}>Cancel</Button>
+                  <Button size="sm" onClick={handleCreate} disabled={saving}>
+                    {saving ? "Saving…" : "Add Persona"}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+      )}
+    </div>
+  );
 };
 
 // ---------------------------------------------------------------------------
@@ -506,6 +701,7 @@ export const AdvertiserProfiles: React.FC = () => {
                     <p className="text-xs text-muted-foreground leading-relaxed">{p.policyNotes}</p>
                   </div>
                 )}
+                <PersonaPanel profileId={p.id} />
               </CardContent>
             </Card>
           ))}

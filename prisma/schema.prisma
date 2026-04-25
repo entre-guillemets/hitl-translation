@@ -81,6 +81,7 @@ model TranslationString {
   modelOutputs             ModelOutput[]
   qualityMetrics           QualityMetrics[]
   llmJudgments             LLMJudgment[]
+  personaTranscreations    PersonaTranscreation[]
   translationRequest       TranslationRequest @relation(fields: [translationRequestId], references: [id], onDelete: Cascade)
 
   @@index([status]) // 💡 Performance index on frequently filtered column
@@ -158,6 +159,7 @@ model TranslationMemory {
   originalRequestId String?
   approvedBy        String?
   usageCount        Int           @default(0)
+  personaId         String?       // null = profile-level TM; non-null = persona-scoped
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
@@ -410,9 +412,52 @@ model AdvertiserProfile {
   updatedAt     DateTime          @updatedAt
 
   translationRequests TranslationRequest[]
+  personas            Persona[]
 
   @@index([brandName])
   @@map("advertiser_profiles")
+}
+// ----------------------------------------------------------------------
+model Persona {
+  id                      String                 @id @default(cuid())
+  name                    String                 // e.g. "Upgrader", "Switcher", "General"
+  psychographicDescription String                // who this person is and what motivates them
+  messagingPriorities     String[]               // e.g. ["emphasize ROI", "address switching cost"]
+  toneOverride            BrandTone?             // optional: overrides AdvertiserProfile.brandTone
+  registerOverride        AdRegister?            // optional: overrides AdvertiserProfile.adRegister
+  advertiserProfileId     String
+  advertiserProfile       AdvertiserProfile      @relation(fields: [advertiserProfileId], references: [id], onDelete: Cascade)
+  personaTranscreations   PersonaTranscreation[]
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+
+  @@index([advertiserProfileId])
+  @@map("personas")
+}
+// ----------------------------------------------------------------------
+model PersonaTranscreation {
+  id                   String                    @id @default(cuid())
+  translationStringId  String
+  translationString    TranslationString         @relation(fields: [translationStringId], references: [id], onDelete: Cascade)
+  personaId            String
+  persona              Persona                   @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  targetLanguage       String
+  outputText           String?                   // null until first attempt completes
+  status               PersonaTranscreationStatus @default(PENDING)
+  brandVoiceScore      Float?                    // 0-5
+  culturalFitnessScore Float?                    // 0-5
+  tabooViolation       Boolean?
+  keyTermMissing       Boolean?
+  differentiationScore Float?                    // avg pairwise cosine similarity vs other personas (lower = more distinct)
+  refinementAttempts   Int                       @default(0)
+  agentIterations      Json?                     // [{attempt, feedback, brand_voice_before, brand_voice_after, cultural_fitness_after, text}]
+  rationale            String?
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+
+  @@index([translationStringId])
+  @@index([personaId])
+  @@map("persona_transcreations")
 }
 // ----------------------------------------------------------------------
 enum RequestType {
@@ -420,6 +465,15 @@ enum RequestType {
   MULTI_ENGINE
   WMT_BENCHMARK
   PIVOT_TRANSLATION
+  PERSONA_TRANSCREATION
+}
+
+enum PersonaTranscreationStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  NEEDS_REVIEW
+  FAILED
 }
 
 enum SourceLanguage {
