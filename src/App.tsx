@@ -6,9 +6,8 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { ThemeProvider } from './components/theme-provider';
 import { SidebarInset, SidebarProvider, SidebarTrigger, useSidebar } from './components/ui/sidebar';
 import './index.css';
-import { AdvertiserProfiles } from './pages/advertiser-profiles/AdvertiserProfiles';
-import { PersonaTranscreation } from './pages/persona-transcreation/PersonaTranscreation';
 import { CommandCenter } from './pages/command-center/CommandCenter';
+import { StyleGuides } from './pages/style-guides/StyleGuides';
 import QualityDashboard from './pages/quality-dashboard/QualityDashboard';
 import QualityPrediction from './pages/quality-prediction/QualityPrediction';
 import { RequestTranslation } from './pages/request-translation/RequestTranslation';
@@ -43,8 +42,7 @@ function AppContent() {
               <Route path="/quality-dashboard" element={<QualityDashboard />} />
               <Route path="/rlhf" element={<RLHFDashboard />} />
               <Route path="/command-center" element={<CommandCenter />} />
-              <Route path="/advertiser-profiles" element={<AdvertiserProfiles />} />
-              <Route path="/persona-transcreation" element={<PersonaTranscreation />} />
+              <Route path="/style-guides" element={<StyleGuides />} />
             </Routes>
           </ErrorBoundary>
           <Toaster />

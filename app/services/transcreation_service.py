@@ -63,159 +63,8 @@ class TranscreationService:
     def supported_pairs(self) -> list[str]:
         return list(self._profiles.keys())
 
-    def _build_profile_system_prompt(self, profile, source_lang: str, target_lang: str) -> str:
-        """Build a dynamic Gemini system prompt from an AdvertiserProfile."""
-        tone_descriptions = {
-            "AUTHORITATIVE": "authoritative and confident — speak with expertise and certainty",
-            "PLAYFUL": "playful and fun — use wordplay, light humour, and energy",
-            "LUXURY": "elevated and understated — suggest quality through restraint, not hyperbole",
-            "APPROACHABLE": "warm, friendly, and accessible — speak like a trusted friend",
-            "TECHNICAL": "precise and informative — prioritise clarity and accuracy over flair",
-            "BOLD": "bold and direct — short sentences, strong verbs, no hedging",
-        }
-        register_descriptions = {
-            "FORMAL": "Use formal register throughout. Avoid contractions and colloquialisms.",
-            "INFORMAL": "Use informal, conversational register. Contractions and natural speech are appropriate.",
-            "NEUTRAL": "Use neutral register — neither overly formal nor casual.",
-        }
-
-        tone_str = tone_descriptions.get(str(profile.brandTone), str(profile.brandTone).lower())
-        register_str = register_descriptions.get(str(profile.adRegister), "")
-        key_terms = list(profile.keyTerms or [])
-        taboo_terms = list(profile.tabooTerms or [])
-
-        lines = [
-            f"You are a transcreation specialist adapting {source_lang.upper()} ad copy into {target_lang.upper()} "
-            f"for {profile.brandName}.",
-            "",
-            "BRAND IDENTITY:",
-            f"- Tone: {tone_str}",
-            f"- {register_str}",
-        ]
-        if key_terms:
-            lines.append(f"- Key terms to preserve or adapt appropriately: {', '.join(key_terms)}")
-        if taboo_terms:
-            lines.append(f"- Terms to NEVER use in output: {', '.join(taboo_terms)}")
-        if profile.policyNotes:
-            lines.append(f"- Policy constraints: {profile.policyNotes}")
-        lines += [
-            "",
-            "Your goal is cultural and emotional adaptation, not word-for-word translation. "
-            f"Every output must feel native to the target market while unmistakably sounding like {profile.brandName}.",
-            "",
-            "Do not add explanations, alternative options, or any text other than the transcreated output.",
-        ]
-        return "\n".join(lines)
-
-    async def transcreate_with_profile(
-        self,
-        text: str,
-        source_lang: str,
-        target_lang: str,
-        profile,
-    ) -> str:
-        """Transcreate using a dynamic system prompt built from an AdvertiserProfile.
-
-        Falls back to the static YAML golden records for few-shot examples if a
-        profile exists for this language pair, so prior examples still help the model.
-        If no YAML profile exists for the pair, runs with the dynamic prompt alone.
-        """
-        if not self._client:
-            raise RuntimeError("Gemini client not initialised — check GEMINI_API_KEY.")
-
-        pair = normalize_lang_pair(f"{source_lang}-{target_lang}")
-        yaml_profile = self._profiles.get(pair)  # may be None — that's OK
-
-        system_prompt = self._build_profile_system_prompt(profile, source_lang, target_lang)
-        golden_records = (yaml_profile or {}).get("golden_records") or []
-        model = (yaml_profile or {}).get("model", DEFAULT_MODEL)
-
-        contents: list[types.Content] = []
-        for record in golden_records:
-            src = record.get("source", "").strip()
-            tgt = record.get("target", "").strip()
-            if src and tgt:
-                contents.append(types.Content(role="user", parts=[types.Part(text=src)]))
-                contents.append(types.Content(role="model", parts=[types.Part(text=tgt)]))
-
-        contents.append(types.Content(role="user", parts=[types.Part(text=text.strip())]))
-
-        logger.info(
-            f"TranscreationService [profile={profile.brandName}]: calling {model} for '{pair}' "
-            f"({len(golden_records)} golden records, {len(text)} chars)"
-        )
-        await asyncio.sleep(4)
-        response = self._client.models.generate_content(
-            model=model,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                max_output_tokens=1024,
-            ),
-        )
-        result = response.text.strip()
-        logger.info(f"TranscreationService [profile={profile.brandName}]: received {len(result)} chars for '{pair}'.")
-        return result
-
-    async def transcreate_with_corrective_feedback(
-        self,
-        text: str,
-        source_lang: str,
-        target_lang: str,
-        profile,
-        feedback: str,
-        prior_translation: str,
-    ) -> str:
-        """Re-transcreate using a corrective feedback turn.
-
-        Builds the same few-shot context as transcreate_with_profile, then
-        appends the prior translation as a model turn followed by a user
-        correction turn so Gemini can incorporate the feedback on the next try.
-        """
-        if not self._client:
-            raise RuntimeError("Gemini client not initialised — check GEMINI_API_KEY.")
-
-        pair = normalize_lang_pair(f"{source_lang}-{target_lang}")
-        yaml_profile = self._profiles.get(pair)
-
-        system_prompt = self._build_profile_system_prompt(profile, source_lang, target_lang)
-        golden_records = (yaml_profile or {}).get("golden_records") or []
-        model = (yaml_profile or {}).get("model", DEFAULT_MODEL)
-
-        contents: list[types.Content] = []
-        for record in golden_records:
-            src = record.get("source", "").strip()
-            tgt = record.get("target", "").strip()
-            if src and tgt:
-                contents.append(types.Content(role="user", parts=[types.Part(text=src)]))
-                contents.append(types.Content(role="model", parts=[types.Part(text=tgt)]))
-
-        # Original source → prior model output → corrective user turn
-        contents.append(types.Content(role="user", parts=[types.Part(text=text.strip())]))
-        contents.append(types.Content(role="model", parts=[types.Part(text=prior_translation.strip())]))
-        contents.append(types.Content(
-            role="user",
-            parts=[types.Part(text=f"That translation needs improvement. {feedback} Please provide a revised version.")],
-        ))
-
-        logger.info(
-            f"TranscreationService [profile={profile.brandName}]: corrective feedback call "
-            f"to {model} for '{pair}' ({len(text)} chars)"
-        )
-        await asyncio.sleep(4)
-        response = self._client.models.generate_content(
-            model=model,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                max_output_tokens=1024,
-            ),
-        )
-        result = response.text.strip()
-        logger.info(f"TranscreationService [profile={profile.brandName}]: corrective result {len(result)} chars for '{pair}'.")
-        return result
-
     async def transcreate(self, text: str, source_lang: str, target_lang: str) -> str:
+        """Transcreate using the static YAML profile for this language pair."""
         if not self._client:
             raise RuntimeError("Gemini client not initialised — check GEMINI_API_KEY.")
 
@@ -228,7 +77,6 @@ class TranscreationService:
         golden_records = profile.get("golden_records") or []
         model = profile.get("model", DEFAULT_MODEL)
 
-        # Build few-shot contents: alternating user/model turns from golden records
         contents: list[types.Content] = []
         for record in golden_records:
             src = record.get("source", "").strip()
@@ -237,13 +85,9 @@ class TranscreationService:
                 contents.append(types.Content(role="user", parts=[types.Part(text=src)]))
                 contents.append(types.Content(role="model", parts=[types.Part(text=tgt)]))
 
-        # Append the actual request
         contents.append(types.Content(role="user", parts=[types.Part(text=text.strip())]))
 
-        logger.info(
-            f"TranscreationService: calling {model} for '{pair}' "
-            f"({len(golden_records)} golden records, {len(text)} chars)"
-        )
+        logger.info(f"TranscreationService: calling {model} for '{pair}' ({len(golden_records)} golden records)")
         await asyncio.sleep(4)
         response = self._client.models.generate_content(
             model=model,
@@ -253,7 +97,106 @@ class TranscreationService:
                 max_output_tokens=1024,
             ),
         )
-
         result = response.text.strip()
         logger.info(f"TranscreationService: received {len(result)} chars for '{pair}'.")
         return result
+
+    async def transcreate_with_style_guide(
+        self,
+        text: str,
+        source_lang: str,
+        target_lang: str,
+        style_guide,
+    ) -> str:
+        """Transcreate using a StyleGuide ORM object as the constraint source.
+
+        Retrieves relevant required/forbidden terms and rules from the guide,
+        injects them as a structured system prompt, and uses the YAML golden
+        records for the pair (if they exist) as few-shot examples.
+        """
+        if not self._client:
+            raise RuntimeError("Gemini client not initialised — check GEMINI_API_KEY.")
+
+        pair = normalize_lang_pair(f"{source_lang}-{target_lang}")
+        yaml_profile = self._profiles.get(pair)
+        model = (yaml_profile or {}).get("model", DEFAULT_MODEL)
+        golden_records = (yaml_profile or {}).get("golden_records") or []
+
+        system_prompt = self._build_style_guide_prompt(style_guide, source_lang, target_lang)
+
+        contents: list[types.Content] = []
+        for record in golden_records:
+            src = record.get("source", "").strip()
+            tgt = record.get("target", "").strip()
+            if src and tgt:
+                contents.append(types.Content(role="user", parts=[types.Part(text=src)]))
+                contents.append(types.Content(role="model", parts=[types.Part(text=tgt)]))
+
+        contents.append(types.Content(role="user", parts=[types.Part(text=text.strip())]))
+
+        logger.info(f"TranscreationService [style_guide={style_guide.name}]: calling {model} for '{pair}'")
+        await asyncio.sleep(4)
+        response = self._client.models.generate_content(
+            model=model,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                max_output_tokens=1024,
+            ),
+        )
+        result = response.text.strip()
+        logger.info(f"TranscreationService [style_guide={style_guide.name}]: received {len(result)} chars.")
+        return result
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _build_style_guide_prompt(self, guide, source_lang: str, target_lang: str) -> str:
+        register_descriptions = {
+            "FORMAL": "Use formal register throughout. Avoid contractions and colloquialisms.",
+            "INFORMAL": "Use informal, conversational register. Contractions and natural speech are appropriate.",
+            "NEUTRAL": "Use neutral register — neither overly formal nor casual.",
+            "TECHNICAL": "Use precise technical language. Prioritise accuracy and clarity over style.",
+            "COLLOQUIAL": "Use natural colloquial language as a native speaker would in casual conversation.",
+        }
+        tone_descriptions = {
+            "AUTHORITATIVE": "authoritative and confident — speak with expertise and certainty",
+            "PLAYFUL": "playful and light — use energy and approachable language",
+            "APPROACHABLE": "warm, friendly, and accessible",
+            "BOLD": "bold and direct — short sentences, strong verbs, no hedging",
+            "WARM": "warm and empathetic — prioritise connection over information",
+            "PRECISE": "measured and precise — every word earns its place",
+        }
+
+        register_str = register_descriptions.get(str(guide.styleRegister), "")
+        tone_str = tone_descriptions.get(str(guide.tone), "") if guide.tone else ""
+
+        required_terms = [t for t in (guide.terms or []) if str(t.type) == "REQUIRED"]
+        forbidden_terms = [t for t in (guide.terms or []) if str(t.type) == "FORBIDDEN"]
+
+        lines = [
+            f"You are a translation specialist adapting {source_lang.upper()} text into {target_lang.upper()}.",
+            f"Apply the style guide: {guide.name}.",
+            "",
+            "STYLE CONSTRAINTS:",
+            f"- Register: {register_str}",
+        ]
+        if tone_str:
+            lines.append(f"- Tone: {tone_str}")
+        if guide.rules:
+            lines.append("- Rules:")
+            for rule in guide.rules:
+                lines.append(f"  • {rule}")
+        if required_terms:
+            terms_str = ", ".join(
+                f"{t.term}" + (f" → {t.targetTerm}" if t.targetTerm else "") for t in required_terms
+            )
+            lines.append(f"- Required terms (must appear in output): {terms_str}")
+        if forbidden_terms:
+            lines.append(f"- Forbidden terms (must NOT appear): {', '.join(t.term for t in forbidden_terms)}")
+        lines += [
+            "",
+            "Do not add explanations, alternatives, or any text other than the translation.",
+        ]
+        return "\n".join(lines)

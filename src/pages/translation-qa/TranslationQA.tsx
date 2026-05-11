@@ -107,6 +107,8 @@ const getEngineDisplayName = (engine: string) => {
     'opus_enhanced': 'OPUS Enhanced',
     't5_versatile': 'mT5 Versatile',
     'nllb_multilingual': 'NLLB Multilingual',
+    'translate_gemma': 'TranslateGemma 12B',
+    'gemini_transcreation': 'Gemini Transcreation',
   };
   return names[engine] || engine;
 };
@@ -117,11 +119,13 @@ const getEngineIcon = (engine: string) => {
     'elan_specialist': '🎯',
     'mt5_multilingual': '🌐',
     'opus_enhanced': '⭐',
-    'elan_quality': '🎯', 
+    'elan_quality': '🎯',
     't5_versatile': '🤖',
     'nllb_multilingual': '🌍',
+    'translate_gemma': '💎',
+    'gemini_transcreation': '✨',
   };
-  return icons[engine] || '⚙️'; // Default icon
+  return icons[engine] || '⚙️';
 };
 
 const ModelOutputCard: React.FC<{

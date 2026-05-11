@@ -82,42 +82,6 @@ CONFIDENCE (0–1): How certain are you in this assessment given the available c
 Respond with valid JSON only, no markdown fences:
 {{"adequacy": <float 0-4>, "fluency": <float 0-4>, "confidence": <float 0-1>, "rationale": "<1-2 sentences>"}}"""
 
-_BRAND_VOICE_PROMPT_TEMPLATE = """\
-You are an expert advertising copywriter and localization specialist evaluating \
-transcreated ad copy for brand consistency and cultural fit.
-
-ADVERTISER: {brand_name}
-BRAND TONE: {brand_tone}
-REGISTER: {register}
-TARGET MARKETS: {target_markets}
-KEY TERMS (must be preserved or adapted appropriately): {key_terms}
-TABOO TERMS (must NOT appear in output): {taboo_terms}
-{policy_notes_block}
-Source ad copy ({source_lang}): {source}
-Transcreated output ({target_lang}): {hypothesis}
-
-Score on two advertising-specific dimensions:
-
-BRAND_VOICE (0–5): Does the output faithfully preserve the advertiser's brand voice?
-  5 = Perfectly on-brand — tone, register, and personality are fully preserved
-  4 = Mostly on-brand — minor register or tone drift
-  3 = Partially on-brand — noticeable drift but core identity intact
-  2 = Off-brand — tone or register significantly mismatched
-  1 = Severely off-brand — output contradicts the brand identity
-  0 = Completely wrong brand voice
-
-CULTURAL_FITNESS (0–5): Is the output culturally appropriate and resonant for the target market?
-  5 = Culturally excellent — natural, idiomatic, locally resonant
-  4 = Good fit — minor awkwardness but culturally appropriate
-  3 = Acceptable — functional but misses local nuance
-  2 = Poor fit — literal or culturally tone-deaf
-  1 = Culturally inappropriate — may confuse or offend the target audience
-  0 = Unacceptable for the target market
-
-Also flag any TABOO_VIOLATION (true/false) and KEY_TERM_MISSING (true/false).
-
-Respond with valid JSON only, no markdown fences:
-{{"brand_voice": <float 0-5>, "cultural_fitness": <float 0-5>, "taboo_violation": <bool>, "key_term_missing": <bool>, "rationale": "<2-3 sentences covering both dimensions>"}}"""
 
 
 def _compute_comet_disagreement(comet_score: Optional[float], adequacy: float) -> Optional[float]:
@@ -218,45 +182,52 @@ class LLMJudgeService:
     def compute_disagreement(self, comet_score: Optional[float], adequacy: float) -> Optional[float]:
         return _compute_comet_disagreement(comet_score, adequacy)
 
-    async def evaluate_brand_voice(
+    async def evaluate_constraint_score(
         self,
         source: str,
         hypothesis: str,
         source_lang: str,
         target_lang: str,
-        brand_name: str,
-        brand_tone: str,
-        register: str,
-        target_markets: list,
-        key_terms: list,
-        taboo_terms: list,
-        policy_notes: Optional[str] = None,
+        style_guide,
         max_retries: int = 3,
     ) -> dict:
-        """Score ad copy transcreation against an AdvertiserProfile.
+        """Score a translation against a StyleGuide's constraint set.
 
-        Returns brand_voice (0–5), cultural_fitness (0–5), taboo_violation (bool),
-        key_term_missing (bool), and a rationale string.
+        Returns constraint_score (0–5), required_terms_hit (bool),
+        forbidden_terms_found (bool), and a rationale string.
         """
         if not self._client:
             raise RuntimeError("LLM judge not available — check GEMINI_API_KEY.")
 
-        policy_notes_block = (
-            f"POLICY NOTES: {policy_notes}\n" if policy_notes else ""
-        )
-        prompt = _BRAND_VOICE_PROMPT_TEMPLATE.format(
-            brand_name=brand_name,
-            brand_tone=brand_tone,
-            register=register,
-            target_markets=", ".join(target_markets) if target_markets else "general",
-            key_terms=", ".join(key_terms) if key_terms else "none specified",
-            taboo_terms=", ".join(taboo_terms) if taboo_terms else "none specified",
-            policy_notes_block=policy_notes_block,
-            source_lang=source_lang.upper(),
-            target_lang=target_lang.upper(),
-            source=source,
-            hypothesis=hypothesis,
-        )
+        required_terms = [t.term for t in (style_guide.terms or []) if str(t.type) == "REQUIRED"]
+        forbidden_terms = [t.term for t in (style_guide.terms or []) if str(t.type) == "FORBIDDEN"]
+        rules_block = "\n".join(f"  - {r}" for r in (style_guide.rules or []))
+
+        prompt = f"""You are a translation quality evaluator. Score the following translation against a style guide.
+
+STYLE GUIDE: {style_guide.name}
+Register: {style_guide.styleRegister}
+Tone: {style_guide.tone or "not specified"}
+Rules:
+{rules_block or "  (none)"}
+Required terms (must appear): {", ".join(required_terms) or "none"}
+Forbidden terms (must not appear): {", ".join(forbidden_terms) or "none"}
+
+Source ({source_lang.upper()}): {source}
+Translation ({target_lang.upper()}): {hypothesis}
+
+CONSTRAINT_SCORE (0–5): How well does the translation follow the style guide constraints?
+  5 = Fully compliant — all rules followed, required terms present, no forbidden terms
+  4 = Mostly compliant — minor rule drift
+  3 = Partial compliance — some rules followed, some violated
+  2 = Poor compliance — significant violations
+  1 = Minimal compliance
+  0 = Non-compliant
+
+Also flag REQUIRED_TERMS_HIT (true if all required terms appear) and FORBIDDEN_TERMS_FOUND (true if any forbidden term appears).
+
+Respond with valid JSON only, no markdown fences:
+{{"constraint_score": <float 0-5>, "required_terms_hit": <bool>, "forbidden_terms_found": <bool>, "rationale": "<2-3 sentences>"}}"""
 
         last_exc: Exception = RuntimeError("No attempts made")
         for attempt in range(max_retries):
@@ -267,7 +238,7 @@ class LLMJudgeService:
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         temperature=0.1,
-                        max_output_tokens=512,
+                        max_output_tokens=256,
                     ),
                 )
                 text = response.text.strip()
@@ -275,10 +246,9 @@ class LLMJudgeService:
                 text = re.sub(r"\s*```$", "", text)
                 parsed = json.loads(text)
                 return {
-                    "brand_voice": float(parsed["brand_voice"]),
-                    "cultural_fitness": float(parsed["cultural_fitness"]),
-                    "taboo_violation": bool(parsed.get("taboo_violation", False)),
-                    "key_term_missing": bool(parsed.get("key_term_missing", False)),
+                    "constraint_score": float(parsed["constraint_score"]),
+                    "required_terms_hit": bool(parsed.get("required_terms_hit", True)),
+                    "forbidden_terms_found": bool(parsed.get("forbidden_terms_found", False)),
                     "rationale": parsed.get("rationale", ""),
                 }
             except Exception as exc:
@@ -287,7 +257,7 @@ class LLMJudgeService:
                 if "429" in exc_str or "RESOURCE_EXHAUSTED" in exc_str:
                     delay_match = re.search(r"retry in (\d+(?:\.\d+)?)s", exc_str)
                     wait = float(delay_match.group(1)) if delay_match else (30 * (attempt + 1))
-                    logger.warning(f"Gemini 429 on brand-voice attempt {attempt + 1}/{max_retries} — waiting {wait:.0f}s")
+                    logger.warning(f"Gemini 429 on constraint-score attempt {attempt + 1}/{max_retries} — waiting {wait:.0f}s")
                     await asyncio.sleep(wait)
                 else:
                     raise

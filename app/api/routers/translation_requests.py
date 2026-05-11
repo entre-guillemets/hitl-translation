@@ -160,8 +160,9 @@ async def create_translation_request(
             "status": "IN_PROGRESS",
             "requestType": "SINGLE_ENGINE",
         }
-        if getattr(request_data, "advertiserProfileId", None):
-            db_create_data["advertiserProfileId"] = request_data.advertiserProfileId
+        _guide_ids = getattr(request_data, "styleGuideIds", None) or []
+        if _guide_ids:
+            db_create_data["styleGuides"] = {"connect": [{"id": gid} for gid in _guide_ids]}
 
         db_request = await prisma.translationrequest.create(data=db_create_data)
 
@@ -291,11 +292,14 @@ async def create_multi_engine_translation_request(
         from prisma.enums import MTModel
         from prisma import Json
 
-        # Fetch AdvertiserProfile if provided (used for Gemini brand-voice generation)
-        advertiser_profile = None
-        profile_id = getattr(request_data, "advertiserProfileId", None)
-        if profile_id:
-            advertiser_profile = await prisma.advertiserprofile.find_unique(where={"id": profile_id})
+        # Load first style guide if provided (used for Gemini constraint-aware generation)
+        style_guide = None
+        style_guide_ids = getattr(request_data, "styleGuideIds", None) or []
+        if style_guide_ids:
+            style_guide = await prisma.styleguide.find_unique(
+                where={"id": style_guide_ids[0]},
+                include={"terms": True},
+            )
 
         multi_db_create_data: dict = {
             "sourceLanguage": map_language_to_prisma_enum(request_data.sourceLanguage),
@@ -308,8 +312,8 @@ async def create_multi_engine_translation_request(
             "requestType": "MULTI_ENGINE",
             "selectedEngines": request_data.engines,
         }
-        if profile_id:
-            multi_db_create_data["advertiserProfileId"] = profile_id
+        if style_guide_ids:
+            multi_db_create_data["styleGuides"] = {"connect": [{"id": gid} for gid in style_guide_ids]}
 
         db_request = await prisma.translationrequest.create(data=multi_db_create_data)
 
@@ -330,7 +334,7 @@ async def create_multi_engine_translation_request(
                     normalize_language_for_engines(request_data.sourceLanguage),
                     normalize_language_for_engines(target_lang),
                     request_data.engines,
-                    brand_profile=advertiser_profile,
+                    style_guide=style_guide,
                 )
                 if target_lang.upper() == 'JP':
                     for result in engine_results:
@@ -759,7 +763,7 @@ def create_translation_request_object(
     fileName: str,
     sourceTexts: List[str],
     mtModel: Optional[str] = 'NLLB_200',
-    advertiserProfileId: Optional[str] = None,
+    styleGuideIds: Optional[str] = None,
 ):
     """
     Creates a TranslationRequestCreate object from individual fields.
@@ -773,7 +777,7 @@ def create_translation_request_object(
         fileName=fileName,
         sourceTexts=sourceTexts,
         mtModel=mtModel,
-        advertiserProfileId=advertiserProfileId,
+        styleGuideIds=styleGuideIds,
     )
 
 @router.post("/file-single-engine")
@@ -781,7 +785,7 @@ async def create_single_engine_from_file(
     file: UploadFile = File(...),
     sourceLanguage: str = Form(...),
     targetLanguages: List[str] = Form(...),
-    advertiserProfileId: Optional[str] = Form(None),
+    styleGuideIds: Optional[str] = Form(None),
     multimodal_service=Depends(get_multimodal_service),
     fuzzy_matcher=Depends(get_fuzzy_matcher),
     multi_engine_service=Depends(get_multi_engine_service),
@@ -806,7 +810,7 @@ async def create_single_engine_from_file(
             fileName=file.filename,
             sourceTexts=sentences,
             mtModel='NLLB_200',
-            advertiserProfileId=advertiserProfileId or None,
+            styleGuideIds=styleGuideIds or None,
         )
 
         return await create_translation_request(
@@ -826,7 +830,7 @@ def create_multi_engine_request_object(
     fileName: str,
     sourceTexts: List[str],
     engines: List[str],
-    advertiserProfileId: Optional[str] = None,
+    styleGuideIds: Optional[str] = None,
 ):
     """
     Creates a MultiEngineTranslationRequestCreate object from individual fields.
@@ -839,7 +843,7 @@ def create_multi_engine_request_object(
         fileName=fileName,
         sourceTexts=sourceTexts,
         engines=engines,
-        advertiserProfileId=advertiserProfileId,
+        styleGuideIds=styleGuideIds,
     )
 
 @router.post("/file-multi-engine")
@@ -848,7 +852,7 @@ async def create_multi_engine_from_file(
     sourceLanguage: str = Form(...),
     targetLanguages: List[str] = Form(...),
     engines: List[str] = Form(...),
-    advertiserProfileId: Optional[str] = Form(None),
+    styleGuideIds: Optional[str] = Form(None),
     multimodal_service=Depends(get_multimodal_service),
     fuzzy_matcher=Depends(get_fuzzy_matcher),
     multi_engine_service=Depends(get_multi_engine_service),
@@ -873,7 +877,7 @@ async def create_multi_engine_from_file(
             fileName=file.filename,
             sourceTexts=sentences,
             engines=engines,
-            advertiserProfileId=advertiserProfileId or None,
+            styleGuideIds=styleGuideIds or None,
         )
 
         return await create_multi_engine_translation_request(
@@ -960,7 +964,7 @@ async def save_segmentation_edits(
         file_name = segmentation_data.get("fileName", "segmented_file")
         word_count = sum(len(text.split()) for text in source_texts)
         
-        advertiser_profile_id = segmentation_data.get("advertiserProfileId") or None
+        style_guide_ids = segmentation_data.get("styleGuideIds") or None
 
         if request_type == "multi":
             engines = segmentation_data.get("engines", [])
@@ -971,7 +975,7 @@ async def save_segmentation_edits(
                 fileName=file_name,
                 sourceTexts=source_texts,
                 engines=engines,
-                advertiserProfileId=advertiser_profile_id,
+                styleGuideIds=style_guide_ids,
             )
             return await create_multi_engine_translation_request(
                 request_data,
@@ -985,7 +989,7 @@ async def save_segmentation_edits(
                 wordCount=word_count,
                 fileName=file_name,
                 sourceTexts=source_texts,
-                advertiserProfileId=advertiser_profile_id,
+                styleGuideIds=style_guide_ids,
             )
             return await create_translation_request(
                 request_data,

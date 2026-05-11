@@ -27,36 +27,42 @@ const LANGUAGE_PAIR_MODELS = {
   'EN-JP': [
     { id: 'opus_fast', label: 'OPUS Fast', description: 'Fast Helsinki-NLP models' },
     { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model for various languages' },
+    { id: 'translate_gemma', label: 'TranslateGemma 12B', description: 'Large LLM fine-tuned for translation' },
     { id: 'gemini_transcreation', label: 'Gemini Transcreation', description: 'Cultural adaptation via Gemini' },
   ],
   'JP-EN': [
     { id: 'opus_fast', label: 'OPUS Fast', description: 'Fast Helsinki-NLP models' },
     { id: 'elan_quality', label: 'ELAN Quality', description: 'Japanese specialist model' },
     { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model for various languages' },
+    { id: 'translate_gemma', label: 'TranslateGemma 12B', description: 'Large LLM fine-tuned for translation' },
     { id: 'gemini_transcreation', label: 'Gemini Transcreation', description: 'Cultural adaptation via Gemini' },
   ],
   'EN-FR': [
     { id: 'opus_fast', label: 'OPUS Fast', description: 'Fast Helsinki-NLP models' },
     { id: 'elan_quality', label: 'ELAN Quality', description: 'Quality-focused model' },
     { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model for various languages' },
+    { id: 'translate_gemma', label: 'TranslateGemma 12B', description: 'Large LLM fine-tuned for translation' },
     { id: 'gemini_transcreation', label: 'Gemini Transcreation', description: 'Cultural adaptation via Gemini' },
   ],
   'FR-EN': [
     { id: 'opus_fast', label: 'OPUS Fast', description: 'Fast Helsinki-NLP models' },
     { id: 'elan_quality', label: 'ELAN Quality', description: 'Quality-focused model' },
     { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model for various languages' },
+    { id: 'translate_gemma', label: 'TranslateGemma 12B', description: 'Large LLM fine-tuned for translation' },
     { id: 'gemini_transcreation', label: 'Gemini Transcreation', description: 'Cultural adaptation via Gemini' },
   ],
   'JP-FR': [
     { id: 'opus_fast', label: 'OPUS Fast', description: 'JP→EN→FR pivot via OPUS' },
     { id: 'elan_quality', label: 'ELAN Quality', description: 'JP→EN→FR pivot via ELAN' },
     { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model for various languages' },
+    { id: 'translate_gemma', label: 'TranslateGemma 12B', description: 'Large LLM fine-tuned for translation' },
     { id: 'gemini_transcreation', label: 'Gemini Transcreation', description: 'Cultural adaptation via Gemini' },
   ],
   'FR-JP': [
     { id: 'opus_fast', label: 'OPUS Fast', description: 'FR→EN→JP pivot via OPUS' },
     { id: 'elan_quality', label: 'ELAN Quality', description: 'FR→EN→JP pivot via ELAN' },
     { id: 'nllb_multilingual', label: 'NLLB Multilingual', description: 'NLLB model for various languages' },
+    { id: 'translate_gemma', label: 'TranslateGemma 12B', description: 'Large LLM fine-tuned for translation' },
     { id: 'gemini_transcreation', label: 'Gemini Transcreation', description: 'Cultural adaptation via Gemini' },
   ],
   // Swahili: NLLB-200 only. No dedicated Helsinki model. LLM judge is the

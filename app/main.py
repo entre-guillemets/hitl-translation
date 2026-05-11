@@ -20,9 +20,8 @@ from app.api.routers import (
     llm_judge,
     benchmarks,
     admin,
-    advertiser_profiles,
     agent,
-    persona_transcreation,
+    style_guides,
 )
 
 from app.services.fuzzy_matching_service import FuzzyMatchingService
@@ -70,10 +69,8 @@ app.include_router(analytics.router, prefix="/api")
 app.include_router(llm_judge.router)
 app.include_router(benchmarks.router)
 app.include_router(admin.router)
-app.include_router(advertiser_profiles.router)
 app.include_router(agent.router)
-app.include_router(persona_transcreation.router)
-app.include_router(persona_transcreation.personas_router)
+app.include_router(style_guides.router)
 
 # Database startup/shutdown events
 @app.on_event("startup")

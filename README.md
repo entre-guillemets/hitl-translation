@@ -13,7 +13,7 @@ This is not a demo or proof-of-concept. The platform is used for genuine multili
 ## How This Maps to Production-Scale Localization Infrastructure
 
 - **Pre-review triage as cost control** (Stage 4): COMETKiwi scores every segment reference-free before any human time is allocated. High-confidence segments advance automatically; low-confidence segments surface for priority review. This is the mechanism that makes HITL economically viable at volume — reviewer attention is a finite, expensive resource.
-- **Brand governance as a shared service** (Advertiser Profiles + Stage 5): Tone, register, key terms, taboo terms, and policy constraints are registered once per advertiser and enforced automatically across every request. The persona fan-out layer generates audience-specific variants with a measurable differentiation score — ensuring outputs are meaningfully distinct across segments, not just synonymous.
+- **Constraint-aware generation as a shared service** (Style Guides + Stage 5): Tone, register, free-text rules, and required/forbidden term lists are authored once as a reusable Style Guide and injected at generation time into LLM-capable engines (Gemini, TranslateGemma). Multiple guides on the same request produce independently-scored output variants with a measurable differentiation score — ensuring variants are meaningfully distinct, not synonymous.
 - **Quality accountability with longitudinal signal** (Stage 6): BLEU, TER, ChrF, and COMET are computed per-segment and aggregated per-job, building a model leaderboard over time. TER directly measures post-editing effort — the metric that closes the loop between MT output quality and actual human cost.
 - **Calibration against human judgment** (Stage 6b): An LLM-as-judge layer evaluates each hypothesis against source and post-edit independently of the embedding-based metrics. Segments where COMET and the LLM judge disagree by more than 0.25 are automatically flagged — surfacing the cases where automated metrics are unreliable and human review is non-negotiable.
 
@@ -47,22 +47,23 @@ COMETKiwi (`Unbabel/wmt22-cometkiwi-da`) runs reference-free QE on each confirme
 
 ### Stage 5 — Translation & Post-Editing
 Multi-engine MT with parallel model outputs and a full post-editing interface:
-- Run Helsinki-NLP (OPUS), ELAN, mT5, NLLB-200, or Gemini on confirmed segments
+- Run Helsinki-NLP (OPUS), ELAN, mT5, NLLB-200, TranslateGemma 12B, or Gemini on confirmed segments
 - Side-by-side engine output comparison
 - Inline translation editing
-- Annotation categories: mistranslation, fluency, terminology, omission, other; plus advertising-specific categories: brand voice deviation, cultural misstep, policy flag, missed transcreation, register mismatch
-- Annotation severity: minor, major, critical
+- Annotation categories: accuracy, fluency, terminology, grammar, word choice, context, style, locale convention, register mismatch, other
+- Annotation severity: low, medium, high, critical
 - Engine preference tracking (which engine the reviewer selected and why)
 - Translation Memory (TM) fuzzy match suggestions per segment
 - Bulk Review Mode with per-string signal confidence badges and completion tracking
 
-### Stage 5b — Advertiser Profiles & Persona Transcreation
-Brand governance layer for advertising-domain localization:
-- **Advertiser Profiles**: register brand tone (Authoritative / Playful / Luxury / Approachable / Technical / Bold), register (Formal / Informal / Neutral), key terms, taboo terms, target markets, and policy notes once per advertiser — enforced automatically on every subsequent request
-- **Persona fan-out**: define audience segments (Upgrader, Switcher, General, etc.) with psychographic descriptions, messaging priorities, and per-persona tone/register overrides. The system generates one transcreation per persona in a sequential loop, scoring each for brand voice alignment (0–5) and cultural fitness (0–5) via Gemini
-- **Corrective refinement**: outputs below the 3.0/5.0 brand voice threshold trigger up to two corrective feedback passes before surfacing for human review
-- **Differentiation scoring**: pairwise cosine similarity across persona outputs (character trigram vectors) ensures variants are meaningfully distinct, not synonymous
-- **Brand voice evaluation**: batch Gemini scoring with taboo-term detection and key-term coverage checking; high-disagreement strings flagged for human review
+### Stage 5b — Style Guide Constraints (RAG-backed)
+Constraint-aware generation layer for domain- and register-specific localization:
+- **Style Guides**: author named constraint sets once — register (Formal / Informal / Neutral / Technical / Colloquial), optional tone, free-text rules (e.g. "use polite form in Japanese"), and per-term whitelist/blacklist entries — then attach one or more guides to any translation request
+- **Term linking**: individual `StyleGuideTerm` entries can reference existing `GlossaryTerm` entries, closing the loop between terminology management and generation-time constraints
+- **Variant fan-out**: multiple guides on the same request produce one `StyleVariant` per (guide × engine) combination, enabling side-by-side comparison of constraint-compliant outputs
+- **Constraint scoring**: the LLM judge evaluates each variant against the injected guide and scores compliance (0–5), flagging required-term coverage and forbidden-term violations
+- **Agentic refinement**: outputs below the 3.5/5.0 constraint threshold trigger up to two corrective passes via the `/api/agent/refine-stream` SSE endpoint, which streams iteration-by-iteration progress and persists the best output to the database
+- **Differentiation scoring**: pairwise cosine similarity across variant outputs ensures guides produce meaningfully distinct outputs, not synonymous reformulations
 
 ### Stage 6 — QA Metrics
 Reference-based metrics calculated against post-edited translations:
@@ -86,8 +87,9 @@ The data model and API endpoints are in place; this layer runs automatically aft
 Findings surface in Stage 7 resource views and Stage 8 dashboards.
 
 ### Stage 7 — Resource Management
+- **Style Guides**: Author and manage named constraint sets (register, tone, rules, required/forbidden terms) that are retrieved and injected into LLM generation prompts at request time
 - **Translation Memory**: Review, approve, and edit past translations
-- **Glossary**: Add, edit, delete term pairs; review AI-proposed updates
+- **Glossary**: Add, edit, delete term pairs; review AI-proposed updates; terms can be linked directly to Style Guide entries
 - **DNT list**: Manage protected strings per language pair
 
 All resources feed back into Stage 4 QE scoring and Stage 5 translation.
@@ -176,9 +178,10 @@ States must not be skipped. The pipeline enforces `RECONCILED` before QE runs an
 | OPUS_TC_BIG_EN_FR | Helsinki-NLP/opus-mt-tc-big-en-fr | EN→FR (large) |
 | T5_BASE | google-t5/t5-base | multilingual |
 | NLLB_200 | facebook/nllb-200-distilled-600M | 200 languages |
-| GEMINI | Google Gemini API | transcreation |
+| TRANSLATE_GEMMA_12B | google/translategemma-12b-it | 55+ language pairs (LLM-based) |
+| GEMINI | Google Gemini API (`gemini-3.1-flash-lite-preview`) | Style-guide-constrained transcreation |
 
-COMET, COMETKiwi, Manga OCR, and Whisper are managed via HuggingFace cache.
+COMET, COMETKiwi, Manga OCR, and Whisper are managed via HuggingFace cache. TranslateGemma 12B requires ~24 GB of unified memory; optimised for Apple Silicon via MPS.
 
 ---
 
@@ -245,6 +248,7 @@ python app/services/model_manager.py --download mt5_multilingual
 | OPUS_TC_BIG_EN_FR | Helsinki-NLP/opus-mt-tc-big-en-fr | `opus-mt-tc-big-en-fr` |
 | T5_BASE | google-t5/t5-base | `google-t5_t5-base` |
 | NLLB_200 | facebook/nllb-200-distilled-600M | `nllb-200-distilled-600M` |
+| TRANSLATE_GEMMA_12B | google/translategemma-12b-it | *(HuggingFace cache — gated, accept licence first)* |
 | COMET | Unbabel/wmt22-comet-da | *(HuggingFace cache)* |
 | COMETKiwi | Unbabel/wmt22-cometkiwi-da | *(HuggingFace cache)* |
 | Manga OCR | kha-white/manga-ocr-base | *(HuggingFace cache)* |
@@ -326,11 +330,23 @@ Full interactive documentation at `http://localhost:8001/docs`.
 ### Quality Estimation (Stage 4)
 - `POST /api/quality-estimation` — run COMETKiwi QE on segments
 
+### Style Guides (Stage 5b / Stage 7)
+- `GET /api/style-guides` — list all style guides (with terms)
+- `POST /api/style-guides` — create a style guide
+- `PATCH /api/style-guides/{id}` — update a style guide
+- `DELETE /api/style-guides/{id}` — delete a style guide
+- `POST /api/style-guides/{id}/terms` — add a term (REQUIRED / FORBIDDEN)
+- `DELETE /api/style-guides/{id}/terms/{term_id}` — remove a term
+
 ### LLM-as-Judge (Stage 6b)
 - `POST /api/llm-judge/evaluate/{id}` — evaluate all engine outputs for one string (Gemini)
 - `POST /api/llm-judge/evaluate-all-approved` — batch evaluate all approved/reviewed strings without a judgment yet
+- `POST /api/llm-judge/evaluate-constraint-score/{id}` — score a translation against a style guide's constraint set
 - `GET /api/llm-judge/disagreements` — segments ranked by COMET vs LLM-judge disagreement score
 - `GET /api/llm-judge/summary` — aggregate adequacy/fluency/disagreement stats per language pair
+
+### Agentic Refinement
+- `GET /api/agent/refine-stream/{id}?style_guide_id=<id>` — SSE stream of iterative style-guide-constrained refinement
 
 ### Analytics (Stage 8)
 - `GET /api/analytics/model-performance` — leaderboard data

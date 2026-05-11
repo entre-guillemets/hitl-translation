@@ -1,5 +1,6 @@
 import logging
-from typing import Dict, List, Any, Optional
+import os
+from typing import Dict, List
 from datetime import datetime
 from app.services.translation_service import TranslationService
 from app.utils.lang_pair import normalize_lang_code
@@ -43,12 +44,25 @@ class CleanMultiEngineService:
             },
             't5_versatile': {
                 'name': 'mT5 Versatile',
-                'supported_pairs': [],
+                'supported_pairs': ['en-fr', 'fr-en'],
                 'model_mapping': {
                     'en-fr': 'T5_MULTILINGUAL',
                     'fr-en': 'T5_MULTILINGUAL',
                 },
                 'confidence': 0.85,
+            },
+            'translate_gemma': {
+                'name': 'TranslateGemma 12B',
+                'supported_pairs': ['en-jp', 'jp-en', 'en-fr', 'fr-en', 'jp-fr', 'fr-jp'],
+                'model_mapping': {
+                    'en-jp': 'TRANSLATE_GEMMA_12B',
+                    'jp-en': 'TRANSLATE_GEMMA_12B',
+                    'en-fr': 'TRANSLATE_GEMMA_12B',
+                    'fr-en': 'TRANSLATE_GEMMA_12B',
+                    'jp-fr': 'TRANSLATE_GEMMA_12B',
+                    'fr-jp': 'TRANSLATE_GEMMA_12B',
+                },
+                'confidence': 0.93,
             },
             'nllb_multilingual': {
                 'name': 'NLLB Multilingual',
@@ -102,13 +116,13 @@ class CleanMultiEngineService:
         source_lang: str,
         target_lang: str,
         engine_id: str,
-        brand_profile=None,
+        style_guide=None,
     ) -> Dict:
         """Translate using a specific engine with clean routing.
 
-        brand_profile: optional AdvertiserProfile ORM object. When provided and
-        the engine is gemini_transcreation, uses a dynamic brand-voice system
-        prompt instead of the static YAML config.
+        style_guide: optional StyleGuide ORM object. When provided and the engine
+        is gemini_transcreation, builds a constraint-aware system prompt from the
+        guide's rules and terms instead of the static YAML config.
         """
         try:
             if engine_id not in self.engine_configs:
@@ -119,9 +133,9 @@ class CleanMultiEngineService:
 
             # Route Gemini transcreation engine separately
             if config.get('type') == 'gemini':
-                if brand_profile is not None:
-                    translated_text = await self.transcreation_service.transcreate_with_profile(
-                        text, source_lang, target_lang, brand_profile
+                if style_guide is not None:
+                    translated_text = await self.transcreation_service.transcreate_with_style_guide(
+                        text, source_lang, target_lang, style_guide
                     )
                 else:
                     translated_text = await self.transcreation_service.transcreate(
@@ -250,10 +264,15 @@ class CleanMultiEngineService:
             # Check if model paths exist for direct models for this specific pair
             model_key = config.get('model_mapping', {}).get(pair)
             model_path_exists = False
-            if model_key:
-                # Check actual model path existence from translation_service.model_paths
-                model_path_exists = model_key in self.translation_service.model_paths and \
-                                    self.translation_service.model_paths[model_key][0] is not None
+            if model_key and model_key in self.translation_service.model_paths:
+                raw_path = self.translation_service.model_paths[model_key][0]
+                if raw_path:
+                    if raw_path.startswith('./') or raw_path.startswith('/'):
+                        model_path_exists = os.path.exists(raw_path)
+                    else:
+                        # Hub ID (e.g. "google/mt5-base") — check HuggingFace cache directory
+                        cache_dir_name = 'models--' + raw_path.replace('/', '--')
+                        model_path_exists = os.path.exists(os.path.join('./models', cache_dir_name))
 
             # Special handling for pivots
             is_pivot_available = self._can_handle_via_pivot(config, source_lang, target_lang)
@@ -315,12 +334,12 @@ class CleanMultiEngineService:
         source_lang: str,
         target_lang: str,
         engines: List[str] = None,
-        brand_profile=None,
+        style_guide=None,
     ) -> List[Dict]:
         """Clean multi-engine translation with proper routing.
 
-        brand_profile: optional AdvertiserProfile ORM object forwarded to the
-        Gemini engine only — local seq2seq models are not affected.
+        style_guide: optional StyleGuide ORM object forwarded to the Gemini engine
+        only — local seq2seq models are not affected.
         """
         if engines is None:
             engines = self.get_available_engines_for_pair(source_lang, target_lang)
@@ -334,7 +353,7 @@ class CleanMultiEngineService:
 
         tasks = []
         for engine in valid_engines:
-            task = self.translate_with_engine(text, source_lang, target_lang, engine, brand_profile=brand_profile)
+            task = self.translate_with_engine(text, source_lang, target_lang, engine, style_guide=style_guide)
             tasks.append(task)
 
         import asyncio

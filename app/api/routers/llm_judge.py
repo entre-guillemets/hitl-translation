@@ -422,154 +422,23 @@ async def get_judge_summary():
 
 
 # ---------------------------------------------------------------------------
-# Brand voice + cultural fitness evaluation
+# Style guide constraint scoring
 # ---------------------------------------------------------------------------
 
-class BrandVoiceEvalRequest(BaseModel):
-    advertiserProfileId: str
+class ConstraintEvalRequest(BaseModel):
+    styleGuideId: str
 
 
-# ---------------------------------------------------------------------------
-# Batch brand voice evaluation
-# ---------------------------------------------------------------------------
-
-@router.post("/evaluate-all-brand-voice")
-async def evaluate_all_brand_voice(
-    limit: int = Query(20, ge=1, le=100, description="Max strings to evaluate per run"),
-    judge=Depends(get_llm_judge_service),
-):
-    """Batch-score all translation strings whose request has an AdvertiserProfile.
-
-    Skips strings that already have a brandVoiceScore. Throttled to stay within
-    Gemini free-tier rate limits (~12 RPM).
-    """
-    if not judge.available:
-        raise HTTPException(status_code=503, detail="LLM judge not available — check GEMINI_API_KEY.")
-
-    if not prisma.is_connected():
-        await prisma.connect()
-
-    # Find strings linked to a request that has an advertiserProfileId,
-    # where the existing LLMJudgment (if any) has no brandVoiceScore yet.
-    strings = await prisma.translationstring.find_many(
-        where={
-            "translatedText": {"not": ""},
-            "translationRequest": {
-                "is": {"advertiserProfileId": {"not": None}}
-            },
-        },
-        include={
-            "translationRequest": True,
-            "llmJudgments": True,
-        },
-        take=limit * 3,  # fetch extra so we can filter already-scored ones
-    )
-
-    # Filter out strings already scored for brand voice
-    unscored = [
-        ts for ts in strings
-        if not any(
-            j.brandVoiceScore is not None
-            for j in (ts.llmJudgments or [])
-        )
-    ][:limit]
-
-    logger.info(f"Brand voice batch: {len(unscored)} strings to evaluate (limit={limit})")
-
-    processed, skipped, errors = 0, 0, []
-
-    for ts in unscored:
-        profile_id = ts.translationRequest.advertiserProfileId if ts.translationRequest else None
-        if not profile_id:
-            skipped += 1
-            continue
-
-        profile = await prisma.advertiserprofile.find_unique(where={"id": profile_id})
-        if not profile:
-            skipped += 1
-            continue
-
-        source_lang = (
-            str(ts.translationRequest.sourceLanguage).lower()
-            if ts.translationRequest else "en"
-        )
-        target_lang = ts.targetLanguage.lower()
-
-        try:
-            scores = await judge.evaluate_brand_voice(
-                source=ts.sourceText,
-                hypothesis=ts.translatedText,
-                source_lang=source_lang,
-                target_lang=target_lang,
-                brand_name=profile.brandName,
-                brand_tone=str(profile.brandTone),
-                register=str(profile.adRegister),
-                target_markets=list(profile.targetMarkets or []),
-                key_terms=list(profile.keyTerms or []),
-                taboo_terms=list(profile.tabooTerms or []),
-                policy_notes=profile.policyNotes,
-            )
-
-            # Upsert into LLMJudgment
-            existing = await prisma.llmjudgment.find_first(
-                where={"translationStringId": ts.id, "engineName": None}
-            )
-            if existing:
-                await prisma.llmjudgment.update(
-                    where={"id": existing.id},
-                    data={
-                        "brandVoiceScore": scores["brand_voice"],
-                        "culturalFitnessScore": scores["cultural_fitness"],
-                        "rationale": scores["rationale"],
-                    },
-                )
-            else:
-                await prisma.llmjudgment.create(
-                    data={
-                        "translationStringId": ts.id,
-                        "judgeModel": judge.model,
-                        "adequacyScore": 0.0,
-                        "fluencyScore": 0.0,
-                        "confidenceScore": 0.0,
-                        "rationale": scores["rationale"],
-                        "brandVoiceScore": scores["brand_voice"],
-                        "culturalFitnessScore": scores["cultural_fitness"],
-                    }
-                )
-
-            processed += 1
-            logger.info(
-                f"✅ Brand voice [{profile.brandName}] {ts.id[:8]}… "
-                f"bv={scores['brand_voice']} cf={scores['cultural_fitness']} "
-                f"taboo={scores['taboo_violation']} key_term_missing={scores['key_term_missing']}"
-            )
-
-        except Exception as e:
-            logger.error(f"Brand voice eval error string={ts.id}: {e}")
-            errors.append({"id": ts.id, "error": str(e)})
-        finally:
-            await asyncio.sleep(5)  # ~12 RPM — under Gemini free-tier limit
-
-    return {
-        "success": True,
-        "processed": processed,
-        "skipped": skipped,
-        "total": len(unscored),
-        "errors": errors or None,
-        "message": f"Brand voice evaluated {processed} strings (skipped {skipped})",
-    }
-
-
-@router.post("/evaluate-brand-voice/{translation_string_id}")
-async def evaluate_brand_voice(
+@router.post("/evaluate-constraint-score/{translation_string_id}")
+async def evaluate_constraint_score(
     translation_string_id: str,
-    body: BrandVoiceEvalRequest,
+    body: ConstraintEvalRequest,
     judge=Depends(get_llm_judge_service),
 ):
-    """Score a translation string against an AdvertiserProfile.
+    """Score a translation string against a StyleGuide's constraint set.
 
-    Writes brandVoiceScore and culturalFitnessScore back to the existing
-    LLMJudgment row for this string (creates one if none exists yet).
+    Writes constraintScore and styleGuideId back to the LLMJudgment row
+    (creates one if none exists yet).
     """
     if not judge.available:
         raise HTTPException(status_code=503, detail="LLM judge not available — check GEMINI_API_KEY.")
@@ -584,34 +453,27 @@ async def evaluate_brand_voice(
     if not ts:
         raise HTTPException(status_code=404, detail="Translation string not found.")
 
-    profile = await prisma.advertiserprofile.find_unique(
-        where={"id": body.advertiserProfileId}
+    guide = await prisma.styleguide.find_unique(
+        where={"id": body.styleGuideId},
+        include={"terms": True},
     )
-    if not profile:
-        raise HTTPException(status_code=404, detail="Advertiser profile not found.")
+    if not guide:
+        raise HTTPException(status_code=404, detail="Style guide not found.")
 
     source_lang = (
         str(ts.translationRequest.sourceLanguage).lower()
         if ts.translationRequest else "en"
     )
     target_lang = ts.targetLanguage.lower()
-    hypothesis = ts.translatedText
 
-    scores = await judge.evaluate_brand_voice(
+    scores = await judge.evaluate_constraint_score(
         source=ts.sourceText,
-        hypothesis=hypothesis,
+        hypothesis=ts.translatedText,
         source_lang=source_lang,
         target_lang=target_lang,
-        brand_name=profile.brandName,
-        brand_tone=str(profile.brandTone),
-        register=str(profile.adRegister),
-        target_markets=list(profile.targetMarkets or []),
-        key_terms=list(profile.keyTerms or []),
-        taboo_terms=list(profile.tabooTerms or []),
-        policy_notes=profile.policyNotes,
+        style_guide=guide,
     )
 
-    # Upsert: update existing judgment row or create a minimal one
     existing = await prisma.llmjudgment.find_first(
         where={"translationStringId": translation_string_id, "engineName": None}
     )
@@ -619,8 +481,8 @@ async def evaluate_brand_voice(
         await prisma.llmjudgment.update(
             where={"id": existing.id},
             data={
-                "brandVoiceScore": scores["brand_voice"],
-                "culturalFitnessScore": scores["cultural_fitness"],
+                "constraintScore": scores["constraint_score"],
+                "styleGuideId": body.styleGuideId,
                 "rationale": scores["rationale"],
             },
         )
@@ -632,25 +494,18 @@ async def evaluate_brand_voice(
                 "adequacyScore": 0.0,
                 "fluencyScore": 0.0,
                 "confidenceScore": 0.0,
+                "constraintScore": scores["constraint_score"],
+                "styleGuideId": body.styleGuideId,
                 "rationale": scores["rationale"],
-                "brandVoiceScore": scores["brand_voice"],
-                "culturalFitnessScore": scores["cultural_fitness"],
             }
         )
 
-    logger.info(
-        f"Brand voice eval [{profile.brandName}] {translation_string_id}: "
-        f"brand_voice={scores['brand_voice']} cultural_fitness={scores['cultural_fitness']} "
-        f"taboo={scores['taboo_violation']} key_term_missing={scores['key_term_missing']}"
-    )
-
     return {
         "translationStringId": translation_string_id,
-        "advertiserProfileId": body.advertiserProfileId,
-        "brandName": profile.brandName,
-        "brandVoiceScore": scores["brand_voice"],
-        "culturalFitnessScore": scores["cultural_fitness"],
-        "tabooViolation": scores["taboo_violation"],
-        "keyTermMissing": scores["key_term_missing"],
+        "styleGuideId": body.styleGuideId,
+        "styleGuideName": guide.name,
+        "constraintScore": scores["constraint_score"],
+        "requiredTermsHit": scores["required_terms_hit"],
+        "forbiddenTermsFound": scores["forbidden_terms_found"],
         "rationale": scores["rationale"],
     }

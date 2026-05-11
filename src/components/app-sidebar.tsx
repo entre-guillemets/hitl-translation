@@ -167,25 +167,18 @@ export const AppSidebar: React.FC = () => {
               <Collapsible defaultOpen className="group/collapsible">
                 <SidebarMenuItem>
                   <CollapsibleTrigger asChild>
-                    <SidebarMenuButton tooltip="Advertising">
+                    <SidebarMenuButton tooltip="Resources">
                       <Building2 />
-                      <span>Advertising</span>
+                      <span>Resources</span>
                       <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
                     </SidebarMenuButton>
                   </CollapsibleTrigger>
                   <CollapsibleContent>
                     <SidebarMenuSub>
                       <SidebarMenuSubItem>
-                        <SidebarMenuSubButton asChild isActive={location.pathname === '/advertiser-profiles'}>
-                          <Link to="/advertiser-profiles">
-                            <span>Advertiser Profiles</span>
-                          </Link>
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
-                      <SidebarMenuSubItem>
-                        <SidebarMenuSubButton asChild isActive={location.pathname === '/persona-transcreation'}>
-                          <Link to="/persona-transcreation">
-                            <span>Persona Transcreation</span>
+                        <SidebarMenuSubButton asChild isActive={location.pathname === '/style-guides'}>
+                          <Link to="/style-guides">
+                            <span>Style Guides</span>
                           </Link>
                         </SidebarMenuSubButton>
                       </SidebarMenuSubItem>

@@ -25,24 +25,19 @@ model TranslationRequest {
   totalProcessingTimeMs Int?
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
-  qualityMetrics        QualityMetrics[] 
-  
-  // ===============================================
-  // 🟢 FIX: RELATIONAL LINK TO SEGMENTATION SESSION
-  // ===============================================
-  segmentationSessionId String?             @unique // Ensure only one request per session
+  qualityMetrics        QualityMetrics[]
+  segmentationSessionId String?             @unique
   segmentationSession   SegmentationSession? @relation(fields: [segmentationSessionId], references: [id])
   originalSegments      Json?
-  advertiserProfileId   String?
-  advertiserProfile     AdvertiserProfile?  @relation(fields: [advertiserProfileId], references: [id])
+  styleGuides           StyleGuide[]
   translationStrings    TranslationString[]
 
-  @@index([status]) // 💡 Performance index on frequently filtered column
+  @@index([status])
   @@index([sourceLanguage])
   @@index([createdAt])
   @@map("translation_requests")
 }
-// ----------------------------------------------------------------------
+
 model TranslationString {
   id                       String             @id @default(cuid())
   sourceText               String
@@ -81,16 +76,16 @@ model TranslationString {
   modelOutputs             ModelOutput[]
   qualityMetrics           QualityMetrics[]
   llmJudgments             LLMJudgment[]
-  personaTranscreations    PersonaTranscreation[]
+  styleVariants            StyleVariant[]
   translationRequest       TranslationRequest @relation(fields: [translationRequestId], references: [id], onDelete: Cascade)
 
-  @@index([status]) // 💡 Performance index on frequently filtered column
+  @@index([status])
   @@index([targetLanguage])
   @@index([translationRequestId])
   @@index([createdAt])
   @@map("translation_strings")
 }
-// ----------------------------------------------------------------------
+
 model QualityMetrics {
   id                   String              @id @default(cuid())
   metricXScore         Float?
@@ -100,19 +95,16 @@ model QualityMetrics {
   bleuScore            Float?
   cometScore           Float?
   terScore             Float?
-  chrfScore            Float?              
+  chrfScore            Float?
   qualityLabel         QualityLabel?
   hasReference         Boolean             @default(false)
   referenceType        ReferenceType?
   calculationEngine    String?
-  engineName           String?  // MT engine that produced the hypothesis (null = single-engine / aggregated)
-
+  engineName           String?
   translationRequestId String?
-
   translationStringId  String?
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
-
   translationRequest   TranslationRequest? @relation(fields: [translationRequestId], references: [id])
   translationString    TranslationString?  @relation(fields: [translationStringId], references: [id])
 
@@ -121,7 +113,7 @@ model QualityMetrics {
   @@index([engineName])
   @@map("quality_metrics")
 }
-// ----------------------------------------------------------------------
+
 model Annotation {
   id                  String             @id @default(cuid())
   category            AnnotationCategory
@@ -136,7 +128,7 @@ model Annotation {
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
   confidenceInFix     Int?
-  errorType           ErrorType? 
+  errorType           ErrorType?
   sourceSpan          Json?
   suggestedFix        String?
   targetSpan          Json?
@@ -145,7 +137,7 @@ model Annotation {
   @@index([translationStringId])
   @@map("annotations")
 }
-// ----------------------------------------------------------------------
+
 model TranslationMemory {
   id                String        @id @default(cuid())
   sourceText        String
@@ -159,7 +151,6 @@ model TranslationMemory {
   originalRequestId String?
   approvedBy        String?
   usageCount        Int           @default(0)
-  personaId         String?       // null = profile-level TM; non-null = persona-scoped
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
@@ -167,9 +158,9 @@ model TranslationMemory {
   @@index([sourceText])
   @@map("translation_memory")
 }
-// ----------------------------------------------------------------------
+
 model GlossaryTerm {
-  id             String    @id @default(cuid())
+  id             String           @id @default(cuid())
   term           String
   translation    String
   sourceLanguage String
@@ -177,17 +168,18 @@ model GlossaryTerm {
   domain         String
   definition     String?
   notes          String?
-  isActive       Boolean   @default(true)
-  usageCount     Int       @default(0)
+  isActive       Boolean          @default(true)
+  usageCount     Int              @default(0)
   lastUsed       DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  styleGuideTerms StyleGuideTerm[]
 
   @@unique([term, sourceLanguage, targetLanguage])
   @@index([term])
   @@map("glossary_terms")
 }
-// ----------------------------------------------------------------------
+
 model DoNotTranslateItem {
   id           String                 @id @default(cuid())
   text         String
@@ -203,7 +195,7 @@ model DoNotTranslateItem {
   @@index([text])
   @@map("do_not_translate_items")
 }
-// ----------------------------------------------------------------------
+
 model OffensiveWord {
   id             String            @id @default(cuid())
   word           String
@@ -220,46 +212,29 @@ model OffensiveWord {
   @@index([word])
   @@map("offensive_words")
 }
-// ----------------------------------------------------------------------
+
 model SegmentationSession {
-  id                String   @id @default(cuid())
-  segmentationId    String   @unique
+  id                String             @id @default(cuid())
+  segmentationId    String             @unique
   originalFileName  String
   mediaType         MediaType
-  segments          Json     // Array of segment objects with text, bbox, timestamps
-  mediaData         String?  // Base64 encoded media for UI display
+  segments          Json
+  mediaData         String?
   detectedLanguage  String
   wordCount         Int
-  sourceLanguage    String?  // User-selected after detection
-  targetLanguages   String[] // Selected target languages
-  useMultiEngine    Boolean  @default(false)
-  selectedEngines   String[] // Selected engines for multi-engine mode
+  sourceLanguage    String?
+  targetLanguages   String[]
+  useMultiEngine    Boolean            @default(false)
+  selectedEngines   String[]
   status            SegmentationStatus @default(PROCESSING)
-  createdAt         DateTime @default(now())
-  expiresAt         DateTime // Auto-cleanup old sessions (e.g., +1 hour)
-  updatedAt         DateTime @updatedAt
-
-  // 🟢 FIX: REVERSE RELATION FROM TRANSLATION REQUEST
-  translationRequest TranslationRequest? 
+  createdAt         DateTime           @default(now())
+  expiresAt         DateTime
+  updatedAt         DateTime           @updatedAt
+  translationRequest TranslationRequest?
 
   @@map("segmentation_sessions")
 }
-// ----------------------------------------------------------------------
-enum MediaType {
-  IMAGE
-  AUDIO  
-  PDF
-  TEXT
-}
 
-enum SegmentationStatus {
-  PROCESSING
-  READY_FOR_EDIT
-  USER_EDITING
-  COMPLETED
-  EXPIRED
-}
-// ----------------------------------------------------------------------
 model EnginePreference {
   id                  String            @id @default(cuid())
   selectedEngine      String
@@ -287,7 +262,7 @@ model EnginePreference {
   @@index([sourceLanguage, targetLanguage])
   @@map("engine_preferences")
 }
-// ----------------------------------------------------------------------
+
 model ModelOutput {
   id                  String            @id @default(cuid())
   translationStringId String
@@ -304,43 +279,40 @@ model ModelOutput {
 
   @@map("model_outputs")
 }
-// ----------------------------------------------------------------------
+
 model LLMJudgment {
-  id                  String            @id @default(cuid())
-  translationStringId String
-  engineName          String?
-  judgeModel          String
-  adequacyScore       Float
-  fluencyScore        Float
-  confidenceScore     Float
-  rationale           String?
-  cometDisagreement   Float?
-  brandVoiceScore     Float?   // 0–5: how well output preserves advertiser brand voice
-  culturalFitnessScore Float?  // 0–5: cultural appropriateness for target market
-  wasRefined           Boolean  @default(false)  // true if agent refinement loop ran on this string
-  refinementAttempts   Int?                       // number of refinement iterations performed
-  agentIterations      Json?                      // [{attempt, feedback, brand_voice_before, brand_voice_after, text}]
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
-  translationString   TranslationString @relation(fields: [translationStringId], references: [id], onDelete: Cascade)
+  id                   String            @id @default(cuid())
+  translationStringId  String
+  engineName           String?
+  judgeModel           String
+  adequacyScore        Float
+  fluencyScore         Float
+  confidenceScore      Float
+  rationale            String?
+  cometDisagreement    Float?
+  constraintScore      Float?            // 0–5: how well output followed injected style guide constraints
+  styleGuideId         String?           // which style guide was active when judged (nullable = no guide)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  translationString    TranslationString @relation(fields: [translationStringId], references: [id], onDelete: Cascade)
 
   @@index([translationStringId])
   @@index([engineName])
   @@map("llm_judgments")
 }
-// ----------------------------------------------------------------------
+
 model EvalSnapshot {
   id           String   @id @default(cuid())
-  requestId    String?  // WMT benchmark TranslationRequest that was snapshotted
-  languagePair String   // e.g. "jp-en"
-  engineName   String?  // null = aggregated across all engines for this request
+  requestId    String?
+  languagePair String
+  engineName   String?
   runDate      DateTime @default(now())
   avgBleu      Float?
   avgComet     Float?
   avgChrf      Float?
   avgTer       Float?
   segmentCount Int
-  notes        String?  // optional label, e.g. "baseline", "after OPUS-MT update"
+  notes        String?
   createdAt    DateTime @default(now())
 
   @@index([languagePair])
@@ -348,7 +320,7 @@ model EvalSnapshot {
   @@index([runDate])
   @@map("eval_snapshots")
 }
-// ----------------------------------------------------------------------
+
 model HumanFeedback {
   id                   String       @id @default(cuid())
   feedbackType         FeedbackType
@@ -368,7 +340,7 @@ model HumanFeedback {
   @@index([feedbackType])
   @@map("human_feedback")
 }
-// ----------------------------------------------------------------------
+
 model LocalModel {
   id                String    @id @default(cuid())
   modelName         String    @unique
@@ -387,7 +359,7 @@ model LocalModel {
 
   @@map("local_models")
 }
-// ----------------------------------------------------------------------
+
 model SystemConfig {
   id          String   @id @default(cuid())
   key         String   @unique
@@ -397,83 +369,106 @@ model SystemConfig {
 
   @@map("system_config")
 }
-// ----------------------------------------------------------------------
-model AdvertiserProfile {
-  id            String            @id @default(cuid())
-  brandName     String
-  brandTone     BrandTone
-  adRegister    AdRegister  @map("register")
-  targetMarkets String[]          // e.g. ["JP", "FR"]
-  keyTerms      String[]          // terms that MUST appear / be preserved
-  tabooTerms    String[]          // terms to avoid in target copy
-  policyNotes   String?           // free-text policy constraints
-  isActive      Boolean           @default(true)
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
 
+// ----------------------------------------------------------------------
+// Stage 7 — Style Guides (RAG-backed constraint sets)
+// ----------------------------------------------------------------------
+
+model StyleGuide {
+  id              String           @id @default(cuid())
+  name            String
+  description     String?
+  styleRegister   Register         @map("register")
+  tone            Tone?
+  languagePairs   String[]         // [] = applies to all pairs
+  rules           String[]         // free-text rules injected verbatim into LLM prompt
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  terms           StyleGuideTerm[]
+  styleVariants   StyleVariant[]
   translationRequests TranslationRequest[]
-  personas            Persona[]
 
-  @@index([brandName])
-  @@map("advertiser_profiles")
+  @@index([name])
+  @@map("style_guides")
 }
-// ----------------------------------------------------------------------
-model Persona {
-  id                      String                 @id @default(cuid())
-  name                    String                 // e.g. "Upgrader", "Switcher", "General"
-  psychographicDescription String                // who this person is and what motivates them
-  messagingPriorities     String[]               // e.g. ["emphasize ROI", "address switching cost"]
-  toneOverride            BrandTone?             // optional: overrides AdvertiserProfile.brandTone
-  registerOverride        AdRegister?            // optional: overrides AdvertiserProfile.adRegister
-  advertiserProfileId     String
-  advertiserProfile       AdvertiserProfile      @relation(fields: [advertiserProfileId], references: [id], onDelete: Cascade)
-  personaTranscreations   PersonaTranscreation[]
-  createdAt               DateTime               @default(now())
-  updatedAt               DateTime               @updatedAt
 
-  @@index([advertiserProfileId])
-  @@map("personas")
+model StyleGuideTerm {
+  id             String      @id @default(cuid())
+  term           String
+  targetTerm     String?     // preferred translation in target language (optional)
+  type           TermType    // REQUIRED | FORBIDDEN
+  styleGuideId   String
+  styleGuide     StyleGuide  @relation(fields: [styleGuideId], references: [id], onDelete: Cascade)
+  glossaryTermId String?     // optional link to an existing GlossaryTerm
+  glossaryTerm   GlossaryTerm? @relation(fields: [glossaryTermId], references: [id])
+  createdAt      DateTime    @default(now())
+
+  @@index([styleGuideId])
+  @@map("style_guide_terms")
 }
-// ----------------------------------------------------------------------
-model PersonaTranscreation {
-  id                   String                    @id @default(cuid())
+
+model StyleVariant {
+  id                   String        @id @default(cuid())
   translationStringId  String
-  translationString    TranslationString         @relation(fields: [translationStringId], references: [id], onDelete: Cascade)
-  personaId            String
-  persona              Persona                   @relation(fields: [personaId], references: [id], onDelete: Cascade)
-  targetLanguage       String
-  outputText           String?                   // null until first attempt completes
-  status               PersonaTranscreationStatus @default(PENDING)
-  brandVoiceScore      Float?                    // 0-5
-  culturalFitnessScore Float?                    // 0-5
-  tabooViolation       Boolean?
-  keyTermMissing       Boolean?
-  differentiationScore Float?                    // avg pairwise cosine similarity vs other personas (lower = more distinct)
-  refinementAttempts   Int                       @default(0)
-  agentIterations      Json?                     // [{attempt, feedback, brand_voice_before, brand_voice_after, cultural_fitness_after, text}]
-  rationale            String?
-  createdAt            DateTime                  @default(now())
-  updatedAt            DateTime                  @updatedAt
+  translationString    TranslationString @relation(fields: [translationStringId], references: [id], onDelete: Cascade)
+  styleGuideId         String
+  styleGuide           StyleGuide    @relation(fields: [styleGuideId], references: [id], onDelete: Cascade)
+  engineName           String
+  outputText           String?
+  status               VariantStatus @default(PENDING)
+  constraintScore      Float?        // 0–5: did output follow injected rules?
+  requiredTermsHit     Boolean?      // all REQUIRED terms present in output
+  forbiddenTermsFound  Boolean?      // any FORBIDDEN terms appeared in output
+  differentiationScore Float?        // avg pairwise cosine sim vs other variants (lower = more distinct)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
 
   @@index([translationStringId])
-  @@index([personaId])
-  @@map("persona_transcreations")
+  @@index([styleGuideId])
+  @@map("style_variants")
 }
+
 // ----------------------------------------------------------------------
+// Enums
+// ----------------------------------------------------------------------
+
 enum RequestType {
   SINGLE_ENGINE
   MULTI_ENGINE
   WMT_BENCHMARK
   PIVOT_TRANSLATION
-  PERSONA_TRANSCREATION
+  STYLE_VARIANT
 }
 
-enum PersonaTranscreationStatus {
+enum VariantStatus {
   PENDING
   IN_PROGRESS
   COMPLETED
   NEEDS_REVIEW
   FAILED
+}
+
+enum Register {
+  FORMAL
+  INFORMAL
+  NEUTRAL
+  TECHNICAL
+  COLLOQUIAL
+}
+
+enum Tone {
+  AUTHORITATIVE
+  PLAYFUL
+  APPROACHABLE
+  BOLD
+  WARM
+  PRECISE
+}
+
+enum TermType {
+  REQUIRED
+  FORBIDDEN
 }
 
 enum SourceLanguage {
@@ -501,6 +496,7 @@ enum MTModel {
   PIVOT_ELAN_HELSINKI
   MT5_MULTILINGUAL
   GEMINI_TRANSCREATION
+  TRANSLATE_GEMMA_12B
 }
 
 enum RequestStatus {
@@ -573,13 +569,8 @@ enum AnnotationCategory {
   CONTEXT
   STYLE
   LOCALE_CONVENTION
+  REGISTER_MISMATCH
   OTHER
-  // Advertising-specific categories
-  BRAND_VOICE_DEVIATION   // output doesn't match registered brand tone
-  CULTURAL_MISSTEP        // culturally inappropriate for target market
-  POLICY_FLAG             // potential compliance / Amazon Ads policy issue
-  MISSED_TRANSCREATION    // literal when cultural adaptation was needed
-  REGISTER_MISMATCH       // wrong formality level for audience
 }
 
 enum ApprovalType {
@@ -610,8 +601,8 @@ enum ErrorType {
   REGISTER
   AMBIGUITY
   CULTURAL_CONTEXT
-  PUNCTUATION 
-  SPELLING 
+  PUNCTUATION
+  SPELLING
 }
 
 enum PreferenceReason {
@@ -665,17 +656,17 @@ enum FeedbackType {
   ANNOTATION
 }
 
-enum BrandTone {
-  AUTHORITATIVE
-  PLAYFUL
-  LUXURY
-  APPROACHABLE
-  TECHNICAL
-  BOLD
+enum MediaType {
+  IMAGE
+  AUDIO
+  PDF
+  TEXT
 }
 
-enum AdRegister {
-  FORMAL
-  INFORMAL
-  NEUTRAL
+enum SegmentationStatus {
+  PROCESSING
+  READY_FOR_EDIT
+  USER_EDITING
+  COMPLETED
+  EXPIRED
 }

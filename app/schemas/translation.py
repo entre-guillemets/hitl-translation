@@ -10,7 +10,7 @@ class TranslationRequestCreate(BaseModel):
     fileName: str
     mtModel: str
     sourceTexts: Optional[List[str]] = []
-    advertiserProfileId: Optional[str] = None
+    styleGuideIds: Optional[List[str]] = []
 
 class MultiEngineTranslationRequestCreate(BaseModel):
     sourceLanguage: str
@@ -20,7 +20,7 @@ class MultiEngineTranslationRequestCreate(BaseModel):
     fileName: str
     sourceTexts: Optional[List[str]] = []
     engines: Optional[List[str]] = ["opus_fast", "elan_specialist"]
-    advertiserProfileId: Optional[str] = None
+    styleGuideIds: Optional[List[str]] = []
 
 class TranslationStringUpdate(BaseModel):
     translatedText: str

@@ -1,7 +1,7 @@
 import logging
 from typing import Dict, List, Any
 import torch
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, AutoModelForCausalLM, pipeline
 import os
 
 from app.core.config import settings
@@ -14,17 +14,25 @@ class TranslationService:
         self.models = {}
         self.tokenizers = {}
         self.pipelines = {}
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.causal_models = {}
+        self.causal_tokenizers = {}
+        if torch.cuda.is_available():
+            self.device = "cuda"
+        elif torch.backends.mps.is_available():
+            self.device = "mps"
+        else:
+            self.device = "cpu"
         logger.info(f"TranslationService initialized. Using device: {self.device}")
 
         self.model_paths = {
             'HELSINKI_EN_FR': ('./models/Helsinki-NLP_opus-mt-en-fr', None),
             'HELSINKI_FR_EN': ('./models/Helsinki-NLP_opus-mt-fr-en', None),
-            'HELSINKI_EN_JA': ('./models/Helsinki-NLP_opus-mt-en-ja', None),
+            'HELSINKI_EN_JA': ('./models/Helsinki-NLP_opus-mt-en-jap', None),
             'OPUS_JA_EN': ('./models/opus-mt-ja-en', None),
             'ELAN_JA_EN': ('./models/Mitsua_elan-mt-bt-ja-en', None),
-            'T5_MULTILINGUAL': ('./models/google-mt5_mt5-base', None),
+            'T5_MULTILINGUAL': ('google/mt5-base', None),
             'NLLB_200': ('./models/nllb-200-distilled-600M', 'jpn_Jpan'),
+            'TRANSLATE_GEMMA_12B': ('google/translategemma-12b-it', None),
         }
 
         self.language_pair_models = {
@@ -132,11 +140,12 @@ class TranslationService:
             pipe = None
 
             if not model_key.startswith('T5'):
+                pipe_device = 0 if self.device == "cuda" else ("mps" if self.device == "mps" else -1)
                 pipe = pipeline(
                     "translation",
                     model=model,
                     tokenizer=tokenizer,
-                    device=0 if self.device == "cuda" else -1
+                    device=pipe_device
                 )
             else:
                 logger.info(f"Skipping pipeline creation for T5 model '{model_key}'. Will use model.generate directly.")
@@ -150,11 +159,56 @@ class TranslationService:
             logger.error(f"Error loading model {model_name_or_path} for key {model_key}: {e}")
             raise
 
+    def _load_causal_model(self, model_key: str):
+        if model_key in self.causal_models:
+            return self.causal_models[model_key], self.causal_tokenizers[model_key]
+
+        model_path_info = self.model_paths.get(model_key)
+        if not model_path_info or not model_path_info[0]:
+            raise ValueError(f"Model key '{model_key}' not found in model_paths.")
+
+        model_name_or_path = model_path_info[0]
+        logger.info(f"Loading causal LM '{model_name_or_path}' for key '{model_key}'...")
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, cache_dir=settings.MODEL_CACHE_DIR)
+            model = AutoModelForCausalLM.from_pretrained(
+                model_name_or_path,
+                torch_dtype=torch.bfloat16,
+                cache_dir=settings.MODEL_CACHE_DIR,
+            ).to(self.device)
+            model.eval()
+            self.causal_models[model_key] = model
+            self.causal_tokenizers[model_key] = tokenizer
+            logger.info(f"Causal LM '{model_key}' loaded on {self.device}.")
+            return model, tokenizer
+        except Exception as e:
+            logger.error(f"Error loading causal LM {model_name_or_path}: {e}")
+            raise
+
     def translate_by_model_type(self, text: str, model_key: str, source_lang: str = None, target_lang: str = None, target_lang_tag: str = None) -> str:
         """Translate text using a specific model identified by its key."""
         try:
             if model_key.startswith('PIVOT'):
                 raise ValueError(f"Pivot model '{model_key}' should be routed via multi-engine service.")
+
+            if model_key.startswith('TRANSLATE_GEMMA'):
+                # ISO 639-1 codes expected by the TranslateGemma chat template
+                _iso = {'en': 'en', 'fr': 'fr', 'ja': 'ja', 'jp': 'ja', 'sw': 'sw'}
+                src_code = _iso.get(source_lang.lower(), source_lang.lower())
+                tgt_code = _iso.get(target_lang.lower(), target_lang.lower())
+                messages = [{"role": "user", "content": [{"type": "text", "source_lang_code": src_code, "target_lang_code": tgt_code, "text": text}]}]
+                gemma_model, gemma_tokenizer = self._load_causal_model(model_key)
+                input_ids = gemma_tokenizer.apply_chat_template(messages, tokenize=True, return_tensors="pt").to(self.device)
+                with torch.inference_mode():
+                    output_ids = gemma_model.generate(input_ids, do_sample=False, max_new_tokens=512)
+                new_tokens = output_ids[0][input_ids.shape[1]:]
+                translated = gemma_tokenizer.decode(new_tokens, skip_special_tokens=True)
+                # Strip "**Label:**" preambles the model sometimes adds (e.g. "**Translation:** ...")
+                import re as _re
+                translated = _re.sub(r'^\*\*[^*]+\*\*\s*', '', translated).strip()
+                if any(ja in tgt_code for ja in ("ja",)):
+                    translated = detokenize_japanese(translated)
+                return translated
 
             model, tokenizer, pipe = self._load_model(model_key)
             if not model:
