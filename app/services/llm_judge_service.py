@@ -25,8 +25,8 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
-# gemini-3.1-flash-lite-preview: 15 RPM, 500 RPD on free tier
-JUDGE_MODEL = "gemini-3.1-flash-lite-preview"
+# gemini-3.1-flash-lite: 15 RPM, 500 RPD on free tier
+JUDGE_MODEL = "gemini-3.1-flash-lite"
 
 # Language-pair-specific evaluation guidance injected when the pair involves
 # a low-resource language where automatic metrics are known to be unreliable.

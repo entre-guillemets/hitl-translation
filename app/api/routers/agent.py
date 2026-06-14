@@ -213,7 +213,7 @@ async def _run_refinement(
             await prisma.llmjudgment.create(
                 data={
                     "translationStringId": string_id,
-                    "judgeModel": "gemini-3.1-flash-lite-preview",
+                    "judgeModel": "gemini-3.1-flash-lite",
                     "adequacyScore": 3.0,
                     "fluencyScore": 3.0,
                     "confidenceScore": 0.7,

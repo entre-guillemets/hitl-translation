@@ -179,7 +179,7 @@ States must not be skipped. The pipeline enforces `RECONCILED` before QE runs an
 | T5_BASE | google-t5/t5-base | multilingual |
 | NLLB_200 | facebook/nllb-200-distilled-600M | 200 languages |
 | TRANSLATE_GEMMA_12B | google/translategemma-12b-it | 55+ language pairs (LLM-based) |
-| GEMINI | Google Gemini API (`gemini-3.1-flash-lite-preview`) | Style-guide-constrained transcreation |
+| GEMINI | Google Gemini API (`gemini-3.1-flash-lite`) | Style-guide-constrained transcreation |
 
 COMET, COMETKiwi, Manga OCR, and Whisper are managed via HuggingFace cache. TranslateGemma 12B requires ~24 GB of unified memory; optimised for Apple Silicon via MPS.
 

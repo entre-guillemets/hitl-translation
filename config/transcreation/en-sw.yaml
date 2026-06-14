@@ -25,7 +25,7 @@ system_prompt: |
 
   Output the Swahili translation only — no explanations, alternatives, or notes.
 
-model: "gemini-3.1-flash-lite-preview"
+model: "gemini-3.1-flash-lite"
 
 # NOTE: golden_records are injected as few-shot examples into the Gemini prompt.
 # For the Condition A (baseline) benchmark run, keep this list empty to prevent

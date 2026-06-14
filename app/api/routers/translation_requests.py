@@ -919,7 +919,7 @@ async def preprocess_file_for_segmentation(
         
         return {
             "success": True,
-            "segmentationId": f"seg_{hash(file_name + str(len(file_content)))}",  # Simple ID generation
+            "segmentationId": f"seg_{hash((file_name or '') + str(len(file_content)))}",
             "segments": segmentation_data["segments"],
             "mediaType": segmentation_data["media_type"],
             "mediaData": segmentation_data["media_data"],
@@ -928,6 +928,8 @@ async def preprocess_file_for_segmentation(
             "fileName": file_name
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to preprocess file for segmentation: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to preprocess file: {str(e)}")

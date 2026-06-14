@@ -105,7 +105,7 @@ def get_engine_type_from_model(model_name: str) -> str:
     # Also handle raw engine_id strings stored before GEMINI_TRANSCREATION was in the enum
     extra = {
         "gemini_transcreation": "gemini_transcreation",
-        "gemini-3.1-flash-lite-preview":     "gemini_transcreation",
+        "gemini-3.1-flash-lite":     "gemini_transcreation",
     }
     return engine_mapping.get(model_name) or extra.get(model_name, "unknown")
 
@@ -362,7 +362,7 @@ async def get_annotations_data(lang_filter: dict):
             "t5_versatile": "mT5 Versatile",
             "nllb_multilingual": "NLLB Multilingual",
             "gemini_transcreation": "Gemini Transcreation",
-            "gemini-3.1-flash-lite-preview": "Gemini Transcreation",
+            "gemini-3.1-flash-lite": "Gemini Transcreation",
         }
 
         error_stats = {}
@@ -982,7 +982,7 @@ def extract_model_and_language_info(metric):
     # Normalise raw engine IDs to human-readable display names
     _DISPLAY_NAME_MAP = {
         "gemini_transcreation": "Gemini Transcreation",
-        "gemini-3.1-flash-lite-preview":     "Gemini Transcreation",
+        "gemini-3.1-flash-lite":     "Gemini Transcreation",
         "GEMINI_TRANSCREATION": "Gemini Transcreation",
     }
     if model_name_extracted in _DISPLAY_NAME_MAP:

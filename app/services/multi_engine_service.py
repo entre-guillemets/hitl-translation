@@ -307,7 +307,7 @@ class CleanMultiEngineService:
             return 'N/A'
 
         if config.get('type') == 'gemini':
-            return 'gemini-3.1-flash-lite-preview'
+            return 'gemini-3.1-flash-lite'
 
         pair = self._norm_pair(source_lang, target_lang)
 

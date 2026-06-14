@@ -384,11 +384,9 @@ class MultimodalService:
             # Fallback: Extract text without regions using Tesseract or Manga OCR
             try:
                 if detected_lang == 'JA':
-                    # Use Manga OCR for Japanese as fallback
-                    text = self.manga_ocr_engine.extract_text(image_array)
+                    text = self.manga_ocr_engine.recognize(image_array)
                 else:
-                    # Use standard Tesseract for other languages
-                    text = self.tesseract_engine.extract_text(image_array, lang=detected_lang)
+                    text = self.tesseract_engine.recognize(image_array, lang=detected_lang)
 
                 # Create a single segment covering the whole image
                 h, w = image_array.shape[:2]
