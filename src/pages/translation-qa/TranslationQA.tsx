@@ -63,16 +63,14 @@ interface TranslationRequest {
   requestDate: string;
   wordCount: number;
   requestType?: string;
-  advertiserProfileId?: string;
 }
 
 interface AgentEvent {
   type: 'narrate' | 'iteration' | 'done' | 'error';
   message?: string;
   attempt?: number;
-  brand_voice_before?: number;
-  brand_voice_after?: number;
-  cultural_fitness_after?: number;
+  score_before?: number;
+  score_after?: number;
   feedback?: string;
   text?: string;
   final_score?: number;
@@ -676,7 +674,7 @@ const BulkReviewOverlay: React.FC<{
         </div>
 
         {/* Agent SSE stream panel — shown when refinement is active or complete */}
-        {selectedRequest?.advertiserProfileId && refineState[selectedString.id]?.events.length > 0 && (
+        {refineState[selectedString.id]?.events.length > 0 && (
           <div className="px-6 pb-2">
             <div className="rounded border border-purple-500/30 bg-black/80 p-3 text-xs font-mono space-y-1 max-h-40 overflow-y-auto">
               {refineState[selectedString.id].events.map((ev, i) => {
@@ -688,9 +686,9 @@ const BulkReviewOverlay: React.FC<{
                     <div key={i} className="border border-purple-700/40 rounded p-2 space-y-1 bg-purple-950/30">
                       <div className="text-purple-200 font-semibold">Attempt {ev.attempt}/2</div>
                       <div className="text-yellow-400">
-                        Brand voice: {ev.brand_voice_before?.toFixed(1)} → {ev.brand_voice_after?.toFixed(1)}/5.0
-                        {ev.brand_voice_after !== undefined && ev.brand_voice_before !== undefined
-                          && ev.brand_voice_after > ev.brand_voice_before
+                        Constraint score: {ev.score_before?.toFixed(1)} → {ev.score_after?.toFixed(1)}/5.0
+                        {ev.score_after !== undefined && ev.score_before !== undefined
+                          && ev.score_after > ev.score_before
                           ? <span className="text-green-400 ml-1">▲</span>
                           : <span className="text-red-400 ml-1">▼</span>}
                       </div>
@@ -716,18 +714,16 @@ const BulkReviewOverlay: React.FC<{
             Previous
           </Button>
           <div className="flex gap-2">
-            {selectedRequest?.advertiserProfileId && (
-              <Button
-                variant="outline"
-                className="border-purple-500 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950"
-                onClick={() => onRefine(selectedString.id)}
-                disabled={refineState[selectedString.id]?.streaming}
-              >
-                {refineState[selectedString.id]?.streaming
-                  ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Refining…</>
-                  : <><Wand2 className="w-4 h-4 mr-2" />Refine with AI</>}
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              className="border-purple-500 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950"
+              onClick={() => onRefine(selectedString.id)}
+              disabled={refineState[selectedString.id]?.streaming}
+            >
+              {refineState[selectedString.id]?.streaming
+                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Refining…</>
+                : <><Wand2 className="w-4 h-4 mr-2" />Refine with AI</>}
+            </Button>
             <Button onClick={handleUpdate} variant={saveFeedback ? 'default' : 'outline'}>
               {saveFeedback ? <><CheckCircle className="w-4 h-4 mr-2" />Saved!</> : 'Update Translation'}
             </Button>
@@ -1471,23 +1467,21 @@ export const TranslationQA: React.FC = () => {
                               ✨ REFINED
                             </Badge>
                           )}
-                          {selectedRequest?.advertiserProfileId && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-6 px-2 text-xs ml-auto border-purple-500 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleRefine(string.id);
-                              }}
-                              disabled={refineState[string.id]?.streaming}
-                            >
-                              {refineState[string.id]?.streaming
-                                ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Refining…</>
-                                : <><Wand2 className="w-3 h-3 mr-1" />Refine</>
-                              }
-                            </Button>
-                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2 text-xs ml-auto border-purple-500 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRefine(string.id);
+                            }}
+                            disabled={refineState[string.id]?.streaming}
+                          >
+                            {refineState[string.id]?.streaming
+                              ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Refining…</>
+                              : <><Wand2 className="w-3 h-3 mr-1" />Refine</>
+                            }
+                          </Button>
                         </div>
 
                         {/* SSE stream panel */}
@@ -1509,8 +1503,8 @@ export const TranslationQA: React.FC = () => {
                                   <div key={i} className="border border-purple-700/40 rounded p-2 space-y-1 bg-purple-950/30">
                                     <div className="text-purple-200 font-semibold">Attempt {ev.attempt}/2</div>
                                     <div className="text-yellow-400">
-                                      Brand voice: {ev.brand_voice_before?.toFixed(1)} → {ev.brand_voice_after?.toFixed(1)}/5.0
-                                      {ev.brand_voice_after !== undefined && ev.brand_voice_before !== undefined && ev.brand_voice_after > ev.brand_voice_before
+                                      Constraint score: {ev.score_before?.toFixed(1)} → {ev.score_after?.toFixed(1)}/5.0
+                                      {ev.score_after !== undefined && ev.score_before !== undefined && ev.score_after > ev.score_before
                                         ? <span className="text-green-400 ml-1">▲</span>
                                         : <span className="text-red-400 ml-1">▼</span>
                                       }
