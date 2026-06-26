@@ -280,6 +280,8 @@ HF_HOME=./models
 PYTORCH_TRANSFORMERS_CACHE=./models
 LOG_LEVEL=INFO
 TRANSFORMERS_TRUST_REMOTE_CODE=1
+# Optional: allow access from other devices on your local network (e.g. testing from a phone or second machine)
+# CORS_ORIGINS='["http://localhost:5173","http://10.0.0.x:5173"]'
 ```
 
 ### Database

@@ -198,9 +198,17 @@ class TranslationService:
                 tgt_code = _iso.get(target_lang.lower(), target_lang.lower())
                 messages = [{"role": "user", "content": [{"type": "text", "source_lang_code": src_code, "target_lang_code": tgt_code, "text": text}]}]
                 gemma_model, gemma_tokenizer = self._load_causal_model(model_key)
-                input_ids = gemma_tokenizer.apply_chat_template(messages, tokenize=True, return_tensors="pt").to(self.device)
+                tokenized = gemma_tokenizer.apply_chat_template(messages, tokenize=True, return_tensors="pt", return_dict=True, add_generation_prompt=True)
+                input_ids = tokenized["input_ids"].to(self.device)
+                attention_mask = tokenized["attention_mask"].to(self.device)
                 with torch.inference_mode():
-                    output_ids = gemma_model.generate(input_ids, do_sample=False, max_new_tokens=512)
+                    output_ids = gemma_model.generate(
+                        input_ids,
+                        attention_mask=attention_mask,
+                        pad_token_id=gemma_tokenizer.eos_token_id,
+                        do_sample=False,
+                        max_new_tokens=512,
+                    )
                 new_tokens = output_ids[0][input_ids.shape[1]:]
                 translated = gemma_tokenizer.decode(new_tokens, skip_special_tokens=True)
                 # Strip "**Label:**" preambles the model sometimes adds (e.g. "**Translation:** ...")
@@ -208,6 +216,8 @@ class TranslationService:
                 translated = _re.sub(r'^\*\*[^*]+\*\*\s*', '', translated).strip()
                 if any(ja in tgt_code for ja in ("ja",)):
                     translated = detokenize_japanese(translated)
+                if self.device == 'mps':
+                    torch.mps.empty_cache()
                 return translated
 
             model, tokenizer, pipe = self._load_model(model_key)

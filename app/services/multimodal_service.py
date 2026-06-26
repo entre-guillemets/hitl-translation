@@ -101,9 +101,13 @@ class MultimodalService:
                 base64_data = base64.b64encode(file_content).decode()
                 result["media_data"] = base64_data
                 
-                # Get segmented OCR results with bounding boxes
-                segments = await self._extract_text_with_regions(image_array, detected_lang)
+                # Get segmented OCR results with bounding boxes.
+                # effective_lang may be corrected from Gemini's output (overrides pre-detected lang).
+                segments, effective_lang = await self._extract_text_with_regions(image_array, detected_lang)
                 result["segments"] = segments
+                # Normalize: langdetect returns 'JA' but frontend/DB uses 'JP'
+                _lang_map = {"JA": "JP"}
+                result["detected_language"] = _lang_map.get(effective_lang.upper(), effective_lang.upper())
                 
             except Exception as e:
                 logger.error(f"Image processing failed: {e}")
@@ -161,11 +165,11 @@ class MultimodalService:
 
         return result
 
-    async def _gemini_ocr(self, image_array: np.ndarray) -> Optional[List[str]]:
-        """Send the full image to Gemini Vision and return ordered text blocks.
+    async def _gemini_ocr(self, image_array: np.ndarray) -> Optional[List[Dict[str, Any]]]:
+        """Send the full image to Gemini Vision.
 
-        Returns a list of text strings (one per logical segment, in reading order),
-        or None if Gemini is unavailable or the call fails.
+        Returns a list of {text, bbox} dicts where bbox is {x, y, w, h} expressed as
+        percentages of the image dimensions (0-100), or None on failure.
         """
         if not self._gemini_client:
             return None
@@ -177,11 +181,18 @@ class MultimodalService:
 
             prompt = (
                 "Extract all visible text from this image. "
-                "Return a JSON array of text blocks in reading order (top-to-bottom, left-to-right). "
-                "Each element should be one logical text segment — a single line or short paragraph as it visually appears. "
+                "Return a JSON array in reading order (top-to-bottom, left-to-right). "
+                "Each element must be a JSON object with exactly two keys:\n"
+                "  \"text\": one complete semantic unit — a full heading or sentence. "
+                "Merge text that belongs to the same heading even if it spans multiple visual lines. "
+                "Do NOT split one heading or sentence into separate elements.\n"
+                "  \"bbox\": the bounding box of that text as "
+                "{\"x\": <left %>, \"y\": <top %>, \"w\": <width %>, \"h\": <height %>} "
+                "where each value is a percentage of the image width or height (0-100).\n"
                 "Preserve the original language and characters exactly. "
-                "Do not translate, explain, or add any text outside the JSON array.\n"
-                "Example: [\"First line\", \"Second block\", \"Third segment\"]"
+                "Return ONLY the JSON array — no markdown, no explanation.\n"
+                "Example: [{\"text\": \"Main heading\", \"bbox\": {\"x\": 10, \"y\": 5, \"w\": 80, \"h\": 12}}, "
+                "{\"text\": \"Body sentence.\", \"bbox\": {\"x\": 15, \"y\": 22, \"w\": 70, \"h\": 8}}]"
             )
 
             response = self._gemini_client.models.generate_content(
@@ -196,89 +207,117 @@ class MultimodalService:
             )
 
             raw = response.text.strip()
-            # Strip markdown code fences if present
             if raw.startswith("```"):
                 raw = raw.split("```")[1]
                 if raw.startswith("json"):
                     raw = raw[4:]
             parsed = json.loads(raw.strip())
-            if isinstance(parsed, list) and all(isinstance(t, str) for t in parsed):
-                logger.info(f"Gemini Vision OCR: extracted {len(parsed)} text blocks.")
-                return [t.strip() for t in parsed if t.strip()]
+            if isinstance(parsed, list) and all(isinstance(t, dict) and "text" in t for t in parsed):
+                results = [{"text": t["text"].strip(), "bbox": t.get("bbox")} for t in parsed if t.get("text", "").strip()]
+                has_bboxes = sum(1 for r in results if r.get("bbox") is not None)
+                logger.info(f"Gemini Vision OCR: extracted {len(results)} blocks, {has_bboxes} with bboxes. First bbox: {results[0].get('bbox') if results else None}")
+                return results
         except Exception as e:
-            logger.warning(f"Gemini Vision OCR failed — falling back to Tesseract text. {e}")
+            logger.warning(f"Gemini Vision OCR failed — falling back to Tesseract. {e}")
         return None
 
-    async def _extract_text_with_regions(self, image_array: np.ndarray, detected_lang: str) -> List[Dict[str, Any]]:
+    async def _extract_text_with_regions(self, image_array: np.ndarray, detected_lang: str) -> tuple:
         """Extract text with bounding box information for image segmentation.
 
-        Bounding boxes come from Tesseract (layout detection).
-        Text content comes from Gemini Vision when available, Tesseract otherwise.
+        Gemini Vision is the primary path: it returns both text AND bboxes so the
+        segmentation editor overlay actually reflects where text lives in the image.
+        Tesseract is a pure fallback for when Gemini is unavailable.
+        Returns (segments, effective_lang).
         """
+        import re as _re
+
+        # Initialize before try so the return is always safe even if an exception fires early.
+        effective_lang = detected_lang
         segments = []
+        img_h, img_w = image_array.shape[:2]
 
         try:
+            # ── Gemini path: text + real bboxes ──────────────────────────────────────
+            gemini_results = await self._gemini_ocr(image_array)
+
+            if gemini_results:
+                # Detect language from Gemini's text (much more reliable than Tesseract on complex images)
+                all_text = ' '.join(r["text"] for r in gemini_results)
+                jp_chars = len(_re.findall(r'[぀-ゟ゠-ヿ一-龯]', all_text))
+                if jp_chars > 3:
+                    effective_lang = 'JA'
+                elif not _re.search(r'[^\x00-\x7F]', all_text):
+                    try:
+                        from langdetect import detect as _ld
+                        effective_lang = _ld(all_text).upper()
+                    except Exception:
+                        pass
+
+                if effective_lang != detected_lang:
+                    logger.info(f"Language overridden from Gemini text: {detected_lang} → {effective_lang}")
+
+                # Convert Gemini bboxes to pixel coordinates.
+                # Gemini native format: list [ymin, xmin, ymax, xmax] in 0-1000 units.
+                # Fallback: dict {"x", "y", "w", "h"} in 0-100 percentage (from explicit prompt).
+                for i, r in enumerate(gemini_results):
+                    pixel_bbox = None
+                    b = r.get("bbox")
+                    if b:
+                        if isinstance(b, list) and len(b) >= 4:
+                            ymin, xmin, ymax, xmax = b[0], b[1], b[2], b[3]
+                            pixel_bbox = {
+                                "x": max(0, int(xmin * img_w / 1000)),
+                                "y": max(0, int(ymin * img_h / 1000)),
+                                "w": max(1, min(img_w, int((xmax - xmin) * img_w / 1000))),
+                                "h": max(1, min(img_h, int((ymax - ymin) * img_h / 1000))),
+                            }
+                        elif isinstance(b, dict):
+                            pixel_bbox = {
+                                "x": max(0, int(b.get("x", 0) * img_w / 100)),
+                                "y": max(0, int(b.get("y", 0) * img_h / 100)),
+                                "w": max(1, min(img_w, int(b.get("w", 80) * img_w / 100))),
+                                "h": max(1, min(img_h, int(b.get("h", 10) * img_h / 100))),
+                            }
+                    segments.append({
+                        "id": i + 1,
+                        "text": r["text"],
+                        "confidence": 1.0,
+                        "bbox": pixel_bbox,
+                    })
+
+                return segments, effective_lang
+
+            # ── Tesseract fallback (Gemini unavailable) ───────────────────────────────
             import pytesseract
             from pytesseract import Output
 
-            # Map detected language to Tesseract lang pack
             tess_lang_map = {'JA': 'jpn', 'FR': 'fra', 'EN': 'eng'}
             tess_lang = tess_lang_map.get(detected_lang.upper(), 'eng')
 
-            # Use original image for Tesseract so bbox coordinates match the displayed image.
-            # Preprocessing would change pixel dimensions and invalidate the coordinates.
-            # Text quality doesn't matter here — Gemini handles recognition.
             ocr_data = pytesseract.image_to_data(
-                image_array,
-                lang=tess_lang,
-                output_type=Output.DICT,
-                config='--psm 3'  # auto page segmentation — handles mixed layouts, bullets, underlines
+                image_array, lang=tess_lang, output_type=Output.DICT, config='--psm 3'
             )
 
-            # Group words into text blocks
-            current_block = []
+            current_block: list = []
             current_bbox = None
             segment_id = 1
             confidence = 0
 
             for i in range(len(ocr_data['text'])):
                 confidence = int(ocr_data['conf'][i])
-                text = ocr_data['text'][i].strip()
-
-                if confidence > 55 and text:
-                    x, y, w, h = (
-                        ocr_data['left'][i],
-                        ocr_data['top'][i],
-                        ocr_data['width'][i],
-                        ocr_data['height'][i]
-                    )
-
-                    # Check if this is a new line (y position significantly different)
+                word = ocr_data['text'][i].strip()
+                if confidence > 55 and word:
+                    x, y, w, h = (ocr_data['left'][i], ocr_data['top'][i],
+                                  ocr_data['width'][i], ocr_data['height'][i])
                     if current_block and (y - (current_bbox['y'] + current_bbox['h'])) > 10:
-                        # Save the current block before starting a new one
-                        if current_block:
-                            # ✅ FIX: Remove spaces for Japanese, keep them for other languages
-                            if detected_lang == 'JA':
-                                segment_text = "".join(current_block)  # No spaces for Japanese
-                            else:
-                                segment_text = " ".join(current_block)  # Spaces for other languages
-
-                            segments.append({
-                                "id": segment_id,
-                                "text": segment_text,
-                                "confidence": confidence / 100.0,
-                                "bbox": current_bbox
-                            })
-                            segment_id += 1
-
-                        # Start new block
-                        current_block = [text]
+                        seg_text = "".join(current_block) if detected_lang == 'JA' else " ".join(current_block)
+                        segments.append({"id": segment_id, "text": seg_text,
+                                         "confidence": confidence / 100.0, "bbox": current_bbox})
+                        segment_id += 1
+                        current_block = [word]
                         current_bbox = {"x": x, "y": y, "w": w, "h": h}
                     else:
-                        # Add to current block
-                        current_block.append(text)
-
-                        # Expand bounding box to include this text
+                        current_block.append(word)
                         if current_bbox:
                             right = max(current_bbox["x"] + current_bbox["w"], x + w)
                             bottom = max(current_bbox["y"] + current_bbox["h"], y + h)
@@ -289,122 +328,67 @@ class MultimodalService:
                         else:
                             current_bbox = {"x": x, "y": y, "w": w, "h": h}
 
-            # Add the last segment
             if current_block and current_bbox:
-                if detected_lang == 'JA':
-                    segment_text = "".join(current_block)
-                else:
-                    segment_text = " ".join(current_block)
+                seg_text = "".join(current_block) if detected_lang == 'JA' else " ".join(current_block)
+                segments.append({"id": segment_id, "text": seg_text,
+                                 "confidence": confidence / 100.0, "bbox": current_bbox})
 
-                segments.append({
-                    "id": segment_id,
-                    "text": segment_text,
-                    "confidence": confidence / 100.0,
-                    "bbox": current_bbox
-                })
-
-            # If psm 3 found nothing (e.g. sparse text over a photo), retry with psm 11
+            # psm 3 found nothing — retry with psm 11 (sparse text layouts)
             if not segments:
-                logger.info("psm 3 returned 0 segments — retrying with psm 11 (sparse text).")
+                logger.info("psm 3 returned 0 segments — retrying with psm 11.")
                 ocr_data2 = pytesseract.image_to_data(
-                    image_array,
-                    lang=tess_lang,
-                    output_type=Output.DICT,
-                    config='--psm 11',
+                    image_array, lang=tess_lang, output_type=Output.DICT, config='--psm 11'
                 )
-                # Use same line-grouping logic as psm 3 path so word-level tokens are
-                # merged into line-level segments before bbox mapping with Gemini text.
-                psm11_block: list[str] = []
-                psm11_bbox: dict | None = None
-                psm11_conf = 0
-                seg_id = 1
+                block: list = []
+                bbx = None
+                conf11 = 0
+                sid = 1
                 for i in range(len(ocr_data2['text'])):
-                    conf2 = int(ocr_data2['conf'][i])
-                    text2 = ocr_data2['text'][i].strip()
-                    if conf2 > 40 and text2:
-                        x, y, w, h = ocr_data2['left'][i], ocr_data2['top'][i], ocr_data2['width'][i], ocr_data2['height'][i]
-                        # New line when y jumps by more than 10px below current bbox
-                        if psm11_block and psm11_bbox and (y - (psm11_bbox['y'] + psm11_bbox['h'])) > 10:
-                            joined = ("".join(psm11_block) if detected_lang == 'JA' else " ".join(psm11_block))
-                            segments.append({"id": seg_id, "text": joined, "confidence": psm11_conf / 100.0, "bbox": psm11_bbox})
-                            seg_id += 1
-                            psm11_block = [text2]
-                            psm11_bbox = {"x": x, "y": y, "w": w, "h": h}
+                    c = int(ocr_data2['conf'][i])
+                    w2 = ocr_data2['text'][i].strip()
+                    if c > 40 and w2:
+                        x, y, w, h = (ocr_data2['left'][i], ocr_data2['top'][i],
+                                      ocr_data2['width'][i], ocr_data2['height'][i])
+                        if block and bbx and (y - (bbx['y'] + bbx['h'])) > 10:
+                            joined = "".join(block) if detected_lang == 'JA' else " ".join(block)
+                            segments.append({"id": sid, "text": joined,
+                                             "confidence": conf11 / 100.0, "bbox": bbx})
+                            sid += 1
+                            block = [w2]
+                            bbx = {"x": x, "y": y, "w": w, "h": h}
                         else:
-                            psm11_block.append(text2)
-                            psm11_conf = conf2
-                            if psm11_bbox is None:
-                                psm11_bbox = {"x": x, "y": y, "w": w, "h": h}
+                            block.append(w2)
+                            conf11 = c
+                            if bbx is None:
+                                bbx = {"x": x, "y": y, "w": w, "h": h}
                             else:
-                                right = max(psm11_bbox["x"] + psm11_bbox["w"], x + w)
-                                bottom = max(psm11_bbox["y"] + psm11_bbox["h"], y + h)
-                                psm11_bbox["x"] = min(psm11_bbox["x"], x)
-                                psm11_bbox["y"] = min(psm11_bbox["y"], y)
-                                psm11_bbox["w"] = right - psm11_bbox["x"]
-                                psm11_bbox["h"] = bottom - psm11_bbox["y"]
-                if psm11_block and psm11_bbox:
-                    joined = ("".join(psm11_block) if detected_lang == 'JA' else " ".join(psm11_block))
-                    segments.append({"id": seg_id, "text": joined, "confidence": psm11_conf / 100.0, "bbox": psm11_bbox})
-
-            # Replace Tesseract text with Gemini Vision text (bboxes stay from Tesseract)
-            gemini_texts = await self._gemini_ocr(image_array)
-            img_h, img_w = image_array.shape[:2]
-
-            if gemini_texts and not segments:
-                # Tesseract found nothing but Gemini did — use Gemini text with evenly-spaced placeholder bboxes
-                step = img_h // max(len(gemini_texts), 1)
-                for i, text in enumerate(gemini_texts):
-                    segments.append({
-                        "id": i + 1,
-                        "text": text,
-                        "confidence": 1.0,
-                        "bbox": {"x": 0, "y": i * step, "w": img_w, "h": step},
-                    })
-                logger.info(f"Gemini Vision OCR: Tesseract found nothing — used {len(gemini_texts)} Gemini blocks with placeholder bboxes.")
-            elif gemini_texts and len(gemini_texts) == len(segments):
-                # Perfect count match — substitute text directly, keep Tesseract bboxes
-                for seg, gemini_text in zip(segments, gemini_texts):
-                    seg["text"] = gemini_text
-                    seg["confidence"] = 1.0
-                logger.info(f"Gemini Vision OCR: replaced text in {len(segments)} segments.")
-            elif gemini_texts:
-                # Count mismatch — rebuild from Gemini text, distributing bboxes as best we can
-                bboxes = [s["bbox"] for s in segments]
-                new_segments = []
-                for i, text in enumerate(gemini_texts):
-                    bbox = bboxes[i] if i < len(bboxes) else bboxes[-1]
-                    new_segments.append({"id": i + 1, "text": text, "confidence": 1.0, "bbox": bbox})
-                segments = new_segments
-                logger.info(f"Gemini Vision OCR: count mismatch (tess={len(bboxes)}, gemini={len(gemini_texts)}) — used Gemini text with best-effort bbox mapping.")
+                                right = max(bbx["x"] + bbx["w"], x + w)
+                                bottom = max(bbx["y"] + bbx["h"], y + h)
+                                bbx["x"] = min(bbx["x"], x)
+                                bbx["y"] = min(bbx["y"], y)
+                                bbx["w"] = right - bbx["x"]
+                                bbx["h"] = bottom - bbx["y"]
+                if block and bbx:
+                    joined = "".join(block) if detected_lang == 'JA' else " ".join(block)
+                    segments.append({"id": sid, "text": joined,
+                                     "confidence": conf11 / 100.0, "bbox": bbx})
 
         except Exception as e:
             logger.error(f"Region extraction failed: {e}")
             logger.error(f"Traceback: {traceback.format_exc()}")
-
-            # Fallback: Extract text without regions using Tesseract or Manga OCR
             try:
                 if detected_lang == 'JA':
                     text = self.manga_ocr_engine.recognize(image_array)
                 else:
                     text = self.tesseract_engine.recognize(image_array, lang=detected_lang)
-
-                # Create a single segment covering the whole image
-                h, w = image_array.shape[:2]
-                segments = [{
-                    "id": 1,
-                    "text": text,
-                    "confidence": 0.5,  # Lower confidence for fallback
-                    "bbox": {"x": 0, "y": 0, "w": w, "h": h}
-                }]
-
-                logger.info(f"Using fallback extraction, created 1 segment covering entire image")
-
+                segments = [{"id": 1, "text": text, "confidence": 0.5,
+                             "bbox": {"x": 0, "y": 0, "w": img_w, "h": img_h}}]
+                logger.info("Using fallback extraction, created 1 segment covering entire image")
             except Exception as fallback_error:
                 logger.error(f"Fallback extraction also failed: {fallback_error}")
-                # Return empty segments if everything fails
                 segments = []
 
-        return segments
+        return segments, effective_lang
 
     async def _extract_pdf_with_regions(self, file_content: bytes) -> List[Dict[str, Any]]:
         """Extract PDF text with page information"""
@@ -435,8 +419,8 @@ class MultimodalService:
                         image_array = np.array(img.original)
                         
                         lang = self.language_detector.detect_image_language(image_array)
-                        ocr_segments = await self._extract_text_with_regions(image_array, lang)
-                        
+                        ocr_segments, _ = await self._extract_text_with_regions(image_array, lang)
+
                         for segment in ocr_segments:
                             segment["id"] = segment_id
                             segment["page"] = page_num + 1
@@ -451,18 +435,25 @@ class MultimodalService:
     def _split_text_into_sentences(self, text: str) -> List[str]:
         """Split text into sentences for segmentation"""
         import re
-        
-        # Simple sentence splitting - you might want to use a more sophisticated library like spaCy
-        sentences = re.split(r'[.!?。！？]\s*', text.strip())
-        
-        # Clean up and filter empty sentences
-        clean_sentences = []
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if sentence and len(sentence) > 3:  # Filter very short fragments
-                clean_sentences.append(sentence)
-        
-        return clean_sentences
+
+        text = text.strip()
+        # Double newline = paragraph boundary; single newline = visual line wrap (join with space)
+        text = re.sub(r'\n{2,}', '\x00', text)
+        text = re.sub(r'\n', ' ', text)
+        text = re.sub(r' {2,}', ' ', text)
+
+        paragraphs = [p.strip() for p in text.split('\x00') if p.strip()]
+
+        segments = []
+        for para in paragraphs:
+            # Split at sentence endings only when followed by a space and an uppercase/CJK start
+            sents = re.split(r'(?<=[.!?。！？])\s+(?=[A-ZÀ-Üa-zà-üぁ-鿿])', para)
+            for s in sents:
+                s = s.strip()
+                if s and len(s) > 3:
+                    segments.append(s)
+
+        return segments if segments else [text]
 
     # Keep existing methods unchanged
     async def extract_text_from_file(self, file_content: bytes, file_name: str) -> str:

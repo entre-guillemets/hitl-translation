@@ -1,3 +1,5 @@
+import asyncio
+import concurrent.futures
 import logging
 import os
 from typing import Dict, List
@@ -8,6 +10,9 @@ from app.utils.lang_pair import normalize_lang_code
 logger = logging.getLogger(__name__)
 
 class CleanMultiEngineService:
+    # Single-threaded executor keeps GPU calls off the event loop while serializing MPS access
+    _gpu_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
     def __init__(self, translation_service_instance: TranslationService, transcreation_service=None):
         """Initialize with dependency injection for translation service"""
         self.translation_service = translation_service_instance
@@ -166,12 +171,16 @@ class CleanMultiEngineService:
                 if model_info_from_ts and len(model_info_from_ts) == 3:
                     prefix_or_lang_tag = model_info_from_ts[2]
 
-                translated_text = self.translation_service.translate_by_model_type(
-                    text.strip(), 
-                    model_to_use, 
-                    source_lang=source_lang.lower(),
-                    target_lang=target_lang.lower(),
-                    target_lang_tag=prefix_or_lang_tag
+                loop = asyncio.get_event_loop()
+                translated_text = await loop.run_in_executor(
+                    CleanMultiEngineService._gpu_executor,
+                    lambda: self.translation_service.translate_by_model_type(
+                        text.strip(),
+                        model_to_use,
+                        source_lang=source_lang.lower(),
+                        target_lang=target_lang.lower(),
+                        target_lang_tag=prefix_or_lang_tag
+                    )
                 )
 
             processing_time = (datetime.now() - start_time).total_seconds() * 1000

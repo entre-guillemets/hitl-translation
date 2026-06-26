@@ -952,7 +952,11 @@ async def save_segmentation_edits(
         segments = segmentation_data.get("segments", [])
         if not segments:
             raise HTTPException(status_code=400, detail="No segments provided")
-        
+
+        logger.info(f"[segmentation save] received {len(segments)} segments:")
+        for i, seg in enumerate(segments):
+            logger.info(f"  [{i+1}] id={seg.get('id')} text={repr(seg.get('text', '')[:120])}")
+
         # Extract just the text from segments for translation
         source_texts = [segment["text"].strip() for segment in segments if segment["text"].strip()]
         
