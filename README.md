@@ -28,7 +28,7 @@ Accept source files: images, PDFs, audio, plain text. Automatic MIME type detect
 
 ### Stage 2 — Parse & Segment
 Extract text strings with layout context preserved:
-- **Images**: Manga OCR (Japanese-specialized) or Tesseract with bounding box detection
+- **Images**: Gemini Vision (primary — returns text and bounding boxes in one pass), Manga OCR (Japanese-specialized fallback), or Tesseract (final fallback)
 - **Audio**: OpenAI Whisper transcription with segment-level timestamps
 - **PDFs**: Direct text extraction with OCR fallback for scanned pages
 - **Text**: Direct segmentation
@@ -155,7 +155,7 @@ States must not be skipped. The pipeline enforces `RECONCILED` before QE runs an
 - **Database**: PostgreSQL
 - **ML / Metrics**: PyTorch, HuggingFace Transformers, Unbabel-COMET, Sacrebleu, scipy
 - **QE**: COMETKiwi (`Unbabel/wmt22-cometkiwi-da`) — reference-free quality estimation
-- **OCR**: Tesseract (multi-language), Manga OCR (Japanese-specialized)
+- **OCR**: Gemini Vision (primary — multimodal bounding box extraction), Tesseract (multi-language fallback), Manga OCR (Japanese-specialized fallback)
 - **Audio**: OpenAI Whisper (timestamped transcription)
 - **PDF**: PDFplumber
 - **Language Detection**: langdetect + custom Japanese character detection
@@ -179,7 +179,7 @@ States must not be skipped. The pipeline enforces `RECONCILED` before QE runs an
 | T5_BASE | google-t5/t5-base | multilingual |
 | NLLB_200 | facebook/nllb-200-distilled-600M | 200 languages |
 | TRANSLATE_GEMMA_12B | google/translategemma-12b-it | 55+ language pairs (LLM-based) |
-| GEMINI | Google Gemini API (`gemini-3.1-flash-lite`) | Style-guide-constrained transcreation |
+| GEMINI | Google Gemini API (`gemini-3.1-flash-lite`) | Primary OCR (Vision), style-guide-constrained transcreation, LLM-as-judge |
 
 COMET, COMETKiwi, Manga OCR, and Whisper are managed via HuggingFace cache. TranslateGemma 12B requires ~24 GB of unified memory; optimised for Apple Silicon via MPS.
 

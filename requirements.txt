@@ -24,6 +24,7 @@ openai-whisper==20231117
 torch>=2.6.0
 Pillow==10.3.0
 pytesseract
+opencv-python-headless
 
 # Japanese OCR and NLP
 manga-ocr

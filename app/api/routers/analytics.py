@@ -361,6 +361,7 @@ async def get_annotations_data(lang_filter: dict):
             "opus_enhanced": "OPUS Enhanced",
             "t5_versatile": "mT5 Versatile",
             "nllb_multilingual": "NLLB Multilingual",
+            "translate_gemma": "TranslateGemma 12B",
             "gemini_transcreation": "Gemini Transcreation",
             "gemini-3.1-flash-lite": "Gemini Transcreation",
         }
@@ -981,6 +982,8 @@ def extract_model_and_language_info(metric):
 
     # Normalise raw engine IDs to human-readable display names
     _DISPLAY_NAME_MAP = {
+        "translate_gemma": "TranslateGemma 12B",
+        "TRANSLATE_GEMMA": "TranslateGemma 12B",
         "gemini_transcreation": "Gemini Transcreation",
         "gemini-3.1-flash-lite":     "Gemini Transcreation",
         "GEMINI_TRANSCREATION": "Gemini Transcreation",

@@ -383,7 +383,7 @@ async def create_triple_output_translation_request(
     """Create translation request with exactly 3 outputs per language pair"""
     try:
         engines_per_pair_preference = {
-            'en-jp': ['opus_fast', 't5_versatile', 'nllb_multilingual', 'elan_quality'],
+            'en-jp': ['opus_fast', 'nllb_multilingual', 'translate_gemma', 'gemini_transcreation'],
             'jp-en': ['opus_fast', 'elan_quality', 't5_versatile', 'nllb_multilingual'],
             'en-fr': ['opus_fast', 't5_versatile', 'nllb_multilingual', 'elan_quality'],
             'fr-en': ['opus_fast', 't5_versatile', 'nllb_multilingual', 'elan_quality'],

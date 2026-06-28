@@ -21,8 +21,9 @@ class CleanMultiEngineService:
         self.engine_configs = {
             'opus_fast': {
                 'name': 'Helsinki OPUS',
-                'supported_pairs': ['en-fr', 'fr-en', 'jp-en', 'jp-fr'],
+                'supported_pairs': ['en-jp', 'en-fr', 'fr-en', 'jp-en', 'jp-fr'],
                 'model_mapping': {
+                    'en-jp': 'HELSINKI_EN_JA',
                     'en-fr': 'HELSINKI_EN_FR',
                     'fr-en': 'HELSINKI_FR_EN',
                     'jp-en': 'OPUS_JA_EN'
